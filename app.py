@@ -2080,98 +2080,111 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
     if traffic_limit > 0 and traffic_used >= traffic_limit:
         return JSONResponse({"error": "Traffic limit exceeded"}, status_code=403)
 
-    # Load data for rate limiting checks and server validation
-    data = load_data()
+    # ---- Rate Limiting & Connection Limits (resolved inside lock below) ----
 
-    # ---- Rate Limiting & Connection Limits ----
-    # Global defaults from settings
-    settings = data.get("settings", {})
-    global_limits = settings.get("limits", {})
+    # ==================== PHASE 1: Atomic check + validate (under lock) ====================
+    async with DATA_LOCK:
+        current_data = load_data()
 
-    # Per-user overrides (if user has 'limits' field set)
-    user_limits = user.get("limits", {})
-
-    # Resolve with precedence: user override > global default > hardcoded fallback
-    max_conns_per_user = user_limits.get(
-        "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
-    )
-    rate_limit_count = user_limits.get(
-        "connection_rate_limit_count", global_limits.get("connection_rate_limit_count", 5)
-    )
-    rate_limit_window = user_limits.get(
-        "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
-    )
-
-    # --- RATE LIMITER TEMPORARILY DISABLED FOR TESTING ---
-    # return JSONResponse(
-    #     {"error": "Rate limiter disabled for testing"},
-    #     status_code=200,
-    # )
-
-    # # Check per-user connection count
-    # user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
-    # if len(user_conns) >= max_conns_per_user:
-    #     return JSONResponse(
-    #         {
-    #             "error": f"Maximum connections limit reached ({max_conns_per_user})",
-    #             "limit": max_conns_per_user,
-    #             "current": len(user_conns),
-    #         },
-    #         status_code=429,
-    #     )
-
-    # # Check time-based rate limiting (sliding window)
-    # now = datetime.now()
-    # creation_log = data.get("connection_creation_log", [])
-    # # Filter to entries for this user within the window
-    # recent = []
-    # for entry in creation_log:
-    #     try:
-    #         ts = datetime.fromisoformat(entry["timestamp"])
-    #         if entry["user_id"] == user["id"] and (now - ts).total_seconds() <= rate_limit_window:
-    #             recent.append(entry)
-    #     except Exception:
-    #         pass  # Skip malformed entries
-    # if len(recent) >= rate_limit_count:
-    #     # Calculate retry-after from oldest entry in window
-    #     oldest = min(recent, key=lambda e: e["timestamp"])
-    #     try:
-    #         oldest_ts = datetime.fromisoformat(oldest["timestamp"])
-    #         retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
-    #     except Exception:
-    #         retry_after = rate_limit_window
-    #     return JSONResponse(
-    #         {
-    #             "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
-    #             "retry_after": retry_after,
-    #         },
-    #         status_code=429,
-    #         headers={"Retry-After": str(retry_after)},
-    #     )
-    # --- END RATE LIMITER DISABLE ---
-
-    # Validate server and protocol (data already loaded above)
-    if req.server_id >= len(data["servers"]):
-        return JSONResponse({"error": "Server not found"}, status_code=404)
-    server = data["servers"][req.server_id]
-
-    # Verify protocol is installed
-    proto_info = server.get("protocols", {}).get(req.protocol, {})
-    if not proto_info or not proto_info.get("installed", False):
-        return JSONResponse(
-            {"error": f"Protocol {req.protocol} is not installed on this server"}, status_code=400
+        # Resolve limits
+        settings = current_data.get("settings", {})
+        global_limits = settings.get("limits", {})
+        user_limits = user.get("limits", {})
+        max_conns_per_user = user_limits.get(
+            "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
+        )
+        rate_limit_count = user_limits.get(
+            "connection_rate_limit_count", global_limits.get("connection_rate_limit_count", 5)
+        )
+        rate_limit_window = user_limits.get(
+            "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
         )
 
-    # Check for duplicate connection name (T9)
-    user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
-    existing_names = {c.get("name", "") for c in user_conns}
-    if req.name in existing_names:
-        return JSONResponse(
-            {"error": "duplicate_name", "message": "A connection with this name already exists."},
-            status_code=409,
-        )
+        # Prune entries older than the window
+        now = datetime.now()
+        creation_log = current_data.get("connection_creation_log", [])
+        pruned_log = []
+        for entry in creation_log:
+            try:
+                ts = datetime.fromisoformat(entry["timestamp"])
+                if (now - ts).total_seconds() <= rate_limit_window:
+                    pruned_log.append(entry)
+            except Exception:
+                pass  # Skip malformed entries
+        current_data["connection_creation_log"] = pruned_log
 
-    port = proto_info.get("port", "55424")
+        # Check per-user connection count
+        user_conns = [
+            c for c in current_data.get("user_connections", []) if c["user_id"] == user["id"]
+        ]
+        if len(user_conns) >= max_conns_per_user:
+            logger.warning(
+                f"Rate limit triggered (max connections): user_id={user['id']}, "
+                f"current={len(user_conns)}, limit={max_conns_per_user}"
+            )
+            save_data(current_data)
+            return JSONResponse(
+                {
+                    "error": f"Maximum connections limit reached ({max_conns_per_user})",
+                    "limit": max_conns_per_user,
+                    "current": len(user_conns),
+                },
+                status_code=429,
+            )
+
+        # Check time-based rate limiting (sliding window)
+        recent = [e for e in pruned_log if e.get("user_id") == user["id"]]
+        if len(recent) >= rate_limit_count:
+            oldest = min(recent, key=lambda e: e["timestamp"])
+            try:
+                oldest_ts = datetime.fromisoformat(oldest["timestamp"])
+                retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
+            except Exception:
+                retry_after = rate_limit_window
+            logger.warning(
+                f"Rate limit triggered (sliding window): user_id={user['id']}, "
+                f"recent_count={len(recent)}, limit={rate_limit_count}, window={rate_limit_window}s"
+            )
+            save_data(current_data)
+            return JSONResponse(
+                {
+                    "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
+                    "retry_after": retry_after,
+                },
+                status_code=429,
+                headers={"Retry-After": str(retry_after)},
+            )
+
+        # Validate server exists
+        if req.server_id >= len(current_data["servers"]):
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+        server = current_data["servers"][req.server_id]
+
+        # Verify protocol is installed
+        proto_info = server.get("protocols", {}).get(req.protocol, {})
+        if not proto_info or not proto_info.get("installed", False):
+            return JSONResponse(
+                {"error": f"Protocol {req.protocol} is not installed on this server"},
+                status_code=400,
+            )
+
+        # Check for duplicate connection name
+        existing_names = {c.get("name", "") for c in user_conns}
+        if req.name in existing_names:
+            return JSONResponse(
+                {
+                    "error": "duplicate_name",
+                    "message": "A connection with this name already exists.",
+                },
+                status_code=409,
+            )
+
+        port = proto_info.get("port", "55424")
+
+        # Save pruned log
+        save_data(current_data)
+
+    # ==================== PHASE 2: SSH work (no lock) ====================
 
     ssh = None
     try:
@@ -2197,7 +2210,7 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
             )
 
         if result.get("client_id"):
-            # Save connection to user_connections
+            # Build connection record (use `now` from Phase 1 for consistency)
             new_conn = {
                 "id": str(uuid.uuid4()),
                 "user_id": user["id"],
@@ -2205,17 +2218,19 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
                 "protocol": req.protocol,
                 "client_id": result["client_id"],
                 "name": req.name,
-                "created_at": datetime.now().isoformat(),
+                "created_at": now.isoformat(),
             }
+
+            # ==================== PHASE 3: Write result (under lock) ====================
             async with DATA_LOCK:
-                current_data = load_data()
-                current_data["user_connections"].append(new_conn)
-                # Log creation for rate limiting (keep last 1000 entries to prevent unbounded growth)
-                log_entry = {"user_id": user["id"], "timestamp": datetime.now().isoformat()}
-                creation_log = current_data.get("connection_creation_log", [])
-                creation_log.append(log_entry)
-                current_data["connection_creation_log"] = creation_log[-1000:]
-                save_data(current_data)
+                write_data = load_data()
+                write_data["user_connections"].append(new_conn)
+                log_entry = {"user_id": user["id"], "timestamp": now.isoformat()}
+                write_data.setdefault("connection_creation_log", []).append(log_entry)
+                write_data["connection_creation_log"] = write_data["connection_creation_log"][
+                    -1000:
+                ]
+                save_data(write_data)
 
             # Enrich connection with server_name for frontend
             new_conn["server_name"] = server.get("name", server.get("host", "Unknown"))
