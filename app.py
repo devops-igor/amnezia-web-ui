@@ -2163,6 +2163,7 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
         )
 
     # Check for duplicate connection name (T9)
+    user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
     existing_names = {c.get("name", "") for c in user_conns}
     if req.name in existing_names:
         return JSONResponse(
