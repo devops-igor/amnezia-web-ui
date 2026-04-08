@@ -189,7 +189,7 @@ class TestApiMyAddConnection:
         )
 
         # Verify response
-        assert response.status_code == 429
+        assert response.status_code == 428
 
         # Check that response is valid JSON
         try:

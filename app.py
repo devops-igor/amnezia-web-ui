@@ -2129,7 +2129,7 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
                     "limit": max_conns_per_user,
                     "current": len(user_conns),
                 },
-                status_code=429,
+                status_code=428,
             )
 
         # Check time-based rate limiting (sliding window)
@@ -2151,7 +2151,7 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
                     "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
                     "retry_after": retry_after,
                 },
-                status_code=429,
+                status_code=428,
                 headers={"Retry-After": str(retry_after)},
             )
 
