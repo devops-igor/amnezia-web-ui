@@ -400,7 +400,20 @@
             console.log('Create connection response:', result);
 
             if (!result || result.error) {
-                showToast('{{ _('create_conn_error') }}: ' + (result?.error || 'Unknown error'), 'error');
+                // Handle specific error types with better messages
+                let errorMessage = result?.error || 'Unknown error';
+                
+                // Check for duplicate connection error
+                if (result?.duplicate) {
+                    errorMessage = '{{ _('connection_duplicate_error') }}';
+                }
+                // Check for rate limit error
+                else if (result?.retry_after) {
+                    const retryAfter = result.retry_after;
+                    errorMessage = '{{ _('connection_rate_limit_error') }}'.replace('{seconds}', retryAfter);
+                }
+                
+                showToast(errorMessage, 'error');
                 submitBtn.disabled = false;
                 submitBtn.textContent = '{{ _('create_conn_submit') }}';
                 return;

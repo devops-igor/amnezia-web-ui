@@ -287,6 +287,8 @@
   "create_conn_creating": "Creating...",
   "create_conn_success": "Connection created",
   "create_conn_error": "Failed to create connection",
+  "connection_duplicate_error": "A connection with this name already exists. Please choose a different name.",
+  "connection_rate_limit_error": "Connection rate limit exceeded. Please retry after {seconds} seconds.",
   "telemt_quota_label": "Quota (bytes, 0 = unlimited)",
   "telemt_max_ips_label": "Max IPs (0 = unlimited)",
   "telemt_expiry_label": "Expiry date (optional)",

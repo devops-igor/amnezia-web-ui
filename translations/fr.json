@@ -263,6 +263,8 @@
   "create_conn_creating": "Creating...",
   "create_conn_success": "Connection created",
   "create_conn_error": "Failed to create connection",
+  "connection_duplicate_error": "Une connexion avec ce nom existe déjà. Veuillez choisir un nom différent.",
+  "connection_rate_limit_error": "Limite de taux de connexion dépassée. Veuillez réessayer après {seconds} secondes.",
   "telemt_quota_label": "Quota (octets, 0 = illimité)",
   "telemt_max_ips_label": "Max IPs (0 = illimité)",
   "telemt_expiry_label": "Date d'expiration (optionnel)",

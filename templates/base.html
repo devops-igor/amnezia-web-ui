@@ -261,10 +261,32 @@
                 throw new Error('Session expired');
             }
 
-            const data = await res.json();
+            let data;
+            let contentType = res.headers.get('content-type') || '';
+            
+            try {
+                // Check if response is JSON before parsing
+                if (contentType.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    // For non-JSON responses (e.g., HTML error pages from reverse proxy)
+                    const text = await res.text();
+                    // Try to parse as JSON anyway (might still be valid JSON)
+                    try {
+                        data = JSON.parse(text);
+                    } catch {
+                        // If it's HTML or plain text, extract meaningful error
+                        const match = text.match(/<title>([^<]+)<\/title>/i);
+                        const errorMsg = match ? match[1].trim() : text.substring(0, 200);
+                        data = { error: errorMsg };
+                    }
+                }
+            } catch (e) {
+                throw new Error('Failed to parse server response');
+            }
 
             if (!res.ok) {
-                throw new Error(data.error || 'Unknown error');
+                throw new Error(data.error || data.message || `HTTP ${res.status}: ${res.statusText}`);
             }
             return data;
         }
