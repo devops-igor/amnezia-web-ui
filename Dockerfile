@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and assets
 COPY *.py ./
+COPY static/ ./static/
+COPY templates/ ./templates/
+COPY translations/ ./translations/
 
 # Expose the panel port (default 5000)
 EXPOSE 5000
