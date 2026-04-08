@@ -1,0 +1,449 @@
+{% extends "base.html" %}
+
+{% block title_extra %} — {{ _('my_connections_title') }}{% endblock %}
+
+{% block content %}
+<section>
+    <div class="flex items-center justify-between" style="margin-bottom: var(--space-lg); flex-wrap: wrap; gap: var(--space-md);">
+        <h1 class="section-title" style="margin-bottom:0;">
+            <span class="icon">🔗</span>
+            {{ _('my_connections_title') }}
+        </h1>
+        <button class="btn btn-primary" onclick="openCreateConnectionModal()">
+            <span>＋</span> {{ _('create_connection') }}
+        </button>
+    </div>
+
+    {# Always render the list container so JS can insert into it without reload #}
+    <div class="clients-list{% if not connections %} hidden{% endif %}" id="myConnectionsList">
+        {% for c in connections %}
+        <div class="client-item" data-id="{{ c.id }}">
+            <div class="client-info">
+                <div class="client-avatar">🔗</div>
+                <div>
+                    <div class="client-name">{{ c.name or 'VPN Connection' }}</div>
+                    <div class="client-meta">
+                        <span>🖥 {{ c.server_name }}</span>
+                        <span class="badge badge-info" style="font-size:0.65rem;">
+                            {{ 'AmneziaWG' if c.protocol == 'awg' else ('AmneziaWG 2.0' if c.protocol == 'awg2' else ('AWG Legacy' if c.protocol == 'awg_legacy' else
+                            ('Xray' if c.protocol == 'xray' else c.protocol | upper))) }}
+                        </span>
+                        {% if c.created_at %}
+                        <span>📅 {{ c.created_at[:10] }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="client-actions">
+                <button class="btn btn-primary btn-sm"
+                    onclick="showMyConfig('{{ c.id }}', '{{ c.name or 'Connection' }}', '{{ c.protocol }}')">
+                    {{ _('show_config') }}
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {# Always render the empty-state container so JS can hide it on first insert #}
+    <div class="empty-state{% if connections %} hidden{% endif %}" id="emptyState">
+        <div class="empty-icon">🔗</div>
+        <div class="empty-title">{{ _('no_connections') }}</div>
+        <div class="empty-desc">{{ _('no_connections_user_desc') }}</div>
+        <button class="btn btn-primary" onclick="openCreateConnectionModal()" style="margin-top: var(--space-md);">
+            <span>＋</span> {{ _('create_connection') }}
+        </button>
+    </div>
+</section>
+
+<!-- ===== Config Modal ===== -->
+<div class="modal-backdrop" id="configModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title" id="configModalTitle">{{ _('config') }}</h2>
+            <button class="modal-close" onclick="closeModal('configModal')">×</button>
+        </div>
+
+        <div class="config-tabs">
+            <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _('config_tab') }}</button>
+            <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _('vpn_key_tab') }}</button>
+            <button class="config-tab" onclick="switchConfigTab('qr')">{{ _('qr_code_tab') }}</button>
+        </div>
+
+        <div class="config-panel active" id="panel-conf">
+            <div class="config-display">
+                <div class="config-text" id="configText"></div>
+                <div class="config-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentConfig)" style="flex:1">
+                        {{ _('copy_config') }}
+                    </button>
+                    <button class="btn btn-primary btn-sm"
+                        onclick="downloadFile(currentConfig, currentConfigName + '.conf')" style="flex:1">
+                        {{ _('download_conf') }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="config-panel" id="panel-vpn">
+            <div class="vpn-link-box" id="vpnLinkText"></div>
+            <div class="config-actions" style="margin-top: var(--space-sm);">
+                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentVpnLink)" style="flex:1">
+                    {{ _('copy_key') }}
+                </button>
+            </div>
+            <div class="form-hint" style="margin-top: var(--space-sm);">
+                {{ _('vpn_link_hint') }}
+            </div>
+        </div>
+
+        <div class="config-panel" id="panel-qr">
+            <div class="qr-container">
+                <div id="qrCode"></div>
+                <div class="qr-hint">{{ _('qr_hint') }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Create Connection Modal ===== -->
+<div class="modal-backdrop" id="createConnModal">
+    <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+            <h2 class="modal-title">{{ _('create_connection') }}</h2>
+            <button class="modal-close" onclick="closeModal('createConnModal')">×</button>
+        </div>
+        <form id="createConnForm" onsubmit="event.preventDefault(); submitCreateConnection();">
+            <div class="form-group">
+                <label class="form-label" for="createServerSelect">{{ _('create_conn_server_label') }}</label>
+                <select class="form-select" id="createServerSelect" required onchange="onServerSelected()">
+                    <option value="">— {{ _('select') }} —</option>
+                    {% for srv in servers %}
+                    <option value="{{ srv.id }}" data-protocols="{{ srv.protocols | tojson | safe }}">{{ srv.name or srv.host }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="createProtoSelect">{{ _('create_conn_protocol_label') }}</label>
+                <select class="form-select" id="createProtoSelect" required>
+                    <option value="">— {{ _('select') }} —</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="createConnName">{{ _('create_conn_name_label') }}</label>
+                <input class="form-input" type="text" id="createConnName" value="My Connection" required>
+            </div>
+            <!-- Telemt fields (hidden by default) -->
+            <div id="telemtFields" class="hidden">
+                <div class="form-group">
+                    <label class="form-label" for="telemtQuota">{{ _('telemt_quota_label') }}</label>
+                    <input class="form-input" type="text" id="telemtQuota" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="telemtMaxIps">{{ _('telemt_max_ips_label') }}</label>
+                    <input class="form-input" type="number" min="0" id="telemtMaxIps" value="0">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="telemtExpiry">{{ _('telemt_expiry_label') }}</label>
+                    <input class="form-input" type="date" id="telemtExpiry">
+                </div>
+            </div>
+            <div class="flex gap-sm" style="margin-top: var(--space-md);">
+                <button type="submit" class="btn btn-primary" id="createConnSubmit">{{ _('create_conn_submit') }}</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('createConnModal')">{{ _('cancel') }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // i18n helper for JS template literals — strings inside ${_('...')} are
+    // already translated server-side via Jinja, so this is a no-op passthrough
+    // that prevents ReferenceError when those template literals execute.
+    if (typeof _ === 'undefined') { function _(s) { return s; } }
+
+    let currentConfig = '';
+    let currentVpnLink = '';
+    let currentConfigName = 'connection';
+
+    async function showMyConfig(connectionId, name, proto) {
+        try {
+            showToast(_('loading_connections'), 'info');
+            const result = await apiCall(`/api/my/connections/${connectionId}/config`, 'POST');
+
+            if (result.config) {
+                currentConfig = result.config;
+                currentVpnLink = result.vpn_link || '';
+                currentConfigName = name.replace(/\s+/g, '_');
+                document.getElementById('configModalTitle').textContent = `{{ _('config') }} — ${name}`;
+                document.getElementById('configText').textContent = result.config;
+                document.getElementById('vpnLinkText').textContent = currentVpnLink;
+
+                // Telemt (MTProxy) doesn't have a "VPN Link" (vpn://) format in Amnezia
+                const vpnTab = document.querySelectorAll('.config-tab')[1];
+                const vpnPanel = document.getElementById('panel-vpn');
+                if (proto === 'telemt') {
+                    vpnTab.style.display = 'none';
+                } else {
+                    vpnTab.style.display = '';
+                }
+
+                switchConfigTab('conf');
+                openModal('configModal');
+                generateQR(result.config);
+            }
+        } catch (err) {
+            showToast(`{{ _('error') }}: ` + err.message, 'error');
+        }
+    }
+
+    function switchConfigTab(tab) {
+        document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
+        const tabs = document.querySelectorAll('.config-tab');
+        const panels = { conf: 'panel-conf', vpn: 'panel-vpn', qr: 'panel-qr' };
+        const tabIdx = { conf: 0, vpn: 1, qr: 2 };
+        tabs[tabIdx[tab]].classList.add('active');
+        document.getElementById(panels[tab]).classList.add('active');
+    }
+
+    function generateQR(text) {
+        const container = document.getElementById('qrCode');
+        container.innerHTML = '';
+        try {
+            new QRCode(container, {
+                text: text, width: 280, height: 280,
+                colorDark: '#000000', colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.L
+            });
+        } catch (e) {
+            container.innerHTML = `<div style="color:var(--text-muted);font-size:0.85rem;">{{ _('qr_error') }}</div>`;
+        }
+    }
+
+    // Render a single connection item HTML
+    function renderConnectionItem(conn) {
+        const protoDisplay = {
+            awg: 'AmneziaWG',
+            awg2: 'AmneziaWG 2.0',
+            awg_legacy: 'AWG Legacy',
+            xray: 'Xray',
+            telemt: 'Telemt',
+            dns: 'AmneziaDNS'
+        };
+        const date = conn.created_at ? conn.created_at.substring(0, 10) : '';
+        return `
+        <div class="client-item" data-id="${conn.id}">
+            <div class="client-info">
+                <div class="client-avatar">🔗</div>
+                <div>
+                    <div class="client-name">${conn.name || 'VPN Connection'}</div>
+                    <div class="client-meta">
+                        <span>🖥 ${conn.server_name}</span>
+                        <span class="badge badge-info" style="font-size:0.65rem;">
+                            ${protoDisplay[conn.protocol] || conn.protocol.toUpperCase()}
+                        </span>
+                        ${date ? `<span>📅 ${date}</span>` : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="client-actions">
+                <button class="btn btn-primary btn-sm"
+                    onclick="showMyConfig('${conn.id}', '${conn.name || 'Connection'}', '${conn.protocol}')">
+                    {{ _('show_config') }}
+                </button>
+            </div>
+        </div>`;
+    }
+
+    // === Create Connection ===
+    // servers data passed from backend
+    const availableServers = {{ servers | tojson }};
+    
+    function openCreateConnectionModal() {
+        // Reset form
+        document.getElementById('createConnForm').reset();
+        document.getElementById('telemtFields').classList.add('hidden');
+        // Populate protocol dropdown based on first server? We'll clear it.
+        const protoSelect = document.getElementById('createProtoSelect');
+        protoSelect.innerHTML = '<option value="">— {{ _('select') }} —</option>';
+        closeModal('configModal'); // just in case
+        openModal('createConnModal', '#createServerSelect');
+    }
+    
+    function onServerSelected() {
+        const serverSelect = document.getElementById('createServerSelect');
+        const serverId = parseInt(serverSelect.value);
+        const protoSelect = document.getElementById('createProtoSelect');
+        const telemtFields = document.getElementById('telemtFields');
+        
+        // Clear current options
+        protoSelect.innerHTML = '<option value="">— {{ _('select') }} —</option>';
+        telemtFields.classList.add('hidden');
+        
+        if (isNaN(serverId)) return;
+        
+        // Find server protocols (only those that are installed)
+        const server = availableServers.find(s => s.id === serverId);
+        if (!server || !server.protocols) return;
+        
+        const protocols = server.protocols;
+        const protoNames = {
+            awg: 'AmneziaWG',
+            awg2: 'AmneziaWG 2.0',
+            awg_legacy: 'AWG Legacy',
+            xray: 'Xray (VLESS-Reality)',
+            telemt: 'Telemt (Telegram Proxy)',
+            dns: 'AmneziaDNS'
+        };
+        
+        for (const [proto, info] of Object.entries(protocols)) {
+            if (info && info.installed) {
+                const opt = document.createElement('option');
+                opt.value = proto;
+                opt.textContent = protoNames[proto] || proto;
+                protoSelect.appendChild(opt);
+            }
+        }
+        
+        // If telemt is selected, show extra fields
+        // We'll handle on change of protoSelect too
+    }
+    
+    // Also listen to protocol change to toggle telemt fields
+    document.getElementById('createProtoSelect').addEventListener('change', function() {
+        const telemtFields = document.getElementById('telemtFields');
+        if (this.value === 'telemt') {
+            telemtFields.classList.remove('hidden');
+        } else {
+            telemtFields.classList.add('hidden');
+        }
+    });
+    
+    // Re-render the full connections list from an array of connection objects
+    function renderConnectionsList(connections) {
+        const listEl = document.getElementById('myConnectionsList');
+        const emptyEl = document.getElementById('emptyState');
+
+        if (!connections || connections.length === 0) {
+            listEl.classList.add('hidden');
+            emptyEl.classList.remove('hidden');
+            return;
+        }
+
+        emptyEl.classList.add('hidden');
+        listEl.classList.remove('hidden');
+
+        // Sort by created_at descending (newest first)
+        const sorted = [...connections].sort((a, b) => {
+            const da = a.created_at ? new Date(a.created_at).getTime() : 0;
+            const db = b.created_at ? new Date(b.created_at).getTime() : 0;
+            return db - da;
+        });
+
+        listEl.innerHTML = sorted.map(c => renderConnectionItem(c)).join('');
+    }
+
+    // Fetch connections from API and re-render the list
+    async function refreshConnectionsList() {
+        try {
+            console.log('Refreshing connections list...');
+            const result = await apiCall('/api/my/connections', 'GET');
+            console.log('Fetched connections:', result);
+            renderConnectionsList(result.connections || []);
+        } catch (err) {
+            console.error('Failed to refresh connections:', err);
+        }
+    }
+
+    async function submitCreateConnection() {
+        const serverSelect = document.getElementById('createServerSelect');
+        const protoSelect = document.getElementById('createProtoSelect');
+        const nameInput = document.getElementById('createConnName');
+        const submitBtn = document.getElementById('createConnSubmit');
+        
+        const serverId = parseInt(serverSelect.value);
+        const protocol = protoSelect.value;
+        const name = nameInput.value.trim() || 'My Connection';
+        
+        console.log('Creating connection:', { serverId, protocol, name });
+        
+        if (isNaN(serverId) || !protocol) {
+            showToast('Please select server and protocol', 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = '{{ _('create_conn_submit') }}';
+            return;
+        }
+        
+        // Collect telemt parameters if applicable
+        const telemtQuota = protocol === 'telemt' ? document.getElementById('telemtQuota').value || null : null;
+        const telemtMaxIps = protocol === 'telemt' ? parseInt(document.getElementById('telemtMaxIps').value) || null : null;
+        const telemtExpiry = protocol === 'telemt' ? document.getElementById('telemtExpiry').value || null : null;
+        
+        // Prepare payload
+        const payload = {
+            server_id: serverId,
+            protocol: protocol,
+            name: name,
+        };
+        if (telemtQuota !== null) payload.telemt_quota = telemtQuota;
+        if (telemtMaxIps !== null) payload.telemt_max_ips = telemtMaxIps;
+        if (telemtExpiry !== null) payload.telemt_expiry = telemtExpiry;
+        
+        try {
+            submitBtn.disabled = true;
+            submitBtn.textContent = '{{ _('create_conn_creating') }}';
+            
+            // Use apiCall for consistent auth handling (redirects to /login on 401/403)
+            const result = await apiCall('/api/my/connections/add', 'POST', payload);
+            
+            console.log('Create connection response:', result);
+
+            if (!result || result.error) {
+                showToast('{{ _('create_conn_error') }}: ' + (result?.error || 'Unknown error'), 'error');
+                submitBtn.disabled = false;
+                submitBtn.textContent = '{{ _('create_conn_submit') }}';
+                return;
+            }
+
+            // Success: close modal, refresh list, optionally show config
+            closeModal('createConnModal');
+            showToast('{{ _('create_conn_success') }}', 'success');
+
+            // Refresh the connections list from the API (authoritative source)
+            await refreshConnectionsList();
+
+            // Auto-open config modal if config is available in the response
+            if (result.config) {
+                const conn = result.connection;
+                currentConfig = result.config;
+                currentVpnLink = result.vpn_link || '';
+                currentConfigName = (conn && conn.name || 'Connection').replace(/\s+/g, '_');
+                document.getElementById('configModalTitle').textContent = `{{ _('config') }} — ${conn && conn.name || 'Connection'}`;
+                document.getElementById('configText').textContent = result.config;
+                document.getElementById('vpnLinkText').textContent = currentVpnLink;
+
+                // Hide VPN tab for Telemt
+                const vpnTab = document.querySelectorAll('.config-tab')[1];
+                if (conn && conn.protocol === 'telemt') {
+                    vpnTab.style.display = 'none';
+                } else {
+                    vpnTab.style.display = '';
+                }
+
+                switchConfigTab('conf');
+                openModal('configModal');
+                generateQR(result.config);
+            }
+
+            return;
+        } catch (err) {
+            console.error('Create connection failed:', err);
+            showToast('{{ _('create_conn_error') }}: ' + (err.message || 'Unknown error'), 'error');
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '{{ _('create_conn_submit') }}';
+        }
+    }
+</script>
+{% endblock %}

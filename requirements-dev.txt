@@ -1,0 +1,6 @@
+# Development dependencies for CI
+black==25.1.0
+flake8==7.1.1
+pip-audit==2.10.0
+pytest==8.3.5
+pytest-cov==6.1.1

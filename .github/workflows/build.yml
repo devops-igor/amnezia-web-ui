@@ -1,0 +1,85 @@
+name: Build Binaries
+
+on:
+  push:
+    branches: [ "main" ]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install -r requirements.txt
+
+    - name: Build with PyInstaller (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        pyinstaller --name Amnezia-Web-Panel-Linux \
+          --add-data "static:static" \
+          --add-data "templates:templates" \
+          --add-data "translations:translations" \
+          --hidden-import uvicorn \
+          --hidden-import fastapi \
+          --clean \
+          -y \
+          -F app.py
+
+    - name: Build with PyInstaller (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        pyinstaller --name Amnezia-Web-Panel-Windows `
+          --add-data "static;static" `
+          --add-data "templates;templates" `
+          --add-data "translations;translations" `
+          --hidden-import uvicorn `
+          --hidden-import fastapi `
+          --clean `
+          -y `
+          -F app.py
+
+    - name: Build with PyInstaller (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        pyinstaller --name Amnezia-Web-Panel-macOS \
+          --add-data "static:static" \
+          --add-data "templates:templates" \
+          --add-data "translations:translations" \
+          --hidden-import uvicorn \
+          --hidden-import fastapi \
+          --clean \
+          -y \
+          -F app.py
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: Amnezia-Web-Panel-${{ runner.os }}
+        path: dist/Amnezia-Web-Panel-*
+
+    - name: Publish to GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: dist/Amnezia-Web-Panel-*
+        generate_release_notes: true
