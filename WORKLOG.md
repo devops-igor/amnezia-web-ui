@@ -95,3 +95,8 @@ Details: Task reopened. Code fix was verified by QA and merged to main, but depl
 2026-04-09 01:44 | Bot | COMMIT | TASK-002 Reopen
 Details: Committed updated TASK.md, WORKLOG.md, COMPLETION_REPORT.md to document task reopen. Commit message: "chore: reopen TASK-002 — deployment investigation found stale container image"
 ---
+
+---
+2026-04-09 02:27 | pm_bot | TASK_ASSIGNMENT | Amnezia-Web-Panel
+Details: Created TASK-003 for fixing rate limiter bugs (race condition, log pruning, stale read) using 3-phase lock pattern. Plan: RATE_LIMITER_MITIGATION_PLAN.md. Rate limiter currently disabled (commented out). Assigned to py_bot. See TASK.md for full details.
+---
