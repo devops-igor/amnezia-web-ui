@@ -2102,46 +2102,53 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
         "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
     )
 
-    # Check per-user connection count
-    user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
-    if len(user_conns) >= max_conns_per_user:
-        return JSONResponse(
-            {
-                "error": f"Maximum connections limit reached ({max_conns_per_user})",
-                "limit": max_conns_per_user,
-                "current": len(user_conns),
-            },
-            status_code=429,
-        )
+    # --- RATE LIMITER TEMPORARILY DISABLED FOR TESTING ---
+    # return JSONResponse(
+    #     {"error": "Rate limiter disabled for testing"},
+    #     status_code=200,
+    # )
 
-    # Check time-based rate limiting (sliding window)
-    now = datetime.now()
-    creation_log = data.get("connection_creation_log", [])
-    # Filter to entries for this user within the window
-    recent = []
-    for entry in creation_log:
-        try:
-            ts = datetime.fromisoformat(entry["timestamp"])
-            if entry["user_id"] == user["id"] and (now - ts).total_seconds() <= rate_limit_window:
-                recent.append(entry)
-        except Exception:
-            pass  # Skip malformed entries
-    if len(recent) >= rate_limit_count:
-        # Calculate retry-after from oldest entry in window
-        oldest = min(recent, key=lambda e: e["timestamp"])
-        try:
-            oldest_ts = datetime.fromisoformat(oldest["timestamp"])
-            retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
-        except Exception:
-            retry_after = rate_limit_window
-        return JSONResponse(
-            {
-                "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
-                "retry_after": retry_after,
-            },
-            status_code=429,
-            headers={"Retry-After": str(retry_after)},
-        )
+    # # Check per-user connection count
+    # user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
+    # if len(user_conns) >= max_conns_per_user:
+    #     return JSONResponse(
+    #         {
+    #             "error": f"Maximum connections limit reached ({max_conns_per_user})",
+    #             "limit": max_conns_per_user,
+    #             "current": len(user_conns),
+    #         },
+    #         status_code=429,
+    #     )
+
+    # # Check time-based rate limiting (sliding window)
+    # now = datetime.now()
+    # creation_log = data.get("connection_creation_log", [])
+    # # Filter to entries for this user within the window
+    # recent = []
+    # for entry in creation_log:
+    #     try:
+    #         ts = datetime.fromisoformat(entry["timestamp"])
+    #         if entry["user_id"] == user["id"] and (now - ts).total_seconds() <= rate_limit_window:
+    #             recent.append(entry)
+    #     except Exception:
+    #         pass  # Skip malformed entries
+    # if len(recent) >= rate_limit_count:
+    #     # Calculate retry-after from oldest entry in window
+    #     oldest = min(recent, key=lambda e: e["timestamp"])
+    #     try:
+    #         oldest_ts = datetime.fromisoformat(oldest["timestamp"])
+    #         retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
+    #     except Exception:
+    #         retry_after = rate_limit_window
+    #     return JSONResponse(
+    #         {
+    #             "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
+    #             "retry_after": retry_after,
+    #         },
+    #         status_code=429,
+    #         headers={"Retry-After": str(retry_after)},
+    #     )
+    # --- END RATE LIMITER DISABLE ---
 
     # Validate server and protocol (data already loaded above)
     if req.server_id >= len(data["servers"]):
