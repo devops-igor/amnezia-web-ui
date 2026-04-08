@@ -671,7 +671,7 @@ class SaveSettingsRequest(BaseModel):
     captcha: CaptchaSettings
     telegram: TelegramSettings
     ssl: SSLSettings
-    limits: Optional[ConnectionLimits] = None
+    limits: ConnectionLimits = ConnectionLimits()
 
 
 class ToggleUserRequest(BaseModel):
@@ -2431,13 +2431,13 @@ async def save_settings(request: Request, payload: SaveSettingsRequest):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     data = load_data()
+    data.setdefault("settings", {})
     data["settings"]["appearance"] = payload.appearance.dict()
     data["settings"]["sync"] = payload.sync.dict()
     data["settings"]["captcha"] = payload.captcha.dict()
     data["settings"]["telegram"] = payload.telegram.dict()
     data["settings"]["ssl"] = payload.ssl.dict()
-    if payload.limits is not None:
-        data.setdefault("settings", {})["limits"] = payload.limits.dict()
+    data["settings"]["limits"] = payload.limits.dict()
     save_data(data)
     logger.info("Settings saved (including captcha and telegram)")
 
