@@ -2159,8 +2159,8 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
     existing_names = {c.get("name", "") for c in user_conns}
     if req.name in existing_names:
         return JSONResponse(
-            {"error": f'A connection named "{req.name}" already exists', "duplicate": True},
-            status_code=400,
+            {"error": "duplicate_name", "message": "A connection with this name already exists."},
+            status_code=409,
         )
 
     port = proto_info.get("port", "55424")
