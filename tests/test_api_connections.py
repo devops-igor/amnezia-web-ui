@@ -3,9 +3,10 @@ Tests for API connection endpoints
 """
 
 import json
+import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
-from app import app, load_data, save_data
+from app import app
 
 
 class TestApiMyAddConnection:
