@@ -25,8 +25,8 @@ AWG_DEFAULTS = {
     "subnet_address": "10.8.1.0",
     "subnet_cidr": "24",
     "subnet_ip": "10.8.1.1",
-    "dns1": "1.1.1.1",
-    "dns2": "1.0.0.1",
+    "dns1": "94.140.14.14",
+    "dns2": "94.140.15.15",
     # AWG obfuscation parameters
     "junk_packet_count": "3",
     "junk_packet_min_size": "10",

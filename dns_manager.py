@@ -23,8 +23,8 @@ class DNSManager:
             forward_config = """forward-zone:
    name: "."
    forward-tls-upstream: yes
-   forward-addr: 1.1.1.1@853
-   forward-addr: 1.0.0.1@853
+   forward-addr: 94.140.14.14@853
+   forward-addr: 94.140.15.15@853
 """
             self.ssh.write_file("/opt/amnezia/dns/forward-records.conf", forward_config)
 
