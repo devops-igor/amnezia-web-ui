@@ -154,7 +154,7 @@ class TestApiMyAddConnection:
         assert "already exists" in data["message"]
 
         # The expected message should match the frontend expectation
-        expected_message = 'A connection with this name already exists.'
+        expected_message = "A connection with this name already exists."
         assert data["message"] == expected_message
 
     @patch("app.load_data")
