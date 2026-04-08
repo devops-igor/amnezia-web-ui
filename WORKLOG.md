@@ -100,3 +100,58 @@ Details: Committed updated TASK.md, WORKLOG.md, COMPLETION_REPORT.md to document
 2026-04-09 02:27 | pm_bot | TASK_ASSIGNMENT | Amnezia-Web-Panel
 Details: Created TASK-003 for fixing rate limiter bugs (race condition, log pruning, stale read) using 3-phase lock pattern. Plan: RATE_LIMITER_MITIGATION_PLAN.md. Rate limiter currently disabled (commented out). Assigned to py_bot. See TASK.md for full details.
 ---
+---
+## 2026-04-09 | py_bot | TASK-003: Implement 3-phase lock for rate limiter
+
+**Problem:**
+Three bugs in the rate limiter for `/api/my/connections/add`:
+1. **Race condition** — rate limit check used `load_data()` without `DATA_LOCK`
+2. **Log never prunes by age** — `connection_creation_log` only trimmed to last 1000, never by timestamp
+3. **Stale read** — two separate `load_data()` calls per request (check vs write) with seconds of SSH work between them
+
+**Changes to `app.py` — `api_my_add_connection()`:**
+
+Restructured into 3-phase lock pattern:
+
+### Phase 1 (inside `async with DATA_LOCK`, milliseconds):
+- `current_data = load_data()` inside lock
+- Age-based pruning of `connection_creation_log` (entries older than `rate_limit_window` removed)
+- Check per-user connection count → 429 if at limit
+- Check sliding window rate limit → 429 if at limit  
+- Validate server exists, protocol installed, no duplicate name
+- `save_data(current_data)` to persist pruned log
+- Rate limiter re-enabled (uncommented both blocks)
+- Added `logger.warning()` for both rate limit trigger paths
+
+### Phase 2 (no lock, seconds):
+- SSH connection + remote client creation (outside lock)
+
+### Phase 3 (inside `async with DATA_LOCK`, milliseconds):
+- `write_data = load_data()` → append new connection + log entry → save
+
+**Key details:**
+- Removed early `data = load_data()` that was used for rate limiting (now inside lock)
+- `user_conns` defined in Phase 1, available for both rate limit check and duplicate name check
+- `now` timestamp captured in Phase 1, reused in Phase 3 for consistency
+- `-1000` safety cap retained in Phase 3 as secondary protection
+
+**Verification:**
+- `python3 -m py_compile app.py` → Syntax OK ✅
+- `black app.py` → reformatted ✅
+- `pytest -v tests/test_api_connections.py` → 3 passed ✅
+
+**Commit:** `b5a2262` — "fix: implement 3-phase lock for rate limiter"
+
+**Definition of Done:** ✅
+- [x] 3-phase lock pattern implemented
+- [x] Rate limit check + log pruning inside `DATA_LOCK`
+- [x] Age-based pruning of `connection_creation_log`
+- [x] `user_conns` defined before duplicate name check
+- [x] Rate limiter re-enabled (both blocks uncommented)
+- [x] `py_compile` passes
+- [x] `black` formatting applied
+- [x] Tests pass (3/3)
+- [x] Structured logging on rate limit triggers
+- [x] WORKLOG.md appended
+- [ ] Push to remote (pending — do NOT push yet per task instructions)
+---
