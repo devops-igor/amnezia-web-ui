@@ -439,8 +439,8 @@
             remnawave_sync: syncForm.remnawave_sync.checked,
             remnawave_sync_users: syncForm.remnawave_sync_users.checked,
             remnawave_create_conns: syncForm.remnawave_create_conns.checked,
-            remnawave_server_id: parseInt(syncForm.remnawave_server_id.value),
-            remnawave_protocol: syncForm.remnawave_protocol.value
+            remnawave_server_id: parseInt(syncForm.remnawave_server_id.value) || 0,
+            remnawave_protocol: syncForm.remnawave_protocol.value || "awg" || "awg"
         };
 
 
