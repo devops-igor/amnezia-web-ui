@@ -263,6 +263,8 @@
   "create_conn_creating": "创建中...",
   "create_conn_success": "连接已创建",
   "create_conn_error": "创建连接失败",
+  "connection_duplicate_error": "此名称的连接已存在。请选择其他名称。",
+  "connection_rate_limit_error": "连接速率限制已超出。请在 {seconds} 秒后重试。",
   "telemt_quota_label": "流量配额 (字节, 0=无限制)",
   "telemt_max_ips_label": "最大 IP 数 (0=无限制)",
   "telemt_expiry_label": "过期日期 (可选)",

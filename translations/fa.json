@@ -263,6 +263,8 @@
   "create_conn_creating": "در حال ایجاد...",
   "create_conn_success": "اتصال ایجاد شد",
   "create_conn_error": "خطا در ایجاد اتصال",
+  "connection_duplicate_error": "اتصالی با این نام از قبل وجود دارد. لطفاً نام دیگری انتخاب کنید.",
+  "connection_rate_limit_error": "محدودیت نرخ اتصال exceeded. لطفاً بعد از {seconds} ثانیه دوباره امتحان کنید.",
   "telemt_quota_label": "سهمیه (بایت، 0 = نامحدود)",
   "telemt_max_ips_label": "حداکثر IP (0 = نامحدود)",
   "telemt_expiry_label": "تاریخ انقضا (اختیاری)",

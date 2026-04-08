@@ -287,6 +287,8 @@
   "create_conn_creating": "Creating...",
   "create_conn_success": "Connection created",
   "create_conn_error": "Failed to create connection",
+  "connection_duplicate_error": "Подключение с таким названием уже существует. Пожалуйста, выберите другое название.",
+  "connection_rate_limit_error": "Превышен лимит подключений. Повторите попытку через {seconds} секунд.",
   "telemt_quota_label": "Квота (байты, 0 = безлимит)",
   "telemt_max_ips_label": "Макс. IP (0 = безлимит)",
   "telemt_expiry_label": "Срок действия (необяз.)",
