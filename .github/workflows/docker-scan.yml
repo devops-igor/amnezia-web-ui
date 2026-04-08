@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
       actions: read
 
     steps:
@@ -36,25 +35,10 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64
 
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: amnezia-web-panel:scan
-          format: sarif
-          output: trivy-results.sarif
-          severity: CRITICAL,HIGH
-          vuln-type: os,library
-
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        with:
-          sarif_file: trivy-results.sarif
-
-      - name: Run Trivy (table output for logs)
+      - name: Run Trivy vulnerability scanner (table)
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: amnezia-web-panel:scan
           format: table
-          severity: CRITICAL,HIGH,MEDIUM
+          severity: CRITICAL,HIGH
           vuln-type: os,library
