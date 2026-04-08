@@ -101,16 +101,15 @@ class TestApiMyAddConnection:
         )
 
         # Verify response
-        assert response2.status_code == 400
+        assert response2.status_code == 409
 
         # Check that response is valid JSON (not HTML)
         try:
             data = response2.json()
             assert isinstance(data, dict)
-            assert "error" in data
-            assert "duplicate" in data
-            assert data["duplicate"] is True
-            assert "Test Connection" in data["error"]
+            assert data["error"] == "duplicate_name"
+            assert "message" in data
+            assert "already exists" in data["message"]
         except json.JSONDecodeError:
             pytest.fail("Response is not valid JSON")
 
@@ -146,17 +145,17 @@ class TestApiMyAddConnection:
         )
 
         # Verify response
-        assert response.status_code == 400
+        assert response.status_code == 409
         data = response.json()
 
         # Check error message format
-        assert "error" in data
-        assert "Existing Connection" in data["error"]
-        assert "already exists" in data["error"].lower()
+        assert data["error"] == "duplicate_name"
+        assert "message" in data
+        assert "already exists" in data["message"]
 
         # The expected message should match the frontend expectation
-        expected_message = 'A connection named "Existing Connection" already exists'
-        assert data["error"] == expected_message
+        expected_message = 'A connection with this name already exists.'
+        assert data["message"] == expected_message
 
     @patch("app.load_data")
     @patch("app.get_current_user")
