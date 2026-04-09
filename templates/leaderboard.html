@@ -13,63 +13,157 @@
 
         <div style="display: flex; gap: var(--space-sm); align-items: center;">
             <span style="color: var(--text-muted); font-size: 0.9rem;">{{ _('period_label') }}:</span>
-            <a href="/leaderboard?period=all-time"
-                class="btn btn-sm {{ 'btn-primary' if period == 'all-time' else 'btn-secondary' }}"
-                style="text-decoration: none;">{{ _('period_all_time') }}</a>
-            <a href="/leaderboard?period=monthly"
-                class="btn btn-sm {{ 'btn-primary' if period == 'monthly' else 'btn-secondary' }}"
-                style="text-decoration: none;">{{ _('period_monthly') }}</a>
+            <button class="btn btn-sm" id="period-all"
+                onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
+            <button class="btn btn-sm" id="period-month"
+                onclick="switchPeriod('monthly')">{{ _('period_monthly') }}</button>
         </div>
     </div>
 
-    {% if current_user_rank %}
-    <div class="card" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: var(--bg-secondary); border: 1px solid var(--primary);">
+    <div id="your-rank-card" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-md); background: var(--bg-secondary); border: 1px solid var(--primary);">
         <div style="display: flex; align-items: center; gap: var(--space-md);">
             <span style="font-size: 1.5rem;">🎯</span>
             <div>
                 <div style="font-size: 0.85rem; color: var(--text-muted);">{{ _('your_rank') }}</div>
-                <div style="font-size: 1.25rem; font-weight: 700; color: var(--primary);">#{{ current_user_rank }}</div>
+                <div style="font-size: 1.25rem; font-weight: 700; color: var(--primary);" id="your-rank-value">#-</div>
             </div>
         </div>
     </div>
-    {% endif %}
 
-    {% if entries %}
-    <div class="table-container">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th style="width: 60px;">#</th>
-                    <th>{{ _('username_label') }}</th>
-                    <th style="text-align: right;">{{ _('download_label') }}</th>
-                    <th style="text-align: right;">{{ _('upload_label') }}</th>
-                    <th style="text-align: right;">{{ _('total_label') }}</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in entries %}
-                <tr{% if entry.username == current_user.username %} style="background: var(--bg-secondary); font-weight: 600;"{% endif %}>
-                    <td style="text-align: center;">
-                        {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
-                    </td>
-                    <td>
-                        {{ entry.username }}
-                        {% if entry.username == current_user.username %}<span style="color: var(--primary); font-size: 0.75rem;">(you)</span>{% endif %}
-                    </td>
-                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.download) }}</td>
-                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.upload) }}</td>
-                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.total) }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div id="loading-spinner" style="display: none; text-align: center; padding: var(--space-xl);">
+        <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     </div>
-    {% else %}
-    <div class="empty-state">
-        <div class="empty-icon">🏆</div>
-        <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
-        <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+
+    <div id="leaderboard-content">
+        {% if entries %}
+        <div class="table-container" id="table-container" style="transition: opacity 0.2s;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">#</th>
+                        <th>{{ _('username_label') }}</th>
+                        <th style="text-align: right;">{{ _('download_label') }}</th>
+                        <th style="text-align: right;">{{ _('upload_label') }}</th>
+                        <th style="text-align: right;">{{ _('total_label') }}</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboard-tbody">
+                    {% for entry in entries %}
+                    <tr{% if entry.username == current_user.username %} style="background: var(--bg-secondary); font-weight: 600;"{% endif %}>
+                        <td style="text-align: center;">
+                            {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
+                        </td>
+                        <td>
+                            {{ entry.username }}
+                            {% if entry.username == current_user.username %}<span style="color: var(--primary); font-size: 0.75rem;">(you)</span>{% endif %}
+                        </td>
+                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.download) }}</td>
+                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.upload) }}</td>
+                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">🏆</div>
+            <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+            <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+        </div>
+        {% endif %}
     </div>
-    {% endif %}
+
+    <div id="empty-state" style="display: none;">
+        <div class="empty-state">
+            <div class="empty-icon">🏆</div>
+            <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+            <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+        </div>
+    </div>
 </section>
+
+<script>
+let currentPeriod = '{{ period }}';
+
+function updatePeriodButtons() {
+    const allBtn = document.getElementById('period-all');
+    const monthBtn = document.getElementById('period-month');
+    if (allBtn && monthBtn) {
+        allBtn.className = 'btn btn-sm ' + (currentPeriod === 'all-time' ? 'btn-primary' : 'btn-secondary');
+        monthBtn.className = 'btn btn-sm ' + (currentPeriod === 'monthly' ? 'btn-primary' : 'btn-secondary');
+    }
+}
+
+async function switchPeriod(period) {
+    if (period === currentPeriod) return;
+    currentPeriod = period;
+    updatePeriodButtons();
+
+    const spinner = document.getElementById('loading-spinner');
+    const tableContainer = document.getElementById('table-container');
+    const emptyState = document.getElementById('empty-state');
+    const yourRankCard = document.getElementById('your-rank-card');
+
+    if (spinner) spinner.style.display = 'block';
+    if (tableContainer) tableContainer.style.opacity = '0.4';
+    if (emptyState) emptyState.style.display = 'none';
+    if (yourRankCard) yourRankCard.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/leaderboard?period=' + encodeURIComponent(period));
+        if (!resp.ok) throw new Error('Failed to fetch');
+        const data = await resp.json();
+
+        if (spinner) spinner.style.display = 'none';
+
+        const tbody = document.getElementById('leaderboard-tbody');
+        const tableContainer2 = document.getElementById('table-container');
+
+        if (data.entries && data.entries.length > 0) {
+            if (tableContainer2) {
+                tableContainer2.style.display = 'block';
+                tableContainer2.style.opacity = '1';
+            }
+            if (emptyState) emptyState.style.display = 'none';
+
+            let html = '';
+            const currentUsername = '{{ current_user.username }}';
+            for (const entry of data.entries) {
+                const isCurrentUser = entry.username === currentUsername;
+                const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
+                html += '<tr' + (isCurrentUser ? ' style="background: var(--bg-secondary); font-weight: 600;"' : '') + '>';
+                html += '<td style="text-align: center;">' + medal + '</td>';
+                html += '<td>' + entry.username + (isCurrentUser ? ' <span style="color: var(--primary); font-size: 0.75rem;">(you)</span>' : '') + '</td>';
+                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.download) + '</td>';
+                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.upload) + '</td>';
+                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.total) + '</td>';
+                html += '</tr>';
+            }
+            if (tbody) {
+                tbody.innerHTML = html;
+                if (tableContainer2) tableContainer2.style.opacity = '1';
+            }
+
+            if (data.current_user_rank && yourRankCard) {
+                yourRankCard.style.display = 'flex';
+                const rankVal = document.getElementById('your-rank-value');
+                if (rankVal) rankVal.textContent = '#' + data.current_user_rank;
+            }
+        } else {
+            if (tableContainer2) tableContainer2.style.display = 'none';
+            if (emptyState) emptyState.style.display = 'block';
+        }
+    } catch (err) {
+        console.error('Failed to load leaderboard:', err);
+        if (spinner) spinner.style.display = 'none';
+        if (tableContainer) tableContainer.style.opacity = '1';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updatePeriodButtons();
+});
+</script>
 {% endblock %}

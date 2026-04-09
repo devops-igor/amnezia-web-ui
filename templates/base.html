@@ -50,6 +50,7 @@
                 <a href="/settings" class="nav-link">{{ _('nav_settings') }}</a>
                 {% endif %}
                 <a href="/my" class="nav-link">{{ _('nav_connections') }}</a>
+                <a href="/leaderboard" class="nav-link">🏆 {{ _('leaderboard_nav') }}</a>
             </nav>
 
             <div class="nav-user">
@@ -316,6 +317,14 @@
             a.download = filename;
             a.click();
             URL.revokeObjectURL(url);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0 || bytes === null || bytes === undefined) return '0 B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+            const k = 1024;
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + units[i];
         }
     </script>
 
