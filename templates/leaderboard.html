@@ -3,16 +3,17 @@
 {% block title_extra %} — {{ _('leaderboard_title') }}{% endblock %}
 
 {% block content %}
-<section>
+<section class="leaderboard-section">
+    {# Header row #}
     <div class="flex items-center justify-between"
-        style="margin-bottom: var(--space-lg); gap: var(--space-md); flex-wrap: wrap;">
+        style="gap: var(--space-md); flex-wrap: wrap;">
         <h1 class="section-title" style="margin-bottom:0; flex-shrink: 0;">
             <span class="icon">🏆</span>
             {{ _('leaderboard_title') }}
         </h1>
 
-        <div style="display: flex; gap: var(--space-sm); align-items: center;">
-            <span style="color: var(--text-muted); font-size: 0.9rem;">{{ _('period_label') }}:</span>
+        <div class="leaderboard-period-toggle">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">{{ _('period_label') }}:</span>
             <button class="btn btn-sm" id="period-all"
                 onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
             <button class="btn btn-sm" id="period-month"
@@ -20,28 +21,28 @@
         </div>
     </div>
 
-    <div id="your-rank-card" style="display: none; margin-bottom: var(--space-lg); padding: var(--space-md); background: var(--bg-secondary); border: 1px solid var(--primary);">
-        <div style="display: flex; align-items: center; gap: var(--space-md);">
-            <span style="font-size: 1.5rem;">🎯</span>
-            <div>
-                <div style="font-size: 0.85rem; color: var(--text-muted);">{{ _('your_rank') }}</div>
-                <div style="font-size: 1.25rem; font-weight: 700; color: var(--primary);" id="your-rank-value">#-</div>
-            </div>
+    {# Your rank card #}
+    <div id="your-rank-card" class="leaderboard-rank-card" style="display: none;">
+        <div class="leaderboard-rank-icon">🎯</div>
+        <div class="leaderboard-rank-info">
+            <div class="leaderboard-rank-label">{{ _('your_rank') }}</div>
+            <div class="leaderboard-rank-value" id="your-rank-value">#-</div>
         </div>
     </div>
 
+    {# Loading spinner #}
     <div id="loading-spinner" style="display: none; text-align: center; padding: var(--space-xl);">
-        <div style="display: inline-block; width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+        <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto;"></div>
     </div>
 
+    {# Table #}
     <div id="leaderboard-content">
         {% if entries %}
-        <div class="table-container" id="table-container" style="transition: opacity 0.2s;">
+        <div class="table-container" id="table-container">
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th style="width: 60px;">#</th>
+                        <th class="rank-cell">#</th>
                         <th>{{ _('username_label') }}</th>
                         <th style="text-align: right;">{{ _('download_label') }}</th>
                         <th style="text-align: right;">{{ _('upload_label') }}</th>
@@ -50,17 +51,19 @@
                 </thead>
                 <tbody id="leaderboard-tbody">
                     {% for entry in entries %}
-                    <tr{% if entry.username == current_user.username %} style="background: var(--bg-secondary); font-weight: 600;"{% endif %}>
-                        <td style="text-align: center;">
+                    <tr class="{% if entry.username == current_user.username %}current-user{% endif %}">
+                        <td class="rank-cell">
                             {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
                         </td>
-                        <td>
+                        <td class="username-cell">
                             {{ entry.username }}
-                            {% if entry.username == current_user.username %}<span style="color: var(--primary); font-size: 0.75rem;">(you)</span>{% endif %}
+                            {% if entry.username == current_user.username %}
+                            <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _('you_label') or 'you' }}</span>
+                            {% endif %}
                         </td>
-                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.download) }}</td>
-                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.upload) }}</td>
-                        <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.total) }}</td>
+                        <td class="traffic-cell">{{ format_bytes(entry.download) }}</td>
+                        <td class="traffic-cell">{{ format_bytes(entry.upload) }}</td>
+                        <td class="traffic-cell">{{ format_bytes(entry.total) }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -75,12 +78,11 @@
         {% endif %}
     </div>
 
-    <div id="empty-state" style="display: none;">
-        <div class="empty-state">
-            <div class="empty-icon">🏆</div>
-            <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
-            <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
-        </div>
+    {# Dynamic empty state (hidden by default) #}
+    <div id="empty-state" class="empty-state" style="display: none;">
+        <div class="empty-icon">🏆</div>
+        <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+        <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
     </div>
 </section>
 
@@ -133,12 +135,12 @@ async function switchPeriod(period) {
             for (const entry of data.entries) {
                 const isCurrentUser = entry.username === currentUsername;
                 const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
-                html += '<tr' + (isCurrentUser ? ' style="background: var(--bg-secondary); font-weight: 600;"' : '') + '>';
-                html += '<td style="text-align: center;">' + medal + '</td>';
-                html += '<td>' + entry.username + (isCurrentUser ? ' <span style="color: var(--primary); font-size: 0.75rem;">(you)</span>' : '') + '</td>';
-                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.download) + '</td>';
-                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.upload) + '</td>';
-                html += '<td style="text-align: right; font-family: monospace;">' + formatBytes(entry.total) + '</td>';
+                html += '<tr class="' + (isCurrentUser ? 'current-user' : '') + '">';
+                html += '<td class="rank-cell">' + medal + '</td>';
+                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _("you_label") or "you" }}</span>' : '') + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.download) + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.upload) + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.total) + '</td>';
                 html += '</tr>';
             }
             if (tbody) {

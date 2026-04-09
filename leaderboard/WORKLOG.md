@@ -80,3 +80,17 @@
 - Consolidated PR #8: https://github.com/devops-igor/amnezia-web-ui/pull/8
 - Branch: feat/leaderboard
 - Feature complete and ready for Docker image build + testing
+
+## [2026-04-10 00:30] pm_bot
+- SPAWN: py_bot for TASK-05 (UI/UX improvements)
+
+## [2026-04-10 00:31] py_bot
+- IMPLEMENTATION_COMPLETE: TASK-05
+- Added leaderboard-specific CSS to static/css/style.css (18 CSS classes/blocks)
+- Added .badge-primary CSS class (was missing)
+- Verified .btn-primary, .btn-secondary, .btn-sm all exist
+- Rewrote templates/leaderboard.html with CSS-class-based styling
+- All functionality preserved: JS fetch, period toggle, auth checks
+- All checks pass: py_compile OK, black clean, flake8 clean (pre-existing F824 only)
+- 31/31 leaderboard tests pass
+- pip-audit: 2 CVEs in twisted/wheel (pre-existing, not introduced)
