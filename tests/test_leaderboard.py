@@ -142,7 +142,7 @@ class TestGetLeaderboardEntries:
         assert entries[1]["rank"] == 2
         assert entries[2]["rank"] == 3
 
-    def test_zero_traffic_users_included(self, app_module):
+    def test_zero_traffic_users_excluded(self, app_module):
         data = {
             "users": [
                 _make_user("active", traffic_total_rx=1000, traffic_total_tx=500),
@@ -150,9 +150,107 @@ class TestGetLeaderboardEntries:
             ]
         }
         entries = app_module.get_leaderboard_entries(data, "all-time")
-        assert len(entries) == 2
-        assert entries[-1]["username"] == "inactive"
-        assert entries[-1]["total"] == 0
+        assert len(entries) == 1
+        assert entries[0]["username"] == "active"
+
+    def test_disabled_users_excluded(self, app_module):
+        data = {
+            "users": [
+                _make_user("enabled_user", traffic_total_rx=1000, traffic_total_tx=500),
+                _make_user(
+                    "disabled_user", traffic_total_rx=2000, traffic_total_tx=1000, enabled=False
+                ),
+                _make_user(
+                    "falsy_enabled", traffic_total_rx=3000, traffic_total_tx=1500, enabled=0
+                ),
+            ]
+        }
+        entries = app_module.get_leaderboard_entries(data, "all-time")
+        assert len(entries) == 1
+        assert entries[0]["username"] == "enabled_user"
+        assert entries[0]["total"] == 1500
+
+    def test_alphabetical_tie_breaking(self, app_module):
+        data = {
+            "users": [
+                _make_user("Charlie", traffic_total_rx=1000, traffic_total_tx=0),
+                _make_user("Alice", traffic_total_rx=1000, traffic_total_tx=0),
+                _make_user("Bob", traffic_total_rx=1000, traffic_total_tx=0),
+                _make_user("alice2", traffic_total_rx=500, traffic_total_tx=0),
+            ]
+        }
+        entries = app_module.get_leaderboard_entries(data, "all-time")
+        assert len(entries) == 4
+        # All three with 1000 should be sorted alphabetically (case-insensitive)
+        assert entries[0]["username"] == "Alice"
+        assert entries[0]["rank"] == 1
+        assert entries[1]["username"] == "Bob"
+        assert entries[1]["rank"] == 2
+        assert entries[2]["username"] == "Charlie"
+        assert entries[2]["rank"] == 3
+        # Lower total comes last
+        assert entries[3]["username"] == "alice2"
+        assert entries[3]["rank"] == 4
+
+    def test_alphabetical_tie_breaking_case_insensitive(self, app_module):
+        data = {
+            "users": [
+                _make_user("ALICE", traffic_total_rx=1000, traffic_total_tx=0),
+                _make_user("bob", traffic_total_rx=1000, traffic_total_tx=0),
+                _make_user("Charlie", traffic_total_rx=1000, traffic_total_tx=0),
+            ]
+        }
+        entries = app_module.get_leaderboard_entries(data, "all-time")
+        assert entries[0]["username"] == "ALICE"
+        assert entries[1]["username"] == "bob"
+        assert entries[2]["username"] == "Charlie"
+
+    def test_zero_traffic_monthly_excluded(self, app_module):
+        data = {
+            "users": [
+                _make_user("active", monthly_rx=100, monthly_tx=50),
+                _make_user("inactive", monthly_rx=0, monthly_tx=0),
+            ]
+        }
+        entries = app_module.get_leaderboard_entries(data, "monthly")
+        assert len(entries) == 1
+        assert entries[0]["username"] == "active"
+
+    def test_current_user_rank_none_when_zero_traffic(self, client, app_module):
+        data = {
+            "users": [
+                _make_user("alice", traffic_total_rx=1000, traffic_total_tx=500),
+                _make_user("bob", traffic_total_rx=0, traffic_total_tx=0),
+            ]
+        }
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        # Current user is bob (zero traffic, excluded)
+        bob = data["users"][1]
+        with patch.object(app_module, "get_current_user", return_value=bob):
+            response = client.get("/api/leaderboard")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["current_user_rank"] is None
+
+    def test_current_user_rank_none_when_disabled(self, client, app_module):
+        data = {
+            "users": [
+                _make_user("alice", traffic_total_rx=1000, traffic_total_tx=500),
+                _make_user("bob", traffic_total_rx=2000, traffic_total_tx=1000, enabled=False),
+            ]
+        }
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        # Current user is bob (disabled, excluded)
+        bob = data["users"][1]
+        with patch.object(app_module, "get_current_user", return_value=bob):
+            response = client.get("/api/leaderboard")
+            assert response.status_code == 200
+            body = response.json()
+            assert body["current_user_rank"] is None
 
     def test_empty_users(self, app_module):
         data = {"users": []}
@@ -166,10 +264,8 @@ class TestGetLeaderboardEntries:
             ]
         }
         entries = app_module.get_leaderboard_entries(data, "all-time")
-        assert len(entries) == 1
-        assert entries[0]["download"] == 0
-        assert entries[0]["upload"] == 0
-        assert entries[0]["total"] == 0
+        # Zero-traffic users are excluded
+        assert entries == []
 
     def test_invalid_period_defaults_to_all_time(self, app_module):
         data = {
@@ -420,3 +516,76 @@ class TestLeaderboardPage:
         with patch.object(app_module, "get_current_user", return_value=user):
             response = client.get("/leaderboard?period=invalid")
             assert response.status_code == 200
+
+
+# ---------- monthly_label Tests ----------
+
+
+class TestMonthlyLabel:
+    """Test monthly_label is correctly included in API and page responses."""
+
+    def test_api_monthly_label_present_when_monthly(self, client, app_module):
+        """API response includes monthly_label with value like 'April 2026' when period=monthly."""
+        data = {"users": [_make_user("alice", monthly_rx=100, monthly_tx=50)]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(app_module, "get_current_user", return_value=data["users"][0]):
+            response = client.get("/api/leaderboard?period=monthly")
+            assert response.status_code == 200
+            body = response.json()
+            assert "monthly_label" in body
+            assert body["monthly_label"] is not None
+            # Should match format "Month Year" e.g. "April 2026"
+            assert isinstance(body["monthly_label"], str)
+            parts = body["monthly_label"].split(" ")
+            assert len(parts) == 2
+            assert parts[1].isdigit()  # year is numeric
+
+    def test_api_monthly_label_null_when_all_time(self, client, app_module):
+        """API response includes monthly_label: null when period=all-time."""
+        data = {"users": [_make_user("alice", traffic_total_rx=100, traffic_total_tx=50)]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(app_module, "get_current_user", return_value=data["users"][0]):
+            response = client.get("/api/leaderboard?period=all-time")
+            assert response.status_code == 200
+            body = response.json()
+            assert "monthly_label" in body
+            assert body["monthly_label"] is None
+
+    def test_page_monthly_label_in_context(self, client, app_module):
+        """Page renders with monthly_label in context when period=monthly."""
+        user = _make_user("testuser", monthly_rx=100, monthly_tx=50)
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(app_module, "get_current_user", return_value=user):
+            response = client.get("/leaderboard?period=monthly")
+            assert response.status_code == 200
+            html = response.text
+            # The server-side rendered label should be present and non-empty
+            # It should contain the current month name and year
+            current_month_label = datetime.now().strftime("%B %Y")
+            assert current_month_label in html
+
+    def test_page_monthly_label_absent_when_all_time(self, client, app_module):
+        """Page does not render a monthly label value when period=all-time."""
+        user = _make_user("testuser", traffic_total_rx=100, traffic_total_tx=50)
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        with patch.object(app_module, "get_current_user", return_value=user):
+            response = client.get("/leaderboard?period=all-time")
+            assert response.status_code == 200
+            html = response.text
+            # The span should exist but be empty / hidden
+            # There should be no month name like "April 2026" visible as text content
+            current_month_label = datetime.now().strftime("%B %Y")
+            # Check the monthly-label span exists but doesn't contain the label text
+            assert 'id="monthly-label"' in html
+            # The label text should not appear between the span tags
+            assert ">April 2026<" not in html or current_month_label not in html
