@@ -18,15 +18,17 @@
                 onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
             <button class="btn btn-sm" id="period-month"
                 onclick="switchPeriod('monthly')">{{ _('period_monthly') }}</button>
+            <span id="monthly-label"
+                style="color: var(--text-muted); font-size: 0.85rem;{% if not monthly_label %} display: none;{% endif %}">{{ monthly_label if monthly_label else '' }}</span>
         </div>
     </div>
 
-    {# Your rank card #}
+    {# Your rank card — always rendered, JS shows only when user has rank #}
     <div id="your-rank-card" class="leaderboard-rank-card" style="display: none;">
         <div class="leaderboard-rank-icon">🎯</div>
         <div class="leaderboard-rank-info">
             <div class="leaderboard-rank-label">{{ _('your_rank') }}</div>
-            <div class="leaderboard-rank-value" id="your-rank-value">#-</div>
+            <div class="leaderboard-rank-value" id="your-rank-value">{{ '#' ~ current_user_rank if current_user_rank else '#—' }}</div>
         </div>
     </div>
 
@@ -137,7 +139,7 @@ async function switchPeriod(period) {
                 const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
                 html += '<tr class="' + (isCurrentUser ? 'current-user' : '') + '">';
                 html += '<td class="rank-cell">' + medal + '</td>';
-                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _("you_label") or "you" }}</span>' : '') + '</td>';
+                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _(\"you_label\") or \"you\" }}</span>' : '') + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.download) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.upload) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.total) + '</td>';
@@ -148,10 +150,24 @@ async function switchPeriod(period) {
                 if (tableContainer2) tableContainer2.style.opacity = '1';
             }
 
-            if (data.current_user_rank && yourRankCard) {
-                yourRankCard.style.display = 'flex';
+            if (data.current_user_rank) {
+                const yourRankCard = document.getElementById('your-rank-card');
                 const rankVal = document.getElementById('your-rank-value');
-                if (rankVal) rankVal.textContent = '#' + data.current_user_rank;
+                if (yourRankCard && rankVal) {
+                    yourRankCard.style.display = 'flex';
+                    rankVal.textContent = '#' + data.current_user_rank;
+                }
+            }
+
+            // Update monthly label
+            const monthlyLabelEl = document.getElementById('monthly-label');
+            if (monthlyLabelEl) {
+                if (data.monthly_label) {
+                    monthlyLabelEl.textContent = data.monthly_label;
+                    monthlyLabelEl.style.display = 'inline';
+                } else {
+                    monthlyLabelEl.style.display = 'none';
+                }
             }
         } else {
             if (tableContainer2) tableContainer2.style.display = 'none';
@@ -166,6 +182,12 @@ async function switchPeriod(period) {
 
 document.addEventListener('DOMContentLoaded', function() {
     updatePeriodButtons();
+    // Show the card on initial load if user has a rank (current_user_rank is set server-side)
+    const initialRank = document.getElementById('your-rank-value');
+    const yourRankCard = document.getElementById('your-rank-card');
+    if (yourRankCard && initialRank && initialRank.textContent !== '#—') {
+        yourRankCard.style.display = 'flex';
+    }
 });
 </script>
 {% endblock %}
