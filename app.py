@@ -745,6 +745,23 @@ async def startup():
             u["expiration_date"] = None
             migrated = True
 
+        # RX/TX separation fields for leaderboard
+        if "traffic_total_rx" not in u:
+            u["traffic_total_rx"] = 0
+            migrated = True
+        if "traffic_total_tx" not in u:
+            u["traffic_total_tx"] = 0
+            migrated = True
+        if "monthly_rx" not in u:
+            u["monthly_rx"] = 0
+            migrated = True
+        if "monthly_tx" not in u:
+            u["monthly_tx"] = 0
+            migrated = True
+        if "monthly_reset_at" not in u:
+            u["monthly_reset_at"] = ""
+            migrated = True
+
         if migrated:
             changed = True
             logger.info(f"Migrated user {u['username']} to new traffic/sharing fields")
@@ -810,18 +827,17 @@ async def periodic_background_tasks():
                             for c in clients:
                                 rx = c.get("userData", {}).get("dataReceivedBytes", 0)
                                 tx = c.get("userData", {}).get("dataSentBytes", 0)
-                                client_bytes[c.get("clientId")] = rx + tx
+                                client_bytes[c.get("clientId")] = {"rx": rx, "tx": tx}
 
                             for uc in conns_by_server[sid]:
                                 if uc["protocol"] == proto and uc["client_id"] in client_bytes:
-                                    curr_bytes = client_bytes[uc["client_id"]]
-                                    last_bytes = uc.get("last_bytes", 0)
-                                    delta = (
-                                        curr_bytes - last_bytes
-                                        if curr_bytes >= last_bytes
-                                        else curr_bytes
-                                    )
-                                    updates.append((uc["id"], delta, curr_bytes))
+                                    curr_rx = client_bytes[uc["client_id"]]["rx"]
+                                    curr_tx = client_bytes[uc["client_id"]]["tx"]
+                                    last_rx = uc.get("last_rx", 0)
+                                    last_tx = uc.get("last_tx", 0)
+                                    rx_delta = curr_rx - last_rx if curr_rx >= last_rx else curr_rx
+                                    tx_delta = curr_tx - last_tx if curr_tx >= last_tx else curr_tx
+                                    updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
                     ssh.disconnect()
                 except Exception as e:
                     logger.error(f"Traffic sync err server {sid}: {e}")
@@ -837,9 +853,10 @@ async def periodic_background_tasks():
                     # Current date/time for reset checking
                     now = datetime.now()
 
-                    for uc_id, delta, curr_bytes in updates:
+                    for uc_id, rx_delta, tx_delta, curr_rx, curr_tx in updates:
                         if uc_id in uc_map:
-                            uc_map[uc_id]["last_bytes"] = curr_bytes
+                            uc_map[uc_id]["last_rx"] = curr_rx
+                            uc_map[uc_id]["last_tx"] = curr_tx
                             uid = uc_map[uc_id]["user_id"]
                             if uid in users_map:
                                 u = users_map[uid]
@@ -872,9 +889,45 @@ async def periodic_background_tasks():
                                     u["traffic_used"] = 0
                                     u["last_reset_at"] = now.isoformat()
 
-                                # Update both resettable and total traffic
+                                # Monthly rollover for monthly_rx and monthly_tx
+                                monthly_reset_iso = u.get("monthly_reset_at", "")
+                                if not monthly_reset_iso:
+                                    # First time — initialize
+                                    u["monthly_rx"] = 0
+                                    u["monthly_tx"] = 0
+                                    u["monthly_reset_at"] = now.isoformat()
+                                    logger.debug(
+                                        f"Initialized monthly traffic for user {u['username']}"
+                                    )
+                                else:
+                                    try:
+                                        monthly_last = datetime.fromisoformat(monthly_reset_iso)
+                                        if (
+                                            now.month != monthly_last.month
+                                            or now.year != monthly_last.year
+                                        ):
+                                            u["monthly_rx"] = 0
+                                            u["monthly_tx"] = 0
+                                            u["monthly_reset_at"] = now.isoformat()
+                                            logger.debug(
+                                                f"Monthly rollover for user {u['username']} "
+                                                f"(was {monthly_reset_iso})"
+                                            )
+                                    except Exception:
+                                        pass
+
+                                # Update both resettable and total traffic (combined RX+TX)
+                                delta = rx_delta + tx_delta
                                 u["traffic_used"] = u.get("traffic_used", 0) + delta
                                 u["traffic_total"] = u.get("traffic_total", 0) + delta
+
+                                # Update separate RX/TX totals
+                                u["traffic_total_rx"] = u.get("traffic_total_rx", 0) + rx_delta
+                                u["traffic_total_tx"] = u.get("traffic_total_tx", 0) + tx_delta
+
+                                # Update monthly RX/TX
+                                u["monthly_rx"] = u.get("monthly_rx", 0) + rx_delta
+                                u["monthly_tx"] = u.get("monthly_tx", 0) + tx_delta
 
                                 limit = u.get("traffic_limit", 0)
                                 if (
