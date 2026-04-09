@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title_extra %} — {{ _('leaderboard_title') }}{% endblock %}
+
+{% block content %}
+<section>
+    <div class="flex items-center justify-between"
+        style="margin-bottom: var(--space-lg); gap: var(--space-md); flex-wrap: wrap;">
+        <h1 class="section-title" style="margin-bottom:0; flex-shrink: 0;">
+            <span class="icon">🏆</span>
+            {{ _('leaderboard_title') }}
+        </h1>
+
+        <div style="display: flex; gap: var(--space-sm); align-items: center;">
+            <span style="color: var(--text-muted); font-size: 0.9rem;">{{ _('period_label') }}:</span>
+            <a href="/leaderboard?period=all-time"
+                class="btn btn-sm {{ 'btn-primary' if period == 'all-time' else 'btn-secondary' }}"
+                style="text-decoration: none;">{{ _('period_all_time') }}</a>
+            <a href="/leaderboard?period=monthly"
+                class="btn btn-sm {{ 'btn-primary' if period == 'monthly' else 'btn-secondary' }}"
+                style="text-decoration: none;">{{ _('period_monthly') }}</a>
+        </div>
+    </div>
+
+    {% if current_user_rank %}
+    <div class="card" style="margin-bottom: var(--space-lg); padding: var(--space-md); background: var(--bg-secondary); border: 1px solid var(--primary);">
+        <div style="display: flex; align-items: center; gap: var(--space-md);">
+            <span style="font-size: 1.5rem;">🎯</span>
+            <div>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">{{ _('your_rank') }}</div>
+                <div style="font-size: 1.25rem; font-weight: 700; color: var(--primary);">#{{ current_user_rank }}</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if entries %}
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th style="width: 60px;">#</th>
+                    <th>{{ _('username_label') }}</th>
+                    <th style="text-align: right;">{{ _('download_label') }}</th>
+                    <th style="text-align: right;">{{ _('upload_label') }}</th>
+                    <th style="text-align: right;">{{ _('total_label') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                <tr{% if entry.username == current_user.username %} style="background: var(--bg-secondary); font-weight: 600;"{% endif %}>
+                    <td style="text-align: center;">
+                        {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
+                    </td>
+                    <td>
+                        {{ entry.username }}
+                        {% if entry.username == current_user.username %}<span style="color: var(--primary); font-size: 0.75rem;">(you)</span>{% endif %}
+                    </td>
+                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.download) }}</td>
+                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.upload) }}</td>
+                    <td style="text-align: right; font-family: monospace;">{{ format_bytes(entry.total) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">🏆</div>
+        <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+        <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

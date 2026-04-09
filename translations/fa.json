@@ -274,5 +274,15 @@
   "rate_limit_count_label": "محدودیت نرخ (تعداد اتصال)",
   "rate_limit_count_hint": "حداکثر تعداد اتصال جدیدی که یک کاربر می‌تواند در بازه زمانی ایجاد کند.",
   "rate_limit_window_label": "بازه زمانی محدودیت نرخ (ثانیه)",
-  "rate_limit_window_hint": "بازه زمانی بر حسب ثانیه برای محدودیت نرخ. مثلاً ۵ اتصال در هر ۶۰ ثانیه."
+  "rate_limit_window_hint": "بازه زمانی بر حسب ثانیه برای محدودیت نرخ. مثلاً ۵ اتصال در هر ۶۰ ثانیه.",
+  "leaderboard_title": "جدول امتیازات",
+  "period_label": "دوره",
+  "period_all_time": "همه زمان‌ها",
+  "period_monthly": "ماهانه",
+  "your_rank": "رتبه شما",
+  "download_label": "دانلود",
+  "upload_label": "آپلود",
+  "total_label": "مجموع",
+  "leaderboard_empty_title": "هنوز داده‌ای وجود ندارد",
+  "leaderboard_empty_desc": "داده‌های ترافیک پس از شروع کاربران به استفاده از اتصالات خود در اینجا نمایش داده می‌شوند."
 }
