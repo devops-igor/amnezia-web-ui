@@ -823,6 +823,33 @@ async def startup():
             changed = True
             logger.info(f"Migrated user {u['username']} to new traffic/sharing fields")
 
+    # Migrate user_connections: last_bytes -> last_rx / last_tx
+    for uc in data.get("user_connections", []):
+        if "last_bytes" in uc and "last_rx" not in uc:
+            last_bytes = uc["last_bytes"]
+            uc["last_rx"] = last_bytes // 2
+            uc["last_tx"] = last_bytes - uc["last_rx"]
+            del uc["last_bytes"]
+            changed = True
+            logger.info(
+                f"Migrated user_connection {uc.get('id')} last_bytes={last_bytes} "
+                f"-> last_rx={uc['last_rx']}, last_tx={uc['last_tx']}"
+            )
+
+    # One-time traffic recalculation to fix doubled values
+    if "traffic_doubled_fix_applied" not in data:
+        for u in data.get("users", []):
+            new_total = u.get("traffic_total_rx", 0) + u.get("traffic_total_tx", 0)
+            if new_total > 0:
+                u["traffic_total"] = new_total
+            if u.get("traffic_used", 0) > u.get("traffic_total", 0):
+                u["traffic_used"] = u["traffic_total"]
+        data["traffic_doubled_fix_applied"] = True
+        changed = True
+        logger.info(
+            "Applied traffic_doubled_fix: recalculated traffic_total and clamped traffic_used"
+        )
+
     # SSL settings migration
     if "ssl" not in data.get("settings", {}):
         if "settings" not in data:
@@ -890,8 +917,16 @@ async def periodic_background_tasks():
                                 if uc["protocol"] == proto and uc["client_id"] in client_bytes:
                                     curr_rx = client_bytes[uc["client_id"]]["rx"]
                                     curr_tx = client_bytes[uc["client_id"]]["tx"]
-                                    last_rx = uc.get("last_rx", 0)
-                                    last_tx = uc.get("last_tx", 0)
+                                    last_rx = uc.get("last_rx")
+                                    last_tx = uc.get("last_tx")
+                                    if last_rx is None and last_tx is None:
+                                        # Legacy connection not yet migrated: last_bytes was combined rx+tx
+                                        last_bytes = uc.get("last_bytes", 0)
+                                        last_rx = last_bytes // 2
+                                        last_tx = last_bytes - last_rx
+                                    else:
+                                        last_rx = last_rx or 0
+                                        last_tx = last_tx or 0
                                     rx_delta = curr_rx - last_rx if curr_rx >= last_rx else curr_rx
                                     tx_delta = curr_tx - last_tx if curr_tx >= last_tx else curr_tx
                                     updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
