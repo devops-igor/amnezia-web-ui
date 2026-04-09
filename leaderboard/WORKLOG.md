@@ -20,3 +20,8 @@ Fixed critical regressions from TASK-03. Reverted `base.html` to a stable state,
 - Verified `awg_manager.py` has zero changes.
 - Verified `base.html` contains exactly one `formatBytes` function.
 - Verified translation files are updated.
+
+## [2026-04-10 00:12:53] git_bot
+- Created branch: feat/task-03-leaderboard-frontend
+- Committed task-03 frontend changes (JS fetch, nav link, formatBytes)
+- Pushed branch and opened PR: https://github.com/devops-igor/amnezia-web-ui/pull/7
