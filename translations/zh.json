@@ -274,5 +274,15 @@
   "rate_limit_count_label": "速率限制（连接数）",
   "rate_limit_count_hint": "用户在时间窗口内可以创建的新连接的最大数量。",
   "rate_limit_window_label": "速率限制窗口（秒）",
-  "rate_limit_window_hint": "速率限制的时间窗口（秒）。例如：每60秒5个连接。"
+  "rate_limit_window_hint": "速率限制的时间窗口（秒）。例如：每60秒5个连接。",
+  "leaderboard_title": "排行榜",
+  "period_label": "周期",
+  "period_all_time": "全部时间",
+  "period_monthly": "每月",
+  "your_rank": "您的排名",
+  "download_label": "下载",
+  "upload_label": "上传",
+  "total_label": "总计",
+  "leaderboard_empty_title": "暂无数据",
+  "leaderboard_empty_desc": "一旦用户开始使用他们的连接，流量数据将显示在这里。"
 }

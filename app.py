@@ -517,6 +517,19 @@ def get_current_user(request: Request):
     return None
 
 
+def _format_bytes(n: int) -> str:
+    """Format byte count as human-readable string (e.g. '1.5 GB')."""
+    if n is None:
+        n = 0
+    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
+        if abs(n) < 1024.0:
+            if unit == "B":
+                return f"{int(n)} {unit}"
+            return f"{n:.2f} {unit}"
+        n /= 1024.0
+    return f"{n:.2f} EB"
+
+
 def tpl(request, template, **kwargs):
     data = load_data()
     lang = request.cookies.get("lang", "en")
@@ -531,9 +544,45 @@ def tpl(request, template, **kwargs):
         "_": lambda text_id: _t(text_id, lang),
         "translations_json": json.dumps(TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))),
         "all_translations_json": json.dumps(TRANSLATIONS),
+        "format_bytes": _format_bytes,
     }
     ctx.update(kwargs)
     return templates.TemplateResponse(template, ctx)
+
+
+def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
+    """Aggregate traffic data for the leaderboard.
+
+    Args:
+        data: loaded data.json
+        period: "all-time" or "monthly"
+
+    Returns:
+        list of dicts with rank, username, download, upload, total
+    """
+    users = data.get("users", [])
+    entries = []
+    for u in users:
+        if period == "monthly":
+            download = u.get("monthly_rx", 0)
+            upload = u.get("monthly_tx", 0)
+        else:
+            download = u.get("traffic_total_rx", 0)
+            upload = u.get("traffic_total_tx", 0)
+        total = download + upload
+        entries.append(
+            {
+                "rank": 0,
+                "username": u.get("username", ""),
+                "download": download,
+                "upload": upload,
+                "total": total,
+            }
+        )
+    entries.sort(key=lambda e: e["total"], reverse=True)
+    for i, e in enumerate(entries):
+        e["rank"] = i + 1
+    return entries
 
 
 # ======================== Pydantic Models ========================
@@ -1061,6 +1110,30 @@ async def my_connections_page(request: Request):
     return tpl(request, "my_connections.html", connections=conns, servers=servers_with_ids)
 
 
+@app.get("/leaderboard", response_class=HTMLResponse)
+async def leaderboard_page(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    period = request.query_params.get("period", "all-time")
+    if period not in ("all-time", "monthly"):
+        period = "all-time"
+    data = load_data()
+    entries = get_leaderboard_entries(data, period)
+    current_user_rank = None
+    for e in entries:
+        if e.get("username") == user.get("username"):
+            current_user_rank = e["rank"]
+            break
+    return tpl(
+        request,
+        "leaderboard.html",
+        entries=entries,
+        period=period,
+        current_user_rank=current_user_rank,
+    )
+
+
 # ======================== AUTH API ========================
 
 
@@ -1102,6 +1175,30 @@ async def api_login(request: Request, req: LoginRequest):
             return {"status": "success", "role": u["role"]}
     lang = request.cookies.get("lang", "ru")
     return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
+
+
+@app.get("/api/leaderboard")
+async def api_leaderboard(request: Request):
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    period = request.query_params.get("period", "all-time")
+    if period not in ("all-time", "monthly"):
+        period = "all-time"
+    data = load_data()
+    entries = get_leaderboard_entries(data, period)
+    current_user_rank = None
+    for e in entries:
+        if e.get("username") == user.get("username"):
+            current_user_rank = e["rank"]
+            break
+    return JSONResponse(
+        {
+            "period": period,
+            "entries": entries,
+            "current_user_rank": current_user_rank,
+        }
+    )
 
 
 # ======================== SERVER API (admin/support) ========================

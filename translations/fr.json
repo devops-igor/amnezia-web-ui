@@ -274,5 +274,15 @@
   "rate_limit_count_label": "Limite de débit (connexions)",
   "rate_limit_count_hint": "Nombre maximum de nouvelles connexions qu'un utilisateur peut créer dans la fenêtre de temps.",
   "rate_limit_window_label": "Fenêtre de limite de débit (secondes)",
-  "rate_limit_window_hint": "Fenêtre de temps en secondes pour la limite de débit. Par ex., 5 connexions par 60 secondes."
+  "rate_limit_window_hint": "Fenêtre de temps en secondes pour la limite de débit. Par ex., 5 connexions par 60 secondes.",
+  "leaderboard_title": "Classement",
+  "period_label": "Période",
+  "period_all_time": "Tout le temps",
+  "period_monthly": "Mensuel",
+  "your_rank": "Votre rang",
+  "download_label": "Téléchargement",
+  "upload_label": "Téléversement",
+  "total_label": "Total",
+  "leaderboard_empty_title": "Pas encore de données",
+  "leaderboard_empty_desc": "Les données de trafic apparaîtront ici une fois que les utilisateurs commenceront à utiliser leurs connexions."
 }

@@ -298,5 +298,15 @@
   "rate_limit_count_label": "Rate Limit (connections)",
   "rate_limit_count_hint": "Maximum number of new connections a user can create within the time window.",
   "rate_limit_window_label": "Rate Limit Window (seconds)",
-  "rate_limit_window_hint": "Time window in seconds for the rate limit. E.g., 5 connections per 60 seconds."
+  "rate_limit_window_hint": "Time window in seconds for the rate limit. E.g., 5 connections per 60 seconds.",
+  "leaderboard_title": "Leaderboard",
+  "period_label": "Period",
+  "period_all_time": "All Time",
+  "period_monthly": "Monthly",
+  "your_rank": "Your Rank",
+  "download_label": "Download",
+  "upload_label": "Upload",
+  "total_label": "Total",
+  "leaderboard_empty_title": "No data yet",
+  "leaderboard_empty_desc": "Traffic data will appear here once users start using their connections."
 }
