@@ -1561,3 +1561,138 @@ body,
 .gap-md {
     gap: var(--space-md);
 }
+/* ===== Leaderboard ===== */
+.leaderboard-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-lg);
+}
+
+.leaderboard-rank-card {
+    display: flex;
+    align-items: center;
+    gap: var(--space-lg);
+    padding: var(--space-lg);
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    border-left: 3px solid var(--accent);
+}
+
+.leaderboard-rank-icon {
+    font-size: 2.5rem;
+    line-height: 1;
+}
+
+.leaderboard-rank-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.leaderboard-rank-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.leaderboard-rank-value {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: var(--accent-light);
+    font-family: 'Inter', system-ui, sans-serif;
+    line-height: 1;
+}
+
+.leaderboard-period-toggle {
+    display: flex;
+    gap: var(--space-sm);
+    align-items: center;
+}
+
+.leaderboard-period-toggle .btn {
+    min-width: 90px;
+    justify-content: center;
+}
+
+.table-container {
+    overflow-x: auto;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+
+.data-table thead {
+    background: var(--bg-secondary);
+}
+
+.data-table th {
+    padding: var(--space-md) var(--space-lg);
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    white-space: nowrap;
+}
+
+.data-table td {
+    padding: var(--space-md) var(--space-lg);
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.data-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.data-table tbody tr:hover {
+    background: var(--bg-card-hover);
+}
+
+.data-table tbody tr.current-user {
+    background: rgba(139, 92, 246, 0.08);
+    font-weight: 600;
+}
+
+.data-table .rank-cell {
+    text-align: center;
+    font-size: 1.1rem;
+    min-width: 50px;
+}
+
+.data-table .username-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.data-table .traffic-cell {
+    text-align: right;
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.leaderboard-footer {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-md);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.badge-primary {
+    background: var(--accent-glow);
+    color: var(--accent-light);
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
