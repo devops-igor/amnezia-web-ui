@@ -41,4 +41,5 @@ jobs:
           image-ref: amnezia-web-panel:scan
           format: table
           severity: CRITICAL,HIGH
+          fail-on: HIGH
           vuln-type: os,library
