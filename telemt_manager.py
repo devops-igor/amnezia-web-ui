@@ -339,9 +339,26 @@ class TelemtManager:
             return {"client_id": username, "config": "", "vpn_link": ""}
 
         data = resp.get("data", {})
-        secret = data.get("secret", "")
-        link = f"tg://proxy?server={host}&port={port}&secret={secret}"
-        return {"client_id": username, "config": link, "vpn_link": link}
+        links = data.get("links", {})
+
+        # Use the link from the API (it has correct server IP, port, and secret)
+        if links.get("tls"):
+            return {"client_id": username, "config": links["tls"][0], "vpn_link": links["tls"][0]}
+        elif links.get("secure"):
+            return {
+                "client_id": username,
+                "config": links["secure"][0],
+                "vpn_link": links["secure"][0],
+            }
+        elif links.get("classic"):
+            return {
+                "client_id": username,
+                "config": links["classic"][0],
+                "vpn_link": links["classic"][0],
+            }
+
+        # No link from API — return empty
+        return {"client_id": username, "config": "", "vpn_link": ""}
 
     def edit_client(
         self,
@@ -437,7 +454,7 @@ class TelemtManager:
         clients = self.get_clients(protocol_type)
         client = next((c for c in clients if c["clientId"] == client_id), None)
         if client:
-            secret = client.get("userData", {}).get("token", "")
-            if secret:
-                return f"tg://proxy?server={host}&port={port}&secret={secret}"
+            tg_link = client.get("userData", {}).get("tg_link", "")
+            if tg_link:
+                return tg_link
         return "Not found"
