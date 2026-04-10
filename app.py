@@ -558,11 +558,15 @@ def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
         period: "all-time" or "monthly"
 
     Returns:
-        list of dicts with rank, username, download, upload, total
+        list of dicts with rank, username, download, upload, total.
+        Users with zero total traffic or disabled accounts are excluded.
     """
     users = data.get("users", [])
     entries = []
     for u in users:
+        # Skip disabled users (enabled is explicitly False or non-truthy)
+        if u.get("enabled", True) is not True:
+            continue
         if period == "monthly":
             download = u.get("monthly_rx", 0)
             upload = u.get("monthly_tx", 0)
@@ -570,6 +574,9 @@ def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
             download = u.get("traffic_total_rx", 0)
             upload = u.get("traffic_total_tx", 0)
         total = download + upload
+        # Skip zero-traffic users
+        if total == 0:
+            continue
         entries.append(
             {
                 "rank": 0,
@@ -579,7 +586,8 @@ def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
                 "total": total,
             }
         )
-    entries.sort(key=lambda e: e["total"], reverse=True)
+    # Sort by descending total, then ascending username (case-insensitive)
+    entries.sort(key=lambda e: (-e["total"], e["username"].lower()))
     for i, e in enumerate(entries):
         e["rank"] = i + 1
     return entries
@@ -815,6 +823,33 @@ async def startup():
             changed = True
             logger.info(f"Migrated user {u['username']} to new traffic/sharing fields")
 
+    # Migrate user_connections: last_bytes -> last_rx / last_tx
+    for uc in data.get("user_connections", []):
+        if "last_bytes" in uc and "last_rx" not in uc:
+            last_bytes = uc["last_bytes"]
+            uc["last_rx"] = last_bytes // 2
+            uc["last_tx"] = last_bytes - uc["last_rx"]
+            del uc["last_bytes"]
+            changed = True
+            logger.info(
+                f"Migrated user_connection {uc.get('id')} last_bytes={last_bytes} "
+                f"-> last_rx={uc['last_rx']}, last_tx={uc['last_tx']}"
+            )
+
+    # One-time traffic recalculation to fix doubled values
+    if "traffic_doubled_fix_applied" not in data:
+        for u in data.get("users", []):
+            new_total = u.get("traffic_total_rx", 0) + u.get("traffic_total_tx", 0)
+            if new_total > 0:
+                u["traffic_total"] = new_total
+            if u.get("traffic_used", 0) > u.get("traffic_total", 0):
+                u["traffic_used"] = u["traffic_total"]
+        data["traffic_doubled_fix_applied"] = True
+        changed = True
+        logger.info(
+            "Applied traffic_doubled_fix: recalculated traffic_total and clamped traffic_used"
+        )
+
     # SSL settings migration
     if "ssl" not in data.get("settings", {}):
         if "settings" not in data:
@@ -882,8 +917,16 @@ async def periodic_background_tasks():
                                 if uc["protocol"] == proto and uc["client_id"] in client_bytes:
                                     curr_rx = client_bytes[uc["client_id"]]["rx"]
                                     curr_tx = client_bytes[uc["client_id"]]["tx"]
-                                    last_rx = uc.get("last_rx", 0)
-                                    last_tx = uc.get("last_tx", 0)
+                                    last_rx = uc.get("last_rx")
+                                    last_tx = uc.get("last_tx")
+                                    if last_rx is None and last_tx is None:
+                                        # Legacy connection not yet migrated: last_bytes was combined rx+tx
+                                        last_bytes = uc.get("last_bytes", 0)
+                                        last_rx = last_bytes // 2
+                                        last_tx = last_bytes - last_rx
+                                    else:
+                                        last_rx = last_rx or 0
+                                        last_tx = last_tx or 0
                                     rx_delta = curr_rx - last_rx if curr_rx >= last_rx else curr_rx
                                     tx_delta = curr_tx - last_tx if curr_tx >= last_tx else curr_tx
                                     updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
@@ -1118,6 +1161,7 @@ async def leaderboard_page(request: Request):
     period = request.query_params.get("period", "all-time")
     if period not in ("all-time", "monthly"):
         period = "all-time"
+    monthly_label: str | None = datetime.now().strftime("%B %Y") if period == "monthly" else None
     data = load_data()
     entries = get_leaderboard_entries(data, period)
     current_user_rank = None
@@ -1131,6 +1175,7 @@ async def leaderboard_page(request: Request):
         entries=entries,
         period=period,
         current_user_rank=current_user_rank,
+        monthly_label=monthly_label,
     )
 
 
@@ -1185,6 +1230,7 @@ async def api_leaderboard(request: Request):
     period = request.query_params.get("period", "all-time")
     if period not in ("all-time", "monthly"):
         period = "all-time"
+    monthly_label: str | None = datetime.now().strftime("%B %Y") if period == "monthly" else None
     data = load_data()
     entries = get_leaderboard_entries(data, period)
     current_user_rank = None
@@ -1197,6 +1243,7 @@ async def api_leaderboard(request: Request):
             "period": period,
             "entries": entries,
             "current_user_rank": current_user_rank,
+            "monthly_label": monthly_label,
         }
     )
 
