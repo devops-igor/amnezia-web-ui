@@ -75,7 +75,7 @@ class TelemtManager:
     def install_protocol(
         self,
         protocol_type="telemt",
-        port="443",
+        port="18443",
         tls_emulation=True,
         tls_domain="",
         max_connections=0,
