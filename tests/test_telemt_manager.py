@@ -314,14 +314,21 @@ class TestAddClient:
     def test_add_client_success(self, mock_api):
         mock_api.return_value = {
             "ok": True,
-            "data": {"username": "newuser", "secret": "newsecret123"},
+            "data": {
+                "username": "newuser",
+                "secret": "***",
+                "links": {
+                    "tls": ["tg://proxy?server=api.example.com&port=18443&secret=newsecret123"]
+                },
+            },
         }
 
         result = self.manager.add_client("telemt", "New User", host="vpn.example.com", port="443")
 
         assert result["client_id"] == "New_User"
-        assert "vpn_link" in result
-        assert "newsecret123" in result["vpn_link"]
+        api_link = "tg://proxy?server=api.example.com&port=18443&secret=newsecret123"
+        assert result["config"] == api_link
+        assert result["vpn_link"] == api_link
 
         # Verify POST was called with correct data
         call_args = mock_api.call_args[0]
@@ -592,8 +599,12 @@ class TestGetClientConfig:
                 "data": [
                     {
                         "username": "dave",
-                        "secret": "secret123",
-                        "links": {},
+                        "secret": "***",
+                        "links": {
+                            "tls": [
+                                "tg://proxy?server=fallback.example.com&port=18443&secret=secret123"
+                            ]
+                        },
                         "total_octets": 0,
                     }
                 ],
@@ -603,7 +614,7 @@ class TestGetClientConfig:
         result = self.manager.get_client_config(
             "telemt", "dave", host="vpn.example.com", port="443"
         )
-        assert "secret123" in result
+        assert result == "tg://proxy?server=fallback.example.com&port=18443&secret=secret123"
 
     @patch.object(TelemtManager, "_api_request")
     def test_get_client_config_user_not_found(self, mock_api):
