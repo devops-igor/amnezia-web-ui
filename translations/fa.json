@@ -286,5 +286,8 @@
     "total_label": "مجموع",
     "leaderboard_empty_title": "هنوز داده‌ای وجود ندارد",
     "leaderboard_empty_desc": "داده‌های ترافیک پس از شروع کاربران به استفاده از اتصالات خود در اینجا نمایش داده می‌شوند.",
-    "leaderboard_nav": "جدول امتیازات"
+    "leaderboard_nav": "جدول امتیازات",
+    "protocol_paths": "مسیرهای پروتکل",
+    "telemt_config_dir": "دایرکتوری پیکربندی Telemt",
+    "telemt_config_dir_hint": "دایرکتوری در سرور راه دور که Telemt فایل‌های پیکربندی خود را در آن ذخیره می‌کند."
 }

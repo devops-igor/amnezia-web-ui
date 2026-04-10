@@ -310,5 +310,8 @@
     "total_label": "Total",
     "leaderboard_empty_title": "No data yet",
     "leaderboard_empty_desc": "Traffic data will appear here once users start using their connections.",
-    "leaderboard_nav": "Leaderboard"
+    "leaderboard_nav": "Leaderboard",
+    "protocol_paths": "Protocol Paths",
+    "telemt_config_dir": "Telemt Config Directory",
+    "telemt_config_dir_hint": "Directory on the remote server where Telemt stores its configuration files."
 }
