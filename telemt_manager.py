@@ -13,8 +13,17 @@ class TelemtManager:
     CONTAINER_NAME = "telemt"
     API_URL = "http://127.0.0.1:9091"
 
-    def __init__(self, ssh_manager: SSHManager):
+    def __init__(self, ssh_manager: SSHManager, config_dir: str = "/opt/amnezia/telemt"):
         self.ssh = ssh_manager
+        self._config_dir_path = config_dir
+
+    def _config_dir(self) -> str:
+        """Return the configurable Telemt config directory path."""
+        return self._config_dir_path
+
+    def _config_path(self) -> str:
+        """Return the full path to config.toml."""
+        return f"{self._config_dir()}/config.toml"
 
     def _api_request(self, method, path, data=None):
         """Execute a curl request inside the docker container."""
@@ -97,7 +106,7 @@ class TelemtManager:
 
         results.append("Uploading Telemt files...")
         local_dir = os.path.join(os.path.dirname(__file__), "protocol_telemt")
-        remote_dir = "/opt/amnezia/telemt"
+        remote_dir = self._config_dir()
         self.ssh.run_sudo_command(f"mkdir -p {remote_dir}")
         self.ssh.run_sudo_command(f"chmod 755 {remote_dir}")
 
@@ -163,14 +172,14 @@ class TelemtManager:
         return {"status": "success", "host": "", "port": port, "log": results}
 
     def _get_server_config(self):
-        out, _, code = self.ssh.run_sudo_command("cat /opt/amnezia/telemt/config.toml")
+        out, _, code = self.ssh.run_sudo_command(f"cat {self._config_path()}")
         if code != 0:
             return ""
         return out
 
     def save_server_config(self, protocol_type, config_content):
         self.ssh.upload_file_sudo(
-            config_content.replace("\r\n", "\n"), "/opt/amnezia/telemt/config.toml"
+            config_content.replace("\r\n", "\n"), self._config_path()
         )
         # Use SIGHUP (HUP) to reload MTProxy config without restarting the process/container.
         # This keeps the traffic statistics (octets) in memory.
@@ -196,7 +205,7 @@ class TelemtManager:
 
     def remove_container(self, protocol_type=None):
         self.ssh.run_sudo_command(f"docker rm -f {self.CONTAINER_NAME}")
-        self.ssh.run_sudo_command("rm -rf /opt/amnezia/telemt")
+        self.ssh.run_sudo_command(f"rm -rf {self._config_dir()}")
 
     def get_clients(self, protocol_type):
         api_data = {}
@@ -442,7 +451,7 @@ class TelemtManager:
             self.save_server_config(protocol_type, "\n".join(new_lines))
         else:
             self.ssh.upload_file_sudo(
-                "\n".join(new_lines).replace("\r\n", "\n"), "/opt/amnezia/telemt/config.toml"
+                "\n".join(new_lines).replace("\r\n", "\n"), self._config_path()
             )
 
     def get_client_config(self, protocol_type, client_id, host="", port=""):
