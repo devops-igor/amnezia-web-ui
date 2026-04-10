@@ -815,8 +815,8 @@
             portHint.textContent = _('port_xray_hint');
         } else if (proto === 'telemt') {
             portLabel.textContent = _('port') + ' (TCP)';
-            portInput.value = '18443';
-            portHint.textContent = 'Порт для Telegram-прокси (обычно 18443)';
+            portInput.value = '443';
+            portHint.textContent = 'Порт для Telegram-прокси (обычно 443)';
             telemtOpts.style.display = 'block';
         } else {
             portLabel.textContent = _('port') + ' (UDP)';
