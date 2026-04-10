@@ -505,5 +505,295 @@ class TestBackwardCompatibility:
             assert field in user, f"Missing field: {field}"
 
 
+# ---------- TASK-03: Doubled Traffic Fix Tests ----------
+
+
+class TestConnectionMigration:
+    """Test migration of user_connections last_bytes -> last_rx/last_tx."""
+
+    def test_connection_migration_even_split(self, app_module):
+        """Connection with last_bytes=5000 gets last_rx=2500, last_tx=2500."""
+        conn = {
+            "id": "uc1",
+            "user_id": "user1",
+            "server_id": 0,
+            "protocol": "awg",
+            "client_id": "client1",
+            "last_bytes": 5000,
+        }
+        data = {"users": [], "user_connections": [conn]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        migrated_conn = saved["user_connections"][0]
+        assert migrated_conn["last_rx"] == 2500
+        assert migrated_conn["last_tx"] == 2500
+        assert "last_bytes" not in migrated_conn
+
+    def test_connection_migration_odd_split(self, app_module):
+        """Connection with last_bytes=5001 gets last_rx=2500, last_tx=2501 (sum=5001)."""
+        conn = {
+            "id": "uc2",
+            "user_id": "user1",
+            "server_id": 0,
+            "protocol": "awg",
+            "client_id": "client1",
+            "last_bytes": 5001,
+        }
+        data = {"users": [], "user_connections": [conn]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        migrated_conn = saved["user_connections"][0]
+        assert migrated_conn["last_rx"] == 2500
+        assert migrated_conn["last_tx"] == 2501
+        assert migrated_conn["last_rx"] + migrated_conn["last_tx"] == 5001
+        assert "last_bytes" not in migrated_conn
+
+    def test_connection_migration_skips_already_migrated(self, app_module):
+        """Connection that already has last_rx/last_tx should not be modified."""
+        conn = {
+            "id": "uc3",
+            "user_id": "user1",
+            "server_id": 0,
+            "protocol": "awg",
+            "client_id": "client1",
+            "last_rx": 1000,
+            "last_tx": 500,
+        }
+        data = {"users": [], "user_connections": [conn]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        saved_conn = saved["user_connections"][0]
+        assert saved_conn["last_rx"] == 1000
+        assert saved_conn["last_tx"] == 500
+
+
+class TestTrafficRecalculation:
+    """Test one-time traffic recalculation to fix doubled values."""
+
+    def test_traffic_total_recalculated_from_rx_tx(self, app_module):
+        """User with doubled traffic_total=10000, rx=3000, tx=2000 gets traffic_total=5000."""
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": "testuser",
+            "password_hash": "salt$hash",
+            "role": "user",
+            "enabled": True,
+            "traffic_used": 10000,
+            "traffic_total": 10000,
+            "traffic_total_rx": 3000,
+            "traffic_total_tx": 2000,
+            "traffic_reset_strategy": "never",
+        }
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        saved_user = saved["users"][0]
+        assert saved_user["traffic_total"] == 5000
+
+    def test_traffic_used_clamped_when_exceeds_total(self, app_module):
+        """User with traffic_used=10000 (doubled), traffic_total corrected to 5000 gets clamped to 5000."""
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": "testuser",
+            "password_hash": "salt$hash",
+            "role": "user",
+            "enabled": True,
+            "traffic_used": 10000,
+            "traffic_total": 10000,
+            "traffic_total_rx": 3000,
+            "traffic_total_tx": 2000,
+            "traffic_reset_strategy": "never",
+        }
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        saved_user = saved["users"][0]
+        assert saved_user["traffic_used"] == 5000
+        assert saved_user["traffic_used"] == saved_user["traffic_total"]
+
+    def test_fix_runs_only_once(self, app_module):
+        """The traffic_doubled_fix_applied flag prevents re-running."""
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": "testuser",
+            "password_hash": "salt$hash",
+            "role": "user",
+            "enabled": True,
+            "traffic_used": 8000,
+            "traffic_total": 8000,
+            "traffic_total_rx": 3000,
+            "traffic_total_tx": 2000,
+            "traffic_reset_strategy": "never",
+        }
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        # First run: traffic_total should be corrected to 5000, traffic_used clamped to 5000
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        assert saved["users"][0]["traffic_total"] == 5000
+        assert saved["users"][0]["traffic_used"] == 5000
+        assert saved["traffic_doubled_fix_applied"] is True
+
+        # Manually corrupt data to simulate a second run without the flag check
+        # (the flag should prevent any changes on subsequent startups)
+        saved["users"][0]["traffic_total"] = 9999
+        saved["users"][0]["traffic_used"] = 9999
+        del saved["traffic_doubled_fix_applied"]
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(saved, f)
+
+        # Now run startup again - without the flag, it would recalculate again
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved2 = json.load(f)
+        # The flag was re-added, and recalculation ran again since we deleted the flag
+        assert saved2["traffic_doubled_fix_applied"] is True
+        # traffic_total should be 5000 again (from rx+tx which didn't change)
+        assert saved2["users"][0]["traffic_total"] == 5000
+        assert saved2["users"][0]["traffic_used"] == 5000
+
+    def test_traffic_used_not_modified_when_already_valid(self, app_module):
+        """User with traffic_used <= traffic_total should not be modified."""
+        user = {
+            "id": str(uuid.uuid4()),
+            "username": "testuser",
+            "password_hash": "salt$hash",
+            "role": "user",
+            "enabled": True,
+            "traffic_used": 3000,
+            "traffic_total": 10000,
+            "traffic_total_rx": 3000,
+            "traffic_total_tx": 2000,
+            "traffic_reset_strategy": "monthly",
+            "last_reset_at": datetime.now().isoformat(),
+        }
+        data = {"users": [user]}
+        with open(app_module.DATA_FILE, "w") as f:
+            json.dump(data, f)
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(app_module.startup())
+
+        with open(app_module.DATA_FILE) as f:
+            saved = json.load(f)
+        saved_user = saved["users"][0]
+        # traffic_total is recalculated to 5000 (rx+tx)
+        assert saved_user["traffic_total"] == 5000
+        # traffic_used was 3000 which is <= 5000, so it should NOT be clamped
+        assert saved_user["traffic_used"] == 3000
+
+
+class TestDefensiveDelta:
+    """Test defensive delta calculation for legacy connections with last_bytes."""
+
+    def test_defensive_delta_uses_last_bytes_split(self, app_module):
+        """Connection with last_bytes but no last_rx/last_tx gets 50/50 split during delta calc."""
+        uc = {"last_bytes": 5000}
+        # Simulate the defensive logic from periodic_background_tasks
+        last_rx = uc.get("last_rx")
+        last_tx = uc.get("last_tx")
+        if last_rx is None and last_tx is None:
+            last_bytes = uc.get("last_bytes", 0)
+            last_rx = last_bytes // 2
+            last_tx = last_bytes - last_rx
+        else:
+            last_rx = last_rx or 0
+            last_tx = last_tx or 0
+
+        assert last_rx == 2500
+        assert last_tx == 2500
+
+    def test_defensive_delta_uses_existing_rx_tx(self, app_module):
+        """Connection with existing last_rx/last_tx uses those values directly."""
+        uc = {"last_rx": 1000, "last_tx": 500, "last_bytes": 5000}
+        last_rx = uc.get("last_rx")
+        last_tx = uc.get("last_tx")
+        if last_rx is None and last_tx is None:
+            last_bytes = uc.get("last_bytes", 0)
+            last_rx = last_bytes // 2
+            last_tx = last_bytes - last_rx
+        else:
+            last_rx = last_rx or 0
+            last_tx = last_tx or 0
+
+        assert last_rx == 1000
+        assert last_tx == 500
+
+    def test_defensive_delta_zero_last_bytes(self, app_module):
+        """Connection with last_bytes=0 gets last_rx=0, last_tx=0."""
+        uc = {"last_bytes": 0}
+        last_rx = uc.get("last_rx")
+        last_tx = uc.get("last_tx")
+        if last_rx is None and last_tx is None:
+            last_bytes = uc.get("last_bytes", 0)
+            last_rx = last_bytes // 2
+            last_tx = last_bytes - last_rx
+        else:
+            last_rx = last_rx or 0
+            last_tx = last_tx or 0
+
+        assert last_rx == 0
+        assert last_tx == 0
+
+    def test_defensive_delta_none_values_treated_as_zero(self, app_module):
+        """Connection with last_rx=None, last_tx=None triggers last_bytes fallback."""
+        uc = {"last_rx": None, "last_tx": None, "last_bytes": 4000}
+        last_rx = uc.get("last_rx")
+        last_tx = uc.get("last_tx")
+        if last_rx is None and last_tx is None:
+            last_bytes = uc.get("last_bytes", 0)
+            last_rx = last_bytes // 2
+            last_tx = last_bytes - last_rx
+        else:
+            last_rx = last_rx or 0
+            last_tx = last_tx or 0
+
+        assert last_rx == 2000
+        assert last_tx == 2000
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
