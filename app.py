@@ -145,6 +145,9 @@ def load_data():
                 "connection_rate_limit_count": 5,
                 "connection_rate_limit_window": 60,
             },
+            "protocol_paths": {
+                "telemt_config_dir": "/opt/amnezia/telemt",
+            },
         },
     )
     return data
@@ -177,7 +180,13 @@ def get_protocol_manager(ssh, protocol: str):
     elif protocol == "telemt":
         from telemt_manager import TelemtManager
 
-        return TelemtManager(ssh)
+        data = load_data()
+        config_dir = (
+            data.get("settings", {})
+            .get("protocol_paths", {})
+            .get("telemt_config_dir", "/opt/amnezia/telemt")
+        )
+        return TelemtManager(ssh, config_dir=config_dir)
     elif protocol == "dns":
         from dns_manager import DNSManager
 
@@ -712,6 +721,10 @@ class ConnectionLimits(BaseModel):
     connection_rate_limit_window: int = 60
 
 
+class ProtocolPaths(BaseModel):
+    telemt_config_dir: str = "/opt/amnezia/telemt"
+
+
 class UpdateUserRequest(BaseModel):
     telegramId: Optional[str] = None
     email: Optional[str] = None
@@ -729,6 +742,7 @@ class SaveSettingsRequest(BaseModel):
     telegram: TelegramSettings
     ssl: SSLSettings
     limits: ConnectionLimits = ConnectionLimits()
+    protocol_paths: ProtocolPaths = ProtocolPaths()
 
 
 class ToggleUserRequest(BaseModel):
@@ -2658,6 +2672,7 @@ async def save_settings(request: Request, payload: SaveSettingsRequest):
     data["settings"]["telegram"] = payload.telegram.dict()
     data["settings"]["ssl"] = payload.ssl.dict()
     data["settings"]["limits"] = payload.limits.dict()
+    data["settings"]["protocol_paths"] = payload.protocol_paths.dict()
     save_data(data)
     logger.info("Settings saved (including captcha and telegram)")
 
