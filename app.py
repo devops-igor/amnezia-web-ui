@@ -568,11 +568,11 @@ def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
         if u.get("enabled", True) is not True:
             continue
         if period == "monthly":
-            download = u.get("monthly_rx", 0)
-            upload = u.get("monthly_tx", 0)
+            download = u.get("monthly_tx", 0)  # server-sent = client download
+            upload = u.get("monthly_rx", 0)  # server-received = client upload
         else:
-            download = u.get("traffic_total_rx", 0)
-            upload = u.get("traffic_total_tx", 0)
+            download = u.get("traffic_total_tx", 0)  # server-sent = client download
+            upload = u.get("traffic_total_rx", 0)  # server-received = client upload
         total = download + upload
         # Skip zero-traffic users
         if total == 0:
