@@ -310,5 +310,8 @@
     "total_label": "Всего",
     "leaderboard_empty_title": "Пока нет данных",
     "leaderboard_empty_desc": "Данные о трафике появятся здесь, когда пользователи начнут использовать свои подключения.",
-    "leaderboard_nav": "Таблица лидеров"
+    "leaderboard_nav": "Таблица лидеров",
+    "protocol_paths": "Пути протоколов",
+    "telemt_config_dir": "Директория конфигурации Telemt",
+    "telemt_config_dir_hint": "Директория на удалённом сервере, где Telemt хранит файлы конфигурации."
 }
