@@ -286,5 +286,8 @@
     "total_label": "Total",
     "leaderboard_empty_title": "Pas encore de données",
     "leaderboard_empty_desc": "Les données de trafic apparaîtront ici une fois que les utilisateurs commenceront à utiliser leurs connexions.",
-    "leaderboard_nav": "Classement"
+    "leaderboard_nav": "Classement",
+    "protocol_paths": "Chemins des protocoles",
+    "telemt_config_dir": "Répertoire de configuration Telemt",
+    "telemt_config_dir_hint": "Répertoire sur le serveur distant où Telemt stocke ses fichiers de configuration."
 }

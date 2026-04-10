@@ -282,6 +282,20 @@
             </form>
         </div>
 
+        <!-- BLOCK: Protocol Paths -->
+        <div class="card">
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">🛠 {{ _('protocol_paths') }}</h3>
+            <form id="protocolPathsForm">
+                <div class="form-group">
+                    <label class="form-label">{{ _('telemt_config_dir') }}</label>
+                    <input type="text" class="form-input" name="telemt_config_dir"
+                        value="{{ settings.get('protocol_paths', {}).get('telemt_config_dir', '/opt/amnezia/telemt') }}"
+                        placeholder="/opt/amnezia/telemt">
+                    <p class="form-hint">{{ _('telemt_config_dir_hint') }}</p>
+                </div>
+            </form>
+        </div>
+
         <!-- BLOCK: Simple Backup -->
         <div class="card" style="margin-top: var(--space-lg);">
             <h3 class="card-title" style="margin-bottom: var(--space-lg);">📤 {{ _('backup_title') }}</h3>
@@ -470,11 +484,16 @@
             connection_rate_limit_window: parseInt(limitsForm.connection_rate_limit_window.value) || 60
         };
 
+        const protocolPathsForm = document.getElementById('protocolPathsForm');
+        const protocol_paths = {
+            telemt_config_dir: protocolPathsForm.telemt_config_dir.value.trim() || '/opt/amnezia/telemt'
+        };
+
         try {
             const res = await fetch('/api/settings/save', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ appearance, sync, captcha, telegram, ssl, limits })
+                body: JSON.stringify({ appearance, sync, captcha, telegram, ssl, limits, protocol_paths })
             });
             if (!res.ok) throw new Error(_('error'));
             showToast(_('settings_saved'), 'success');
