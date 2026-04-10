@@ -270,7 +270,7 @@ class TestGetLeaderboardEntries:
     def test_invalid_period_defaults_to_all_time(self, app_module):
         data = {
             "users": [
-                _make_user("alice", traffic_total_rx=100, monthly_rx=999),
+                _make_user("alice", traffic_total_tx=100, monthly_rx=999),
             ]
         }
         entries = app_module.get_leaderboard_entries(data, "invalid-period")
@@ -283,8 +283,9 @@ class TestGetLeaderboardEntries:
             ]
         }
         entries = app_module.get_leaderboard_entries(data, "all-time")
-        assert entries[0]["download"] == 3000
-        assert entries[0]["upload"] == 2000
+        # tx = server-sent = client download, rx = server-received = client upload
+        assert entries[0]["download"] == 2000
+        assert entries[0]["upload"] == 3000
         assert entries[0]["total"] == 5000
 
 
@@ -387,7 +388,7 @@ class TestLeaderboardAPI:
     def test_invalid_period_defaults_to_all_time(self, client, app_module):
         data = {
             "users": [
-                _make_user("alice", traffic_total_rx=100, monthly_rx=9999),
+                _make_user("alice", traffic_total_tx=100, monthly_rx=9999),
             ]
         }
         with open(app_module.DATA_FILE, "w") as f:
@@ -461,8 +462,9 @@ class TestLeaderboardAPI:
             assert isinstance(entry["download"], int)
             assert isinstance(entry["upload"], int)
             assert isinstance(entry["total"], int)
-            assert entry["download"] == 5368709120
-            assert entry["upload"] == 1073741824
+            # tx = server-sent = client download, rx = server-received = client upload
+            assert entry["download"] == 1073741824
+            assert entry["upload"] == 5368709120
 
 
 # ---------- Page Route Tests ----------
