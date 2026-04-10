@@ -134,12 +134,13 @@ async function switchPeriod(period) {
 
             let html = '';
             const currentUsername = '{{ current_user.username }}';
+            const youLabel = '{{ _("you_label") or "you" }}';
             for (const entry of data.entries) {
                 const isCurrentUser = entry.username === currentUsername;
                 const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
                 html += '<tr class="' + (isCurrentUser ? 'current-user' : '') + '">';
                 html += '<td class="rank-cell">' + medal + '</td>';
-                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _(\"you_label\") or \"you\" }}</span>' : '') + '</td>';
+                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">' + youLabel + '</span>' : '') + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.download) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.upload) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.total) + '</td>';
