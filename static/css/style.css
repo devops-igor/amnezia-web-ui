@@ -1668,9 +1668,7 @@ body,
 }
 
 .data-table .username-cell {
-    display: flex;
-    align-items: center;
-    gap: var(--space-sm);
+    white-space: nowrap;
 }
 
 .data-table .traffic-cell {
