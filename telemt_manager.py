@@ -178,9 +178,7 @@ class TelemtManager:
         return out
 
     def save_server_config(self, protocol_type, config_content):
-        self.ssh.upload_file_sudo(
-            config_content.replace("\r\n", "\n"), self._config_path()
-        )
+        self.ssh.upload_file_sudo(config_content.replace("\r\n", "\n"), self._config_path())
         # Use SIGHUP (HUP) to reload MTProxy config without restarting the process/container.
         # This keeps the traffic statistics (octets) in memory.
         self.ssh.run_sudo_command(
