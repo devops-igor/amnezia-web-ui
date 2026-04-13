@@ -243,8 +243,7 @@ class TestApiAddConnectionTelemtFailure:
             "settings": {},
         }
 
-    @patch("app.load_data")
-    @patch("app.save_data")
+    @patch("app.get_db")
     @patch("app._check_admin")
     @patch("app.get_ssh")
     @patch("app.get_protocol_manager")
@@ -253,12 +252,16 @@ class TestApiAddConnectionTelemtFailure:
         mock_get_protocol_manager,
         mock_get_ssh,
         mock_check_admin,
-        mock_save_data,
-        mock_load_data,
+        mock_get_db,
     ):
-        """When telemt API fails, return 500 and do NOT write to data.json."""
+        """When telemt API fails, return 500 and do NOT write to database."""
+        mock_db = MagicMock()
+        mock_db.get_server_by_index.return_value = self.mock_data["servers"][0]
+        mock_db.get_all_users.return_value = []
+        mock_db.get_connections_by_user.return_value = []
+        mock_db.get_setting.return_value = {}
+        mock_get_db.return_value = mock_db
         mock_check_admin.return_value = True
-        mock_load_data.return_value = self.mock_data.copy()
 
         mock_ssh = MagicMock()
         mock_get_ssh.return_value = mock_ssh
@@ -282,11 +285,10 @@ class TestApiAddConnectionTelemtFailure:
         data = response.json()
         assert "error" in data
         assert data["error"] == "User already exists"
-        # Verify save_data was never called (no connection written)
-        mock_save_data.assert_not_called()
+        # Verify create_connection was never called (no connection written)
+        mock_db.create_connection.assert_not_called()
 
-    @patch("app.load_data")
-    @patch("app.save_data")
+    @patch("app.get_db")
     @patch("app._check_admin")
     @patch("app.get_ssh")
     @patch("app.get_protocol_manager")
@@ -295,12 +297,16 @@ class TestApiAddConnectionTelemtFailure:
         mock_get_protocol_manager,
         mock_get_ssh,
         mock_check_admin,
-        mock_save_data,
-        mock_load_data,
+        mock_get_db,
     ):
-        """When telemt API succeeds, connection is written to data.json."""
+        """When telemt API succeeds, connection is written to database."""
+        mock_db = MagicMock()
+        mock_db.get_server_by_index.return_value = self.mock_data["servers"][0]
+        mock_db.get_all_users.return_value = []
+        mock_db.get_connections_by_user.return_value = []
+        mock_db.get_setting.return_value = {}
+        mock_get_db.return_value = mock_db
         mock_check_admin.return_value = True
-        mock_load_data.return_value = self.mock_data.copy()
 
         mock_ssh = MagicMock()
         mock_get_ssh.return_value = mock_ssh
@@ -319,5 +325,5 @@ class TestApiAddConnectionTelemtFailure:
         )
 
         assert response.status_code == 200
-        # Verify save_data was called (connection written)
-        mock_save_data.assert_called_once()
+        # Verify create_connection was called (connection written)
+        mock_db.create_connection.assert_called_once()
