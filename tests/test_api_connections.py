@@ -2,10 +2,12 @@
 Tests for API connection endpoints
 """
 
+import json
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from database import Database
+from app import app
 import tempfile
 import os
 
