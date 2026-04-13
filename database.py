@@ -63,10 +63,54 @@ class Database:
             logger.error("schema.sql not found at %s", SCHEMA_PATH)
             raise FileNotFoundError(f"schema.sql not found at {SCHEMA_PATH}")
         conn.commit()
+
+        # Populate default settings on fresh installs
+        self._ensure_default_settings()
+
         logger.info("Database initialized: %s", self.db_path)
 
     # ----------------------------------------------------------------
-    # Transaction helpers
+    # Default settings
+    # ----------------------------------------------------------------
+
+    DEFAULT_SETTINGS = {
+        "appearance": {
+            "title": "Amnezia",
+            "logo": "\u2764\ufe0f",
+            "subtitle": "Web Panel",
+        },
+        "sync": {
+            "remnawave_url": "",
+            "remnawave_api_key": "",
+            "remnawave_sync": False,
+            "remnawave_sync_users": False,
+            "remnawave_create_conns": False,
+            "remnawave_server_id": 0,
+            "remnawave_protocol": "awg",
+        },
+        "limits": {
+            "max_connections_per_user": 10,
+            "connection_rate_limit_count": 5,
+            "connection_rate_limit_window": 60,
+        },
+        "protocol_paths": {
+            "telemt_config_dir": "/opt/amnezia/telemt",
+        },
+    }
+
+    def _ensure_default_settings(self) -> None:
+        """Populate default settings if the settings table is empty (fresh install)."""
+        conn = self._get_conn()
+        count = conn.execute("SELECT COUNT(*) FROM settings").fetchone()[0]
+        if count == 0:
+            for key, value in self.DEFAULT_SETTINGS.items():
+                conn.execute(
+                    "INSERT INTO settings (key, value) VALUES (?, ?)",
+                    (key, json.dumps(value)),
+                )
+            conn.commit()
+            logger.info("Populated default settings for fresh install")
+
     # ----------------------------------------------------------------
 
     def execute_transaction(self, func, *args, **kwargs):
