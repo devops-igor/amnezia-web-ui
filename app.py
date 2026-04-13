@@ -195,7 +195,7 @@ async def perform_delete_user(user_id: str):
     for uc in user_conns:
         try:
             sid = uc["server_id"]
-            server = db.get_server_by_index(sid)
+            server = db.get_server_by_id(sid)
             if server:
                 ssh = get_ssh(server)
                 ssh.connect()
@@ -250,7 +250,7 @@ async def perform_mass_operations(
             get_ops(req["server_id"])["create"].append(req)
 
     async def run_server_ops(srv_id, ops):
-        server = db.get_server_by_index(srv_id)
+        server = db.get_server_by_id(srv_id)
         if server is None:
             return
 
@@ -985,7 +985,7 @@ async def server_detail(request: Request, server_id: int):
     if user["role"] not in ("admin", "support"):
         return RedirectResponse(url="/my", status_code=302)
     db = get_db()
-    server = db.get_server_by_index(server_id)
+    server = db.get_server_by_id(server_id)
     if server is None:
         return RedirectResponse(url="/")
     users_list = db.get_all_users()
@@ -1019,15 +1019,14 @@ async def my_connections_page(request: Request):
     # Enrich with server names
     for c in conns:
         sid = c.get("server_id", 0)
-        srv = db.get_server_by_index(sid)
+        srv = db.get_server_by_id(sid)
         if srv:
             c["server_name"] = srv.get("name", srv.get("host", ""))
         else:
             c["server_name"] = "Unknown"
     # Add explicit id to each server for template
     servers = db.get_all_servers()
-    servers_with_ids = [{"id": idx, **srv} for idx, srv in enumerate(servers)]
-    return tpl(request, "my_connections.html", connections=conns, servers=servers_with_ids)
+    return tpl(request, "my_connections.html", connections=conns, servers=servers)
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
@@ -1185,7 +1184,7 @@ async def api_delete_server(request: Request, server_id: int):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        if db.get_server_by_index(server_id) is None:
+        if db.get_server_by_id(server_id) is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         db.delete_server_by_index(server_id)
         return {"status": "success"}
@@ -1199,7 +1198,7 @@ async def api_reboot_server(request: Request, server_id: int):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1224,7 +1223,7 @@ async def api_clear_server(request: Request, server_id: int):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1257,7 +1256,7 @@ async def api_server_stats(request: Request, server_id: int):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1318,7 +1317,7 @@ async def api_check_server(request: Request, server_id: int):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1390,7 +1389,7 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         if req.protocol not in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]:
@@ -1434,7 +1433,7 @@ async def api_uninstall_protocol(request: Request, server_id: int, req: Protocol
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1472,7 +1471,7 @@ async def api_container_toggle(request: Request, server_id: int, req: ProtocolRe
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         container = CONTAINER_NAMES.get(req.protocol)
@@ -1505,7 +1504,7 @@ async def api_server_config(request: Request, server_id: int, req: ProtocolReque
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1538,7 +1537,7 @@ async def api_server_config_save(request: Request, server_id: int, req: ServerCo
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1578,7 +1577,7 @@ async def api_get_connections(
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
@@ -1613,7 +1612,7 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         proto_info = server.get("protocols", {}).get(req.protocol, {})
@@ -1669,7 +1668,7 @@ async def api_remove_connection(request: Request, server_id: int, req: Connectio
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         if not req.client_id:
@@ -1693,7 +1692,7 @@ async def api_edit_connection(request: Request, server_id: int, req: EditConnect
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
 
@@ -1722,7 +1721,7 @@ async def api_get_connection_config(request: Request, server_id: int, req: Conne
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         # Users can only view their own connections
@@ -1757,7 +1756,7 @@ async def api_toggle_connection(request: Request, server_id: int, req: ToggleCon
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         if not req.client_id:
@@ -1878,7 +1877,7 @@ async def api_add_user(request: Request, req: AddUserRequest):
 
         # Auto-create connection if server & protocol specified
         if req.server_id is not None and req.protocol:
-            server = db.get_server_by_index(req.server_id)
+            server = db.get_server_by_id(req.server_id)
             if server is not None:
                 proto_info = server.get("protocols", {}).get(req.protocol, {})
                 port = proto_info.get("port", "55424")
@@ -2010,7 +2009,7 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
         user = db.get_user(user_id)
         if not user:
             return JSONResponse({"error": "User not found"}, status_code=404)
-        server = db.get_server_by_index(req.server_id)
+        server = db.get_server_by_id(req.server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         proto_info = server.get("protocols", {}).get(req.protocol, {})
@@ -2073,7 +2072,7 @@ async def api_get_user_connections(request: Request, user_id: str):
     conns = db.get_connections_by_user(user_id)
     for c in conns:
         sid = c.get("server_id", 0)
-        srv = db.get_server_by_index(sid)
+        srv = db.get_server_by_id(sid)
         if srv:
             c["server_name"] = srv.get("name", "")
     return {"connections": conns}
@@ -2100,7 +2099,7 @@ async def api_my_connections(request: Request):
     conns = db.get_connections_by_user(user["id"])
     for c in conns:
         sid = c.get("server_id", 0)
-        srv = db.get_server_by_index(sid)
+        srv = db.get_server_by_id(sid)
         if srv:
             c["server_name"] = srv.get("name", srv.get("host", ""))
         else:
@@ -2203,7 +2202,7 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
         )
 
     # Validate server exists
-    server = db.get_server_by_index(req.server_id)
+    server = db.get_server_by_id(req.server_id)
     if server is None:
         return JSONResponse({"error": "Server not found"}, status_code=404)
 
@@ -2364,7 +2363,7 @@ async def api_share_connections(token: str, request: Request):
     conns = [dict(c) for c in db.get_connections_by_user(user["id"])]
     for c in conns:
         sid = c["server_id"]
-        srv = db.get_server_by_index(sid)
+        srv = db.get_server_by_id(sid)
         if srv:
             c["server_name"] = srv.get("name") or srv["host"]
         else:
@@ -2390,7 +2389,7 @@ async def api_share_config(token: str, connection_id: str, request: Request):
 
     try:
         sid = conn["server_id"]
-        server = db.get_server_by_index(sid)
+        server = db.get_server_by_id(sid)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
@@ -2421,7 +2420,7 @@ async def api_my_connection_config(request: Request, connection_id: str):
         if not conn or conn.get("user_id") != user["id"]:
             return JSONResponse({"error": "Connection not found"}, status_code=404)
         sid = conn["server_id"]
-        server = db.get_server_by_index(sid)
+        server = db.get_server_by_id(sid)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
@@ -2535,7 +2534,7 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        server = db.get_server_by_index(server_id)
+        server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
