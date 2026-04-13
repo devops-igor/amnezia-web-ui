@@ -88,9 +88,11 @@ class TestApiMyAddConnection:
         client = TestClient(app)
 
         # First connection should succeed
+        # server_id must match the actual DB primary key (auto-increment starts at 1)
+        test_server_id = self.db.get_all_servers()[0]["id"]
         response1 = client.post(
             "/api/my/connections/add",
-            json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
+            json={"server_id": test_server_id, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
@@ -99,7 +101,7 @@ class TestApiMyAddConnection:
             {
                 "id": "conn-1",
                 "user_id": "test-user-1",
-                "server_id": 0,
+                "server_id": test_server_id,
                 "protocol": "awg",
                 "client_id": "test-client-1",
                 "name": "Test Connection",
@@ -110,7 +112,7 @@ class TestApiMyAddConnection:
         # Second connection with duplicate name should fail with JSON error
         response2 = client.post(
             "/api/my/connections/add",
-            json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
+            json={"server_id": test_server_id, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
@@ -134,12 +136,15 @@ class TestApiMyAddConnection:
         mock_get_db.return_value = self.db
         mock_get_current_user.return_value = self.db.get_user("test-user-1")
 
+        # server_id must match the actual DB primary key (auto-increment starts at 1)
+        test_server_id = self.db.get_all_servers()[0]["id"]
+
         # Add a connection to the test data via the database
         self.db.create_connection(
             {
                 "id": "conn-1",
                 "user_id": "test-user-1",
-                "server_id": 0,
+                "server_id": test_server_id,
                 "protocol": "awg",
                 "client_id": "test-client-1",
                 "name": "Existing Connection",
@@ -154,7 +159,7 @@ class TestApiMyAddConnection:
         # Try to create a connection with duplicate name
         response = client.post(
             "/api/my/connections/add",
-            json={"server_id": 0, "protocol": "awg", "name": "Existing Connection"},
+            json={"server_id": test_server_id, "protocol": "awg", "name": "Existing Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
@@ -178,6 +183,9 @@ class TestApiMyAddConnection:
         mock_get_db.return_value = self.db
         mock_get_current_user.return_value = self.db.get_user("test-user-1")
 
+        # server_id must match the actual DB primary key (auto-increment starts at 1)
+        test_server_id = self.db.get_all_servers()[0]["id"]
+
         # Simulate rate limiting by adding many recent connection creations
         for i in range(5):  # Same as rate_limit_count
             self.db.log_connection_creation("test-user-1")
@@ -189,7 +197,7 @@ class TestApiMyAddConnection:
         # Try to create a connection (should be rate limited)
         response = client.post(
             "/api/my/connections/add",
-            json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
+            json={"server_id": test_server_id, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
@@ -256,7 +264,7 @@ class TestApiAddConnectionTelemtFailure:
     ):
         """When telemt API fails, return 500 and do NOT write to database."""
         mock_db = MagicMock()
-        mock_db.get_server_by_index.return_value = self.mock_data["servers"][0]
+        mock_db.get_server_by_id.return_value = self.mock_data["servers"][0]
         mock_db.get_all_users.return_value = []
         mock_db.get_connections_by_user.return_value = []
         mock_db.get_setting.return_value = {}
@@ -301,7 +309,7 @@ class TestApiAddConnectionTelemtFailure:
     ):
         """When telemt API succeeds, connection is written to database."""
         mock_db = MagicMock()
-        mock_db.get_server_by_index.return_value = self.mock_data["servers"][0]
+        mock_db.get_server_by_id.return_value = self.mock_data["servers"][0]
         mock_db.get_all_users.return_value = []
         mock_db.get_connections_by_user.return_value = []
         mock_db.get_setting.return_value = {}
