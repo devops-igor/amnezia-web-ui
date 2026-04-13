@@ -4,8 +4,8 @@ Replaces data.json with ACID-compliant, concurrent-safe storage using
 SQLite in WAL mode. Provides typed CRUD methods matching the original
 data.json access patterns, with indexed queries for O(1) lookups.
 
-Server indexing: servers maintain backward-compatible integer indices
-via ORDER BY id, so data["servers"][n] becomes db.get_server_by_index(n).
+Server indexing: servers are looked up by their SQLite PRIMARY KEY id,
+so frontend srv.id maps directly to db.get_server_by_id(server_id).
 """
 
 import json
@@ -139,11 +139,11 @@ class Database:
         rows = conn.execute("SELECT * FROM servers ORDER BY id").fetchall()
         return self._server_rows_to_dicts(rows)
 
-    def get_server_by_index(self, index: int) -> Optional[Dict[str, Any]]:
-        """Return the n-th server (0-based) by position, or None if out of range."""
+    def get_server_by_id(self, server_id: int) -> Optional[Dict[str, Any]]:
+        """Return a server by its database PRIMARY KEY id, or None if not found."""
         conn = self._get_conn()
         row = conn.execute(
-            "SELECT * FROM servers ORDER BY id LIMIT 1 OFFSET ?", (index,)
+            "SELECT * FROM servers WHERE id = ?", (server_id,)
         ).fetchone()
         if row is None:
             return None
@@ -219,7 +219,7 @@ class Database:
     def delete_server_by_index(self, index: int) -> bool:
         """Delete the n-th server and re-index. Returns True if deleted."""
         conn = self._get_conn()
-        server = self.get_server_by_index(index)
+        server = self.get_server_by_id(index)
         if server is None:
             return False
         db_id = server["id"]
