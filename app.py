@@ -14,7 +14,7 @@ from fastapi.responses import (
     RedirectResponse,
     HTMLResponse,
     StreamingResponse,
-    FileResponse,
+    Response,
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -34,6 +34,7 @@ except ImportError:
 from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
+from database import Database
 import telegram_bot as tg_bot
 
 # Configure logging
@@ -58,7 +59,8 @@ if getattr(sys, "frozen", False):
 else:
     application_path = os.path.dirname(__file__)
 
-DATA_FILE = os.path.join(application_path, "data.json")
+DATA_DIR = application_path
+DB_PATH = os.path.join(DATA_DIR, "panel.db")
 
 
 # ======================== Translations ========================
@@ -90,8 +92,23 @@ load_translations()
 
 # ======================== Helpers ========================
 
-# Global lock for data.json access to prevent race conditions during async operations
-DATA_LOCK = asyncio.Lock()
+_db_instance: Optional[Database] = None
+
+
+def get_db() -> Database:
+    """Return the singleton Database instance, creating it if needed."""
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = Database(DB_PATH)
+    return _db_instance
+
+
+def init_db():
+    """Initialize the database and run migration if needed."""
+    import migrate_to_sqlite
+
+    migrate_to_sqlite.migrate_if_needed(DATA_DIR)
+    get_db()
 
 
 # Patterns to strip from error messages shown to users (security)
@@ -118,52 +135,6 @@ def _sanitize_error(message: str, fallback: str = "An unexpected error occurred"
     return sanitized
 
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {}
-    data.setdefault("servers", [])
-    data.setdefault("users", [])
-    data.setdefault("user_connections", [])
-    data.setdefault(
-        "settings",
-        {
-            "appearance": {"title": "Amnezia", "logo": "❤️", "subtitle": "Web Panel"},
-            "sync": {
-                "remnawave_url": "",
-                "remnawave_api_key": "",
-                "remnawave_sync": False,
-                "remnawave_sync_users": False,
-                "remnawave_create_conns": False,
-                "remnawave_server_id": 0,
-                "remnawave_protocol": "awg",
-            },
-            "limits": {
-                "max_connections_per_user": 10,
-                "connection_rate_limit_count": 5,
-                "connection_rate_limit_window": 60,
-            },
-            "protocol_paths": {
-                "telemt_config_dir": "/opt/amnezia/telemt",
-            },
-        },
-    )
-    return data
-
-
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-
-
-async def save_data_async(data):
-    """Saves data to file in a thread-safe way."""
-    async with DATA_LOCK:
-        await asyncio.to_thread(save_data, data)
-
-
 def get_ssh(server):
     return SSHManager(
         host=server["host"],
@@ -180,11 +151,9 @@ def get_protocol_manager(ssh, protocol: str):
     elif protocol == "telemt":
         from telemt_manager import TelemtManager
 
-        data = load_data()
-        config_dir = (
-            data.get("settings", {})
-            .get("protocol_paths", {})
-            .get("telemt_config_dir", "/opt/amnezia/telemt")
+        db = get_db()
+        config_dir = db.get_setting("protocol_paths", {}).get(
+            "telemt_config_dir", "/opt/amnezia/telemt"
         )
         return TelemtManager(ssh, config_dir=config_dir)
     elif protocol == "dns":
@@ -216,17 +185,18 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-async def perform_delete_user(data: dict, user_id: str):
-    user = next((u for u in data["users"] if u["id"] == user_id), None)
+async def perform_delete_user(user_id: str):
+    db = get_db()
+    user = db.get_user(user_id)
     if not user:
         return False
     # Remove user's connections from servers
-    user_conns = [c for c in data.get("user_connections", []) if c["user_id"] == user_id]
+    user_conns = db.get_connections_by_user(user_id)
     for uc in user_conns:
         try:
             sid = uc["server_id"]
-            if sid < len(data["servers"]):
-                server = data["servers"][sid]
+            server = db.get_server_by_index(sid)
+            if server:
                 ssh = get_ssh(server)
                 ssh.connect()
                 manager = get_protocol_manager(ssh, uc["protocol"])
@@ -234,19 +204,17 @@ async def perform_delete_user(data: dict, user_id: str):
                 ssh.disconnect()
         except Exception as e:
             logger.warning(f"Failed to remove connection {uc['client_id']} during user delete: {e}")
-    data["user_connections"] = [
-        c for c in data.get("user_connections", []) if c["user_id"] != user_id
-    ]
-    data["users"] = [u for u in data["users"] if u["id"] != user_id]
+    db.delete_user(user_id)
     return True
 
 
-async def perform_toggle_user(data: dict, user_id: str, enabled: bool):
+async def perform_toggle_user(user_id: str, enabled: bool):
     """Enable or disable a user by setting their enabled flag."""
-    user = next((u for u in data["users"] if u["id"] == user_id), None)
+    db = get_db()
+    user = db.get_user(user_id)
     if not user:
         return False
-    user["enabled"] = enabled
+    db.update_user(user_id, {"enabled": enabled})
     return True
 
 
@@ -255,9 +223,9 @@ async def perform_mass_operations(
 ):
     """
     Executes multiple SSH operations efficiently.
-    Reloads data inside to ensure we don't overwrite other changes.
+    Uses DB directly for data access.
     """
-    data = load_data()
+    db = get_db()
     server_ops = {}
 
     def get_ops(sid):
@@ -267,13 +235,13 @@ async def perform_mass_operations(
 
     if delete_uids:
         for uid in delete_uids:
-            conns = [c for c in data.get("user_connections", []) if c["user_id"] == uid]
+            conns = db.get_connections_by_user(uid)
             for c in conns:
                 get_ops(c["server_id"])["delete"].append(c)
 
     if toggle_uids:
         for uid, enabled in toggle_uids:
-            conns = [c for c in data.get("user_connections", []) if c["user_id"] == uid]
+            conns = db.get_connections_by_user(uid)
             for c in conns:
                 get_ops(c["server_id"])["toggle"].append((c, enabled))
 
@@ -282,50 +250,34 @@ async def perform_mass_operations(
             get_ops(req["server_id"])["create"].append(req)
 
     async def run_server_ops(srv_id, ops):
-        # We re-load data inside to be absolutely sure about current state
-        # but for performance we'll use the passed srv_id
-        current_data = load_data()
-        if srv_id >= len(current_data["servers"]):
+        server = db.get_server_by_index(srv_id)
+        if server is None:
             return
-        srv = current_data["servers"][srv_id]
 
         try:
-            ssh = get_ssh(srv)
+            ssh = get_ssh(server)
             await asyncio.to_thread(ssh.connect)
 
             # 1. Deletes
             for c in ops["delete"]:
                 manager = get_protocol_manager(ssh, c["protocol"])
                 await asyncio.to_thread(manager.remove_client, c["protocol"], c["client_id"])
-                # Incremental delete from data
-                async with DATA_LOCK:
-                    current_data = load_data()
-                    current_data["user_connections"] = [
-                        conn for conn in current_data["user_connections"] if conn["id"] != c["id"]
-                    ]
-                    save_data(current_data)
+                db.delete_connection(c["id"])
 
-            # 2. Toggles
+            # 2. Toggles (just toggle the actual wireguard peer)
             for c, enabled in ops["toggle"]:
                 manager = get_protocol_manager(ssh, c["protocol"])
                 await asyncio.to_thread(
                     manager.toggle_client, c["protocol"], c["client_id"], enabled
                 )
-                # Incremental toggle in data
-                async with DATA_LOCK:
-                    current_data = load_data()
-                    # We also need to update user status if it was a user toggle
-                    # Wait, mass ops caller usually handles user enabled status.
-                    # Here we just toggle the actual wireguard peer.
-                    save_data(current_data)
 
             # 3. Creates
             for c_req in ops["create"]:
-                proto_info = srv.get("protocols", {}).get(c_req["protocol"], {})
+                proto_info = server.get("protocols", {}).get(c_req["protocol"], {})
                 port = proto_info.get("port", "55424")
                 manager = get_protocol_manager(ssh, c_req["protocol"])
                 res = await asyncio.to_thread(
-                    manager.add_client, c_req["protocol"], c_req["name"], srv["host"], port
+                    manager.add_client, c_req["protocol"], c_req["name"], server["host"], port
                 )
 
                 if res.get("client_id"):
@@ -338,10 +290,7 @@ async def perform_mass_operations(
                         "name": c_req["name"],
                         "created_at": datetime.now().isoformat(),
                     }
-                    async with DATA_LOCK:
-                        current_data = load_data()
-                        current_data["user_connections"].append(new_conn)
-                        save_data(current_data)
+                    db.create_connection(new_conn)
 
             await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
@@ -353,32 +302,25 @@ async def perform_mass_operations(
         await asyncio.gather(*tasks)
 
     # 4. Final user-level cleanup (delete/toggle users metadata)
-    async with DATA_LOCK:
-        current_data = load_data()
-        if delete_uids:
-            current_data["users"] = [u for u in current_data["users"] if u["id"] not in delete_uids]
-            current_data["user_connections"] = [
-                c
-                for c in current_data.get("user_connections", [])
-                if c["user_id"] not in delete_uids
-            ]
-        if toggle_uids:
-            for uid, enabled in toggle_uids:
-                user = next((u for u in current_data["users"] if u["id"] == uid), None)
-                if user:
-                    user["enabled"] = enabled
-        save_data(current_data)
+    if delete_uids:
+        for uid in delete_uids:
+            db.delete_user(uid)
+    if toggle_uids:
+        for uid, enabled in toggle_uids:
+            db.update_user(uid, {"enabled": enabled})
 
     return True
 
 
-async def sync_users_with_remnawave(data: dict):
-    settings = data.get("settings", {}).get("sync", {})
-    if not settings.get("remnawave_sync_users"):
+async def sync_users_with_remnawave():
+    db = get_db()
+    settings = db.get_all_settings()
+    sync_settings = settings.get("sync", {})
+    if not sync_settings.get("remnawave_sync_users"):
         return 0, "Synchronization is disabled in settings"
 
-    url = settings.get("remnawave_url")
-    api_key = settings.get("remnawave_api_key")
+    url = sync_settings.get("remnawave_url")
+    api_key = sync_settings.get("remnawave_api_key")
     if not url or not api_key:
         return 0, "Remnawave URL or API Key not configured"
 
@@ -388,7 +330,7 @@ async def sync_users_with_remnawave(data: dict):
     try:
         rw_users = []
         async with httpx.AsyncClient(timeout=30.0) as client:
-            page_size = 50  # Use a smaller page size that is more likely to be accepted
+            page_size = 50
             current_start = 0
             while True:
                 resp = await client.get(
@@ -417,7 +359,8 @@ async def sync_users_with_remnawave(data: dict):
 
             # 1. Handle deletion (users that have remnawave_uuid but are no longer in Remnawave)
             to_delete_ids = []
-            for u in data["users"]:
+            all_users = db.get_all_users()
+            for u in all_users:
                 if u.get("remnawave_uuid") and u["remnawave_uuid"] not in rw_uuids:
                     to_delete_ids.append(u["id"])
 
@@ -431,40 +374,28 @@ async def sync_users_with_remnawave(data: dict):
             to_create_conns = []  # list of dicts
 
             for rw_u in rw_users:
-                # We reload data in each loop step to handle concurrency
-                data = load_data()
-                local_u = next(
-                    (u for u in data["users"] if u.get("remnawave_uuid") == rw_u["uuid"]), None
-                )
+                local_u = db.get_user_by_remnawave_uuid(rw_u["uuid"])
                 if not local_u:
-                    local_u = next(
-                        (u for u in data["users"] if u["username"] == rw_u["username"]), None
-                    )
+                    local_u = db.get_user_by_username(rw_u["username"])
 
                 is_active = rw_u.get("status") == "ACTIVE"
 
                 if local_u:
-                    local_u["username"] = rw_u["username"]
-                    local_u["telegramId"] = rw_u.get("telegramId")
-                    local_u["email"] = rw_u.get("email")
-                    local_u["description"] = rw_u.get("description")
-                    local_u["remnawave_uuid"] = rw_u["uuid"]
+                    updates = {
+                        "username": rw_u["username"],
+                        "remnawave_uuid": rw_u["uuid"],
+                    }
+                    if rw_u.get("telegramId") is not None:
+                        updates["telegramId"] = rw_u.get("telegramId")
+                    if rw_u.get("email") is not None:
+                        updates["email"] = rw_u.get("email")
+                    if rw_u.get("description") is not None:
+                        updates["description"] = rw_u.get("description")
 
                     if local_u.get("enabled", True) != is_active:
                         to_toggle.append((local_u["id"], is_active))
 
-                    # Save metadata immediately
-                    async with DATA_LOCK:
-                        current = load_data()
-                        # Update index
-                        idx = next(
-                            (i for i, u in enumerate(current["users"]) if u["id"] == local_u["id"]),
-                            -1,
-                        )
-                        if idx != -1:
-                            current["users"][idx] = local_u
-                            save_data(current)
-
+                    db.update_user(local_u["id"], updates)
                     synced_count += 1
                 else:
                     new_id = str(uuid.uuid4())
@@ -483,19 +414,16 @@ async def sync_users_with_remnawave(data: dict):
                         "share_token": secrets.token_urlsafe(16),
                         "share_password_hash": None,
                     }
-                    async with DATA_LOCK:
-                        current = load_data()
-                        current["users"].append(new_user)
-                        save_data(current)
+                    db.create_user(new_user)
 
-                    if settings.get("remnawave_create_conns"):
-                        sid = settings.get("remnawave_server_id")
+                    if sync_settings.get("remnawave_create_conns"):
+                        sid = sync_settings.get("remnawave_server_id")
                         if sid is not None:
                             to_create_conns.append(
                                 {
                                     "user_id": new_id,
                                     "server_id": sid,
-                                    "protocol": settings.get("remnawave_protocol", "awg"),
+                                    "protocol": sync_settings.get("remnawave_protocol", "awg"),
                                     "name": f"{rw_u['username']}_vpn",
                                 }
                             )
@@ -519,11 +447,8 @@ def get_current_user(request: Request):
     user_id = request.session.get("user_id")
     if not user_id:
         return None
-    data = load_data()
-    for u in data.get("users", []):
-        if u["id"] == user_id:
-            return u
-    return None
+    db = get_db()
+    return db.get_user(user_id)
 
 
 def _format_bytes(n: int) -> str:
@@ -540,14 +465,15 @@ def _format_bytes(n: int) -> str:
 
 
 def tpl(request, template, **kwargs):
-    data = load_data()
+    db = get_db()
+    settings = db.get_all_settings()
     lang = request.cookies.get("lang", "en")
     ctx = {
         "request": request,
         "current_user": get_current_user(request),
-        "site_settings": data.get("settings", {}).get("appearance", {}),
-        "captcha_settings": data.get("settings", {}).get("captcha", {}),
-        "telegram_settings": data.get("settings", {}).get("telegram", {}),
+        "site_settings": settings.get("appearance", {}),
+        "captcha_settings": settings.get("captcha", {}),
+        "telegram_settings": settings.get("telegram", {}),
         "bot_running": tg_bot.is_running(),
         "lang": lang,
         "_": lambda text_id: _t(text_id, lang),
@@ -559,18 +485,18 @@ def tpl(request, template, **kwargs):
     return templates.TemplateResponse(template, ctx)
 
 
-def get_leaderboard_entries(data: dict, period: str) -> list[dict]:
+def get_leaderboard_entries(period: str) -> list[dict]:
     """Aggregate traffic data for the leaderboard.
 
     Args:
-        data: loaded data.json
         period: "all-time" or "monthly"
 
     Returns:
         list of dicts with rank, username, download, upload, total.
         Users with zero total traffic or disabled accounts are excluded.
     """
-    users = data.get("users", [])
+    db = get_db()
+    users = db.get_all_users()
     entries = []
     for u in users:
         # Skip disabled users (enabled is explicitly False or non-truthy)
@@ -668,11 +594,9 @@ class AddUserRequest(BaseModel):
     email: Optional[str] = None
     description: Optional[str] = None
     traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = "never"
-    server_id: Optional[int] = None
-    protocol: Optional[str] = None
-    connection_name: Optional[str] = None
+    traffic_reset_strategy: Optional[str] = None
     expiration_date: Optional[str] = None
+    password: Optional[str] = None
 
 
 class ServerConfigSaveRequest(BaseModel):
@@ -773,10 +697,11 @@ class ShareAuthRequest(BaseModel):
 
 @app.on_event("startup")
 async def startup():
-    data = load_data()
-    changed = False
-    if not data.get("users"):
-        data["users"] = [
+    init_db()
+    db = get_db()
+
+    if not db.get_all_users():
+        db.create_user(
             {
                 "id": str(uuid.uuid4()),
                 "username": "admin",
@@ -785,112 +710,17 @@ async def startup():
                 "enabled": True,
                 "created_at": datetime.now().isoformat(),
             }
-        ]
-        changed = True
-        logger.info("Default admin created (admin / admin)")
-
-    # Migration for sharing fields and traffic reset strategy
-    for u in data["users"]:
-        migrated = False
-        if "share_enabled" not in u:
-            u["share_enabled"] = False
-            migrated = True
-        if not u.get("share_token"):
-            u["share_token"] = secrets.token_urlsafe(16)
-            migrated = True
-        if "share_password_hash" not in u:
-            u["share_password_hash"] = None
-            migrated = True
-
-        # Traffic reset strategy and total traffic
-        if "traffic_reset_strategy" not in u:
-            u["traffic_reset_strategy"] = "never"
-            migrated = True
-        if "traffic_total" not in u:
-            u["traffic_total"] = u.get("traffic_used", 0)
-            migrated = True
-        if "last_reset_at" not in u:
-            u["last_reset_at"] = datetime.now().isoformat()
-            migrated = True
-        if "expiration_date" not in u:
-            u["expiration_date"] = None
-            migrated = True
-
-        # RX/TX separation fields for leaderboard
-        if "traffic_total_rx" not in u:
-            u["traffic_total_rx"] = 0
-            migrated = True
-        if "traffic_total_tx" not in u:
-            u["traffic_total_tx"] = 0
-            migrated = True
-        if "monthly_rx" not in u:
-            u["monthly_rx"] = 0
-            migrated = True
-        if "monthly_tx" not in u:
-            u["monthly_tx"] = 0
-            migrated = True
-        if "monthly_reset_at" not in u:
-            u["monthly_reset_at"] = ""
-            migrated = True
-
-        if migrated:
-            changed = True
-            logger.info(f"Migrated user {u['username']} to new traffic/sharing fields")
-
-    # Migrate user_connections: last_bytes -> last_rx / last_tx
-    for uc in data.get("user_connections", []):
-        if "last_bytes" in uc and "last_rx" not in uc:
-            last_bytes = uc["last_bytes"]
-            uc["last_rx"] = last_bytes // 2
-            uc["last_tx"] = last_bytes - uc["last_rx"]
-            del uc["last_bytes"]
-            changed = True
-            logger.info(
-                f"Migrated user_connection {uc.get('id')} last_bytes={last_bytes} "
-                f"-> last_rx={uc['last_rx']}, last_tx={uc['last_tx']}"
-            )
-
-    # One-time traffic recalculation to fix doubled values
-    if "traffic_doubled_fix_applied" not in data:
-        for u in data.get("users", []):
-            new_total = u.get("traffic_total_rx", 0) + u.get("traffic_total_tx", 0)
-            if new_total > 0:
-                u["traffic_total"] = new_total
-            if u.get("traffic_used", 0) > u.get("traffic_total", 0):
-                u["traffic_used"] = u["traffic_total"]
-        data["traffic_doubled_fix_applied"] = True
-        changed = True
-        logger.info(
-            "Applied traffic_doubled_fix: recalculated traffic_total and clamped traffic_used"
         )
-
-    # SSL settings migration
-    if "ssl" not in data.get("settings", {}):
-        if "settings" not in data:
-            data["settings"] = {}
-        data["settings"]["ssl"] = {
-            "enabled": False,
-            "domain": "",
-            "cert_path": "",
-            "key_path": "",
-            "cert_text": "",
-            "key_text": "",
-            "panel_port": 5000,
-        }
-        changed = True
-        logger.info("Migrated SSL settings")
-
-    if changed:
-        save_data(data)
+        logger.info("Default admin created (admin / admin)")
 
     # Start periodic background tasks
     asyncio.create_task(periodic_background_tasks())
 
     # Start Telegram bot if enabled
-    tg_cfg = data.get("settings", {}).get("telegram", {})
+    tg_cfg = db.get_setting("telegram", {})
     if tg_cfg.get("enabled") and tg_cfg.get("token"):
         logger.info("Starting Telegram bot from saved settings...")
-        tg_bot.launch_bot(tg_cfg["token"], load_data, generate_vpn_link)
+        tg_bot.launch_bot(tg_cfg["token"], db.load_data, generate_vpn_link)
 
 
 async def periodic_background_tasks():
@@ -902,17 +732,20 @@ async def periodic_background_tasks():
 
             # --- 1. TRAFFIC SYNC & LIMITS ---
             logger.info("Starting background traffic sync...")
-            data = load_data()
+            db = get_db()
+
+            servers = db.get_all_servers()
+            all_conns = db.get_all_connections()
 
             conns_by_server = {}
-            for uc in data.get("user_connections", []):
+            for uc in all_conns:
                 sid = uc["server_id"]
                 conns_by_server.setdefault(sid, []).append(uc)
 
             updates = []
 
-            for sid, server in enumerate(data.get("servers", [])):
-                if sid not in conns_by_server:
+            for idx, server in enumerate(servers):
+                if idx not in conns_by_server:
                     continue
                 try:
                     ssh = get_ssh(server)
@@ -927,14 +760,13 @@ async def periodic_background_tasks():
                                 tx = c.get("userData", {}).get("dataSentBytes", 0)
                                 client_bytes[c.get("clientId")] = {"rx": rx, "tx": tx}
 
-                            for uc in conns_by_server[sid]:
+                            for uc in conns_by_server[idx]:
                                 if uc["protocol"] == proto and uc["client_id"] in client_bytes:
                                     curr_rx = client_bytes[uc["client_id"]]["rx"]
                                     curr_tx = client_bytes[uc["client_id"]]["tx"]
                                     last_rx = uc.get("last_rx")
                                     last_tx = uc.get("last_tx")
                                     if last_rx is None and last_tx is None:
-                                        # Legacy connection not yet migrated: last_bytes was combined rx+tx
                                         last_bytes = uc.get("last_bytes", 0)
                                         last_rx = last_bytes // 2
                                         last_tx = last_bytes - last_rx
@@ -946,118 +778,147 @@ async def periodic_background_tasks():
                                     updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
                     ssh.disconnect()
                 except Exception as e:
-                    logger.error(f"Traffic sync err server {sid}: {e}")
+                    logger.error(f"Traffic sync err server {idx}: {e}")
 
             to_disable_uids = []
             if updates:
-                async with DATA_LOCK:
-                    curr_data = load_data()
-                    users_map = {u["id"]: u for u in curr_data.get("users", [])}
-                    uc_list = curr_data.get("user_connections", [])
-                    uc_map = {uc["id"]: uc for uc in uc_list}
+                now = datetime.now()
+                users_map = {u["id"]: u for u in db.get_all_users()}
 
-                    # Current date/time for reset checking
-                    now = datetime.now()
+                for uc_id, rx_delta, tx_delta, curr_rx, curr_tx in updates:
+                    uc = db.get_connection_by_id(uc_id)
+                    if uc:
+                        # Update connection's last_rx/last_tx
+                        db.update_connection(uc_id, {"last_rx": curr_rx, "last_tx": curr_tx})
+                        uid = uc["user_id"]
+                        if uid in users_map:
+                            u = users_map[uid]
+                            # Check if reset is needed BEFORE adding new consumption
+                            strategy = u.get("traffic_reset_strategy", "never")
+                            last_reset_iso = u.get("last_reset_at")
 
-                    for uc_id, rx_delta, tx_delta, curr_rx, curr_tx in updates:
-                        if uc_id in uc_map:
-                            uc_map[uc_id]["last_rx"] = curr_rx
-                            uc_map[uc_id]["last_tx"] = curr_tx
-                            uid = uc_map[uc_id]["user_id"]
-                            if uid in users_map:
-                                u = users_map[uid]
-                                # Check if reset is needed BEFORE adding new consumption
-                                strategy = u.get("traffic_reset_strategy", "never")
-                                last_reset_iso = u.get("last_reset_at")
+                            reset_needed = False
+                            if strategy != "never" and last_reset_iso:
+                                try:
+                                    last = datetime.fromisoformat(last_reset_iso)
+                                    if strategy == "daily":
+                                        reset_needed = now.date() > last.date()
+                                    elif strategy == "weekly":
+                                        reset_needed = (
+                                            now.isocalendar()[1] != last.isocalendar()[1]
+                                            or now.year != last.year
+                                        )
+                                    elif strategy == "monthly":
+                                        reset_needed = (
+                                            now.month != last.month or now.year != last.year
+                                        )
+                                except:
+                                    pass
 
-                                reset_needed = False
-                                if strategy != "never" and last_reset_iso:
-                                    try:
-                                        last = datetime.fromisoformat(last_reset_iso)
-                                        if strategy == "daily":
-                                            reset_needed = now.date() > last.date()
-                                        elif strategy == "weekly":
-                                            reset_needed = (
-                                                now.isocalendar()[1] != last.isocalendar()[1]
-                                                or now.year != last.year
-                                            )
-                                        elif strategy == "monthly":
-                                            reset_needed = (
-                                                now.month != last.month or now.year != last.year
-                                            )
-                                    except:
-                                        pass
+                            if reset_needed:
+                                logger.info(
+                                    f"Resetting traffic for user {u['username']} (strategy: {strategy})"
+                                )
+                                db.update_user(
+                                    uid,
+                                    {
+                                        "traffic_used": 0,
+                                        "last_reset_at": now.isoformat(),
+                                    },
+                                )
+                                u["traffic_used"] = 0
+                                u["last_reset_at"] = now.isoformat()
 
-                                if reset_needed:
-                                    logger.info(
-                                        f"Resetting traffic for user {u['username']} (strategy: {strategy})"
-                                    )
-                                    u["traffic_used"] = 0
-                                    u["last_reset_at"] = now.isoformat()
+                            # Monthly rollover for monthly_rx and monthly_tx
+                            monthly_reset_iso = u.get("monthly_reset_at", "")
+                            if not monthly_reset_iso:
+                                db.update_user(
+                                    uid,
+                                    {
+                                        "monthly_rx": 0,
+                                        "monthly_tx": 0,
+                                        "monthly_reset_at": now.isoformat(),
+                                    },
+                                )
+                                logger.debug(
+                                    f"Initialized monthly traffic for user {u['username']}"
+                                )
+                            else:
+                                try:
+                                    monthly_last = datetime.fromisoformat(monthly_reset_iso)
+                                    if (
+                                        now.month != monthly_last.month
+                                        or now.year != monthly_last.year
+                                    ):
+                                        db.update_user(
+                                            uid,
+                                            {
+                                                "monthly_rx": 0,
+                                                "monthly_tx": 0,
+                                                "monthly_reset_at": now.isoformat(),
+                                            },
+                                        )
+                                        u["monthly_rx"] = 0
+                                        u["monthly_tx"] = 0
+                                        u["monthly_reset_at"] = now.isoformat()
+                                        logger.debug(
+                                            f"Monthly rollover for user {u['username']} "
+                                            f"(was {monthly_reset_iso})"
+                                        )
+                                except Exception:
+                                    pass
 
-                                # Monthly rollover for monthly_rx and monthly_tx
-                                monthly_reset_iso = u.get("monthly_reset_at", "")
-                                if not monthly_reset_iso:
-                                    # First time — initialize
-                                    u["monthly_rx"] = 0
-                                    u["monthly_tx"] = 0
-                                    u["monthly_reset_at"] = now.isoformat()
-                                    logger.debug(
-                                        f"Initialized monthly traffic for user {u['username']}"
-                                    )
-                                else:
-                                    try:
-                                        monthly_last = datetime.fromisoformat(monthly_reset_iso)
-                                        if (
-                                            now.month != monthly_last.month
-                                            or now.year != monthly_last.year
-                                        ):
-                                            u["monthly_rx"] = 0
-                                            u["monthly_tx"] = 0
-                                            u["monthly_reset_at"] = now.isoformat()
-                                            logger.debug(
-                                                f"Monthly rollover for user {u['username']} "
-                                                f"(was {monthly_reset_iso})"
-                                            )
-                                    except Exception:
-                                        pass
+                            # Update both resettable and total traffic (combined RX+TX)
+                            delta = rx_delta + tx_delta
+                            new_used = u.get("traffic_used", 0) + delta
+                            new_total = u.get("traffic_total", 0) + delta
 
-                                # Update both resettable and total traffic (combined RX+TX)
-                                delta = rx_delta + tx_delta
-                                u["traffic_used"] = u.get("traffic_used", 0) + delta
-                                u["traffic_total"] = u.get("traffic_total", 0) + delta
+                            # Update separate RX/TX totals
+                            new_total_rx = u.get("traffic_total_rx", 0) + rx_delta
+                            new_total_tx = u.get("traffic_total_tx", 0) + tx_delta
 
-                                # Update separate RX/TX totals
-                                u["traffic_total_rx"] = u.get("traffic_total_rx", 0) + rx_delta
-                                u["traffic_total_tx"] = u.get("traffic_total_tx", 0) + tx_delta
+                            # Update monthly RX/TX
+                            new_monthly_rx = u.get("monthly_rx", 0) + rx_delta
+                            new_monthly_tx = u.get("monthly_tx", 0) + tx_delta
 
-                                # Update monthly RX/TX
-                                u["monthly_rx"] = u.get("monthly_rx", 0) + rx_delta
-                                u["monthly_tx"] = u.get("monthly_tx", 0) + tx_delta
+                            db.update_user(
+                                uid,
+                                {
+                                    "traffic_used": new_used,
+                                    "traffic_total": new_total,
+                                    "traffic_total_rx": new_total_rx,
+                                    "traffic_total_tx": new_total_tx,
+                                    "monthly_rx": new_monthly_rx,
+                                    "monthly_tx": new_monthly_tx,
+                                },
+                            )
 
-                                limit = u.get("traffic_limit", 0)
-                                if (
-                                    limit > 0
-                                    and u["traffic_used"] >= limit
-                                    and u.get("enabled", True)
-                                ):
-                                    if uid not in to_disable_uids:
-                                        to_disable_uids.append(uid)
+                            # Update local cache
+                            u["traffic_used"] = new_used
+                            u["traffic_total"] = new_total
+                            u["traffic_total_rx"] = new_total_rx
+                            u["traffic_total_tx"] = new_total_tx
+                            u["monthly_rx"] = new_monthly_rx
+                            u["monthly_tx"] = new_monthly_tx
 
-                                # Check expiration date
-                                exp_str = u.get("expiration_date")
-                                if exp_str and u.get("enabled", True):
-                                    try:
-                                        exp_date = datetime.fromisoformat(exp_str)
-                                        if now > exp_date:
-                                            logger.info(
-                                                f"Subscription expired for user {u['username']} (expired at {exp_str})"
-                                            )
-                                            if uid not in to_disable_uids:
-                                                to_disable_uids.append(uid)
-                                    except:
-                                        pass
-                    save_data(curr_data)
+                            limit = u.get("traffic_limit", 0)
+                            if limit > 0 and new_used >= limit and u.get("enabled", True):
+                                if uid not in to_disable_uids:
+                                    to_disable_uids.append(uid)
+
+                            # Check expiration date
+                            exp_str = u.get("expiration_date")
+                            if exp_str and u.get("enabled", True):
+                                try:
+                                    exp_date = datetime.fromisoformat(exp_str)
+                                    if now > exp_date:
+                                        logger.info(
+                                            f"Subscription expired for user {u['username']} (expired at {exp_str})"
+                                        )
+                                        if uid not in to_disable_uids:
+                                            to_disable_uids.append(uid)
+                                except:
+                                    pass
 
             if to_disable_uids:
                 logger.info(f"Traffic limit reached, disabling users: {to_disable_uids}")
@@ -1065,9 +926,8 @@ async def periodic_background_tasks():
 
             # --- 2. REMNAWAVE SYNC ---
             logger.info("Starting background Remnawave sync...")
-            data = load_data()
-            if data.get("settings", {}).get("sync", {}).get("remnawave_sync_users"):
-                count, msg = await sync_users_with_remnawave(data)
+            if db.get_setting("sync", {}).get("remnawave_sync_users"):
+                count, msg = await sync_users_with_remnawave()
                 logger.info(f"Background Remnawave sync finished: {count} users updated. {msg}")
             else:
                 logger.info("Background Remnawave sync skipped (disabled in settings)")
@@ -1110,8 +970,9 @@ async def index(request: Request):
         return RedirectResponse(url="/login", status_code=302)
     if user["role"] == "user":
         return RedirectResponse(url="/my", status_code=302)
-    data = load_data()
-    return tpl(request, "index.html", servers=data["servers"])
+    db = get_db()
+    servers = db.get_all_servers()
+    return tpl(request, "index.html", servers=servers)
 
 
 @app.get("/server/{server_id}", response_class=HTMLResponse)
@@ -1121,11 +982,11 @@ async def server_detail(request: Request, server_id: int):
         return RedirectResponse(url="/login", status_code=302)
     if user["role"] not in ("admin", "support"):
         return RedirectResponse(url="/my", status_code=302)
-    data = load_data()
-    if server_id >= len(data["servers"]):
+    db = get_db()
+    server = db.get_server_by_index(server_id)
+    if server is None:
         return RedirectResponse(url="/")
-    server = data["servers"][server_id]
-    users_list = data.get("users", [])
+    users_list = db.get_all_users()
     return tpl(request, "server.html", server=server, server_id=server_id, users=users_list)
 
 
@@ -1136,13 +997,13 @@ async def users_page(request: Request):
         return RedirectResponse(url="/login", status_code=302)
     if user["role"] not in ("admin", "support"):
         return RedirectResponse(url="/my", status_code=302)
-    data = load_data()
-    users_list = data.get("users", [])
+    db = get_db()
+    users_list = db.get_all_users()
     # Count connections per user
-    conns = data.get("user_connections", [])
+    conns = db.get_all_connections()
     for u in users_list:
         u["connections_count"] = sum(1 for c in conns if c["user_id"] == u["id"])
-    servers = data["servers"]
+    servers = db.get_all_servers()
     return tpl(request, "users.html", users=users_list, servers=servers)
 
 
@@ -1151,19 +1012,19 @@ async def my_connections_page(request: Request):
     user = get_current_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=302)
-    data = load_data()
-    conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
+    db = get_db()
+    conns = db.get_connections_by_user(user["id"])
     # Enrich with server names
     for c in conns:
         sid = c.get("server_id", 0)
-        if sid < len(data["servers"]):
-            c["server_name"] = data["servers"][sid].get(
-                "name", data["servers"][sid].get("host", "")
-            )
+        srv = db.get_server_by_index(sid)
+        if srv:
+            c["server_name"] = srv.get("name", srv.get("host", ""))
         else:
             c["server_name"] = "Unknown"
     # Add explicit id to each server for template
-    servers_with_ids = [{"id": idx, **srv} for idx, srv in enumerate(data["servers"])]
+    servers = db.get_all_servers()
+    servers_with_ids = [{"id": idx, **srv} for idx, srv in enumerate(servers)]
     return tpl(request, "my_connections.html", connections=conns, servers=servers_with_ids)
 
 
@@ -1176,8 +1037,7 @@ async def leaderboard_page(request: Request):
     if period not in ("all-time", "monthly"):
         period = "all-time"
     monthly_label: str | None = datetime.now().strftime("%B %Y") if period == "monthly" else None
-    data = load_data()
-    entries = get_leaderboard_entries(data, period)
+    entries = get_leaderboard_entries(period)
     current_user_rank = None
     for e in entries:
         if e.get("username") == user.get("username"):
@@ -1215,8 +1075,8 @@ async def api_captcha(request: Request):
 
 @app.post("/api/auth/login")
 async def api_login(request: Request, req: LoginRequest):
-    data = load_data()
-    captcha_settings = data.get("settings", {}).get("captcha", {})
+    db = get_db()
+    captcha_settings = db.get_setting("captcha", {})
     if captcha_settings.get("enabled") is True:
         answer = request.session.get("captcha_answer")
         lang = request.cookies.get("lang", "ru")
@@ -1225,13 +1085,13 @@ async def api_login(request: Request, req: LoginRequest):
             return JSONResponse({"error": _t("invalid_captcha", lang)}, status_code=400)
         request.session.pop("captcha_answer", None)
 
-    for u in data.get("users", []):
-        if u["username"] == req.username and verify_password(req.password, u["password_hash"]):
-            lang = request.cookies.get("lang", "ru")
-            if not u.get("enabled", True):
-                return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
-            request.session["user_id"] = u["id"]
-            return {"status": "success", "role": u["role"]}
+    user = db.get_user_by_username(req.username)
+    if user and verify_password(req.password, user["password_hash"]):
+        lang = request.cookies.get("lang", "ru")
+        if not user.get("enabled", True):
+            return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
+        request.session["user_id"] = user["id"]
+        return {"status": "success", "role": user["role"]}
     lang = request.cookies.get("lang", "ru")
     return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
 
@@ -1245,8 +1105,7 @@ async def api_leaderboard(request: Request):
     if period not in ("all-time", "monthly"):
         period = "all-time"
     monthly_label: str | None = datetime.now().strftime("%B %Y") if period == "monthly" else None
-    data = load_data()
-    entries = get_leaderboard_entries(data, period)
+    entries = get_leaderboard_entries(period)
     current_user_rank = None
     for e in entries:
         if e.get("username") == user.get("username"):
@@ -1305,12 +1164,12 @@ async def api_add_server(request: Request, req: AddServerRequest):
             "server_info": server_info,
             "protocols": {},
         }
-        data = load_data()
-        data["servers"].append(server)
-        save_data(data)
+        db = get_db()
+        db.create_server(server)
+        server_count = db.get_server_count()
         return {
             "status": "success",
-            "server_id": len(data["servers"]) - 1,
+            "server_id": server_count - 1,
             "server_info": server_info,
         }
     except Exception as e:
@@ -1323,19 +1182,10 @@ async def api_delete_server(request: Request, server_id: int):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        if db.get_server_by_index(server_id) is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        data["servers"].pop(server_id)
-        # Clean up connections for this server
-        data["user_connections"] = [
-            c for c in data.get("user_connections", []) if c.get("server_id") != server_id
-        ]
-        # Adjust server_ids for connections pointing to higher indices
-        for c in data.get("user_connections", []):
-            if c.get("server_id", 0) > server_id:
-                c["server_id"] -= 1
-        save_data(data)
+        db.delete_server_by_index(server_id)
         return {"status": "success"}
     except Exception as e:
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
@@ -1346,10 +1196,10 @@ async def api_reboot_server(request: Request, server_id: int):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         try:
@@ -1371,10 +1221,10 @@ async def api_clear_server(request: Request, server_id: int):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         containers = [
@@ -1391,8 +1241,7 @@ async def api_clear_server(request: Request, server_id: int):
         ssh.run_sudo_command("docker network rm amnezia-dns-net || true")
         ssh.run_sudo_command("rm -rf /opt/amnezia")
 
-        server["protocols"] = {}
-        save_data(data)
+        db.update_server(server["id"], {"protocols": {}})
         ssh.disconnect()
         return {"status": "success"}
     except Exception as e:
@@ -1405,10 +1254,10 @@ async def api_server_stats(request: Request, server_id: int):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         stats = {}
@@ -1466,10 +1315,10 @@ async def api_check_server(request: Request, server_id: int):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         # Just use awg's docker checker since it uses the same command
@@ -1522,7 +1371,7 @@ async def api_check_server(request: Request, server_id: int):
                             changed = True
 
         if changed:
-            save_data(data)
+            db.update_server(server["id"], {"protocols": server["protocols"]})
 
         ssh.disconnect()
         return status
@@ -1538,13 +1387,13 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         if req.protocol not in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]:
             return JSONResponse({"error": "Invalid protocol type"}, status_code=400)
 
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         manager = get_protocol_manager(ssh, req.protocol)
@@ -1563,12 +1412,13 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
         else:
             result = manager.install_protocol(req.protocol, port=req.port)
 
-        server["protocols"][req.protocol] = {
+        new_protocols = dict(server.get("protocols", {}))
+        new_protocols[req.protocol] = {
             "installed": True,
             "port": req.port,
             "awg_params": result.get("awg_params", {}),
         }
-        save_data(data)
+        db.update_server(server["id"], {"protocols": new_protocols})
         ssh.disconnect()
         return result
     except Exception as e:
@@ -1581,10 +1431,10 @@ async def api_uninstall_protocol(request: Request, server_id: int, req: Protocol
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         manager = get_protocol_manager(ssh, req.protocol)
@@ -1592,9 +1442,10 @@ async def api_uninstall_protocol(request: Request, server_id: int, req: Protocol
             manager.remove_container()
         else:
             manager.remove_container(req.protocol)
-        if req.protocol in server.get("protocols", {}):
-            del server["protocols"][req.protocol]
-            save_data(data)
+        new_protocols = dict(server.get("protocols", {}))
+        if req.protocol in new_protocols:
+            del new_protocols[req.protocol]
+            db.update_server(server["id"], {"protocols": new_protocols})
         ssh.disconnect()
         return {"status": "success"}
     except Exception as e:
@@ -1618,13 +1469,13 @@ async def api_container_toggle(request: Request, server_id: int, req: ProtocolRe
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         container = CONTAINER_NAMES.get(req.protocol)
         if not container:
             return JSONResponse({"error": "Unknown protocol"}, status_code=400)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         # Check current state
@@ -1651,10 +1502,10 @@ async def api_server_config(request: Request, server_id: int, req: ProtocolReque
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         if req.protocol == "xray":
@@ -1684,10 +1535,10 @@ async def api_server_config_save(request: Request, server_id: int, req: ServerCo
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         if req.protocol == "xray":
@@ -1724,10 +1575,10 @@ async def api_get_connections(
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         manager = get_protocol_manager(ssh, protocol)
@@ -1735,17 +1586,13 @@ async def api_get_connections(
         ssh.disconnect()
 
         # Enrich with user info from user_connections
-        user_conns = data.get("user_connections", [])
-        users = data.get("users", [])
+        user_conns = db.get_connections_by_server_and_protocol(server_id, protocol)
+        users = db.get_all_users()
         users_map = {u["id"]: u for u in users}
         for client in clients:
             cid = client.get("clientId", "")
             for uc in user_conns:
-                if (
-                    uc.get("client_id") == cid
-                    and uc.get("server_id") == server_id
-                    and uc.get("protocol") == protocol
-                ):
+                if uc.get("client_id") == cid:
                     uid = uc.get("user_id")
                     u = users_map.get(uid)
                     if u:
@@ -1763,10 +1610,10 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         proto_info = server.get("protocols", {}).get(req.protocol, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
@@ -1806,8 +1653,7 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
                 "name": req.name,
                 "created_at": datetime.now().isoformat(),
             }
-            data["user_connections"].append(conn)
-            save_data(data)
+            db.create_connection(conn)
 
         return result
     except Exception as e:
@@ -1820,10 +1666,10 @@ async def api_remove_connection(request: Request, server_id: int, req: Connectio
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         if not req.client_id:
             return JSONResponse({"error": "Client ID is required"}, status_code=400)
         ssh = get_ssh(server)
@@ -1832,12 +1678,7 @@ async def api_remove_connection(request: Request, server_id: int, req: Connectio
         manager.remove_client(req.protocol, req.client_id)
         ssh.disconnect()
         # Remove from user_connections
-        data["user_connections"] = [
-            c
-            for c in data.get("user_connections", [])
-            if not (c.get("client_id") == req.client_id and c.get("server_id") == server_id)
-        ]
-        save_data(data)
+        db.delete_connection_by_client_id(req.client_id, server_id)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error removing connection")
@@ -1849,10 +1690,10 @@ async def api_edit_connection(request: Request, server_id: int, req: EditConnect
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
 
         ssh = get_ssh(server)
         ssh.connect()
@@ -1878,21 +1719,20 @@ async def api_get_connection_config(request: Request, server_id: int, req: Conne
     if not user:
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         # Users can only view their own connections
         if user["role"] == "user":
+            all_conns = db.get_connections_by_server_and_protocol(server_id, req.protocol)
             owned = any(
                 c
-                for c in data.get("user_connections", [])
-                if c.get("client_id") == req.client_id
-                and c.get("server_id") == server_id
-                and c.get("user_id") == user["id"]
+                for c in all_conns
+                if c.get("client_id") == req.client_id and c.get("user_id") == user["id"]
             )
             if not owned:
                 return JSONResponse({"error": "Forbidden"}, status_code=403)
-        server = data["servers"][server_id]
         if not req.client_id:
             return JSONResponse({"error": "Client ID is required"}, status_code=400)
         proto_info = server.get("protocols", {}).get(req.protocol, {})
@@ -1914,10 +1754,10 @@ async def api_toggle_connection(request: Request, server_id: int, req: ToggleCon
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         if not req.client_id:
             return JSONResponse({"error": "Client ID is required"}, status_code=400)
         ssh = get_ssh(server)
@@ -1939,19 +1779,19 @@ async def api_toggle_connection(request: Request, server_id: int, req: ToggleCon
 async def api_list_users(request: Request, search: str = "", page: int = 1, size: int = 10):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    all_users = data.get("users", [])
-    conns = data.get("user_connections", [])
+    db = get_db()
+    all_users = db.get_all_users()
+    conns = db.get_all_connections()
 
     # Filter
     filtered = []
-    search = search.lower()
+    search_lower = search.lower()
     for u in all_users:
         if search:
             match = (
-                search in u["username"].lower()
-                or (u.get("email") and search in u["email"].lower())
-                or (u.get("telegramId") and search in str(u["telegramId"]).lower())
+                search_lower in u["username"].lower()
+                or (u.get("email") and search_lower in u["email"].lower())
+                or (u.get("telegramId") and search_lower in str(u["telegramId"]).lower())
             )
             if not match:
                 continue
@@ -2001,10 +1841,11 @@ async def api_add_user(request: Request, req: AddUserRequest):
     if not cur or cur["role"] != "admin":
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
+        db = get_db()
         lang = request.cookies.get("lang", "ru")
         # Check duplicate
-        if any(u["username"] == req.username for u in data.get("users", [])):
+        existing = db.get_user_by_username(req.username)
+        if existing:
             return JSONResponse({"error": _t("user_exists", lang)}, status_code=400)
         if req.role not in ("admin", "support", "user"):
             return JSONResponse({"error": "Invalid role"}, status_code=400)
@@ -2029,15 +1870,14 @@ async def api_add_user(request: Request, req: AddUserRequest):
             "share_token": secrets.token_urlsafe(16),
             "share_password_hash": None,
         }
-        data["users"].append(new_user)
-        save_data(data)
+        db.create_user(new_user)
 
         result = {"status": "success", "user_id": new_user["id"]}
 
         # Auto-create connection if server & protocol specified
         if req.server_id is not None and req.protocol:
-            if req.server_id < len(data["servers"]):
-                server = data["servers"][req.server_id]
+            server = db.get_server_by_index(req.server_id)
+            if server is not None:
                 proto_info = server.get("protocols", {}).get(req.protocol, {})
                 port = proto_info.get("port", "55424")
                 conn_name = req.connection_name or f"{req.username}_vpn"
@@ -2057,9 +1897,7 @@ async def api_add_user(request: Request, req: AddUserRequest):
                         "name": conn_name,
                         "created_at": datetime.now().isoformat(),
                     }
-                    data = load_data()  # reload
-                    data["user_connections"].append(conn)
-                    save_data(data)
+                    db.create_connection(conn)
                     result["connection_created"] = True
                     if conn_result.get("config"):
                         result["config"] = conn_result["config"]
@@ -2083,42 +1921,44 @@ async def api_update_user(request: Request, user_id: str, req: UpdateUserRequest
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        user = next((u for u in data["users"] if u["id"] == user_id), None)
+        db = get_db()
+        user = db.get_user(user_id)
         if not user:
             return JSONResponse({"error": "User not found"}, status_code=404)
 
+        updates = {}
         if req.telegramId is not None:
-            user["telegramId"] = req.telegramId
+            updates["telegramId"] = req.telegramId
         if req.email is not None:
-            user["email"] = req.email
+            updates["email"] = req.email
         if req.description is not None:
-            user["description"] = req.description
+            updates["description"] = req.description
         if req.traffic_limit is not None:
             new_limit = int(req.traffic_limit * 1024**3)
-            user["traffic_limit"] = new_limit
+            updates["traffic_limit"] = new_limit
 
         if req.traffic_reset_strategy is not None:
-            user["traffic_reset_strategy"] = req.traffic_reset_strategy
-            user["last_reset_at"] = datetime.now().isoformat()
+            updates["traffic_reset_strategy"] = req.traffic_reset_strategy
+            updates["last_reset_at"] = datetime.now().isoformat()
 
         if req.expiration_date is not None:
-            user["expiration_date"] = req.expiration_date or None
+            updates["expiration_date"] = req.expiration_date or None
 
         if req.password:
-            user["password_hash"] = hash_password(req.password)
+            updates["password_hash"] = hash_password(req.password)
 
-        save_data(data)
+        if updates:
+            db.update_user(user_id, updates)
 
         # Auto re-enable if traffic limit increased beyond usage
         if req.traffic_limit is not None:
+            new_limit = int(req.traffic_limit * 1024**3)
             if (
                 new_limit > 0
                 and user.get("traffic_used", 0) < new_limit
                 and not user.get("enabled", True)
             ):
-                await perform_toggle_user(data, user_id, True)
-                save_data(data)
+                await perform_toggle_user(user_id, True)
 
         return {"status": "success"}
     except Exception as e:
@@ -2135,11 +1975,9 @@ async def api_delete_user(request: Request, user_id: str):
     if cur["id"] == user_id:
         return JSONResponse({"error": _t("cannot_delete_self", lang)}, status_code=400)
     try:
-        data = load_data()
-        success = await perform_delete_user(data, user_id)
+        success = await perform_delete_user(user_id)
         if not success:
             return JSONResponse({"error": "User not found"}, status_code=404)
-        save_data(data)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error deleting user")
@@ -2152,11 +1990,9 @@ async def api_toggle_user(request: Request, user_id: str, req: ToggleUserRequest
     if not cur or cur["role"] != "admin":
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        success = await perform_toggle_user(data, user_id, req.enabled)
+        success = await perform_toggle_user(user_id, req.enabled)
         if not success:
             return JSONResponse({"error": "User not found"}, status_code=404)
-        save_data(data)
         return {"status": "success", "enabled": req.enabled}
     except Exception as e:
         logger.exception("Error toggling user")
@@ -2168,13 +2004,13 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        user = next((u for u in data["users"] if u["id"] == user_id), None)
+        db = get_db()
+        user = db.get_user(user_id)
         if not user:
             return JSONResponse({"error": "User not found"}, status_code=404)
-        if req.server_id >= len(data["servers"]):
+        server = db.get_server_by_index(req.server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][req.server_id]
         proto_info = server.get("protocols", {}).get(req.protocol, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
@@ -2207,9 +2043,7 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
                 "name": req.name,
                 "created_at": datetime.now().isoformat(),
             }
-            data = load_data()
-            data["user_connections"].append(conn)
-            save_data(data)
+            db.create_connection(conn)
 
             resp = {"status": "success"}
             resp["config"] = result["config"]
@@ -2233,16 +2067,26 @@ async def api_get_user_connections(request: Request, user_id: str):
     # Users can only see their own, admin/support can see all
     if user["role"] == "user" and user["id"] != user_id:
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    conns = [c for c in data.get("user_connections", []) if c["user_id"] == user_id]
+    db = get_db()
+    conns = db.get_connections_by_user(user_id)
     for c in conns:
         sid = c.get("server_id", 0)
-        if sid < len(data["servers"]):
-            c["server_name"] = data["servers"][sid].get("name", "")
+        srv = db.get_server_by_index(sid)
+        if srv:
+            c["server_name"] = srv.get("name", "")
     return {"connections": conns}
 
 
 # ======================== MY CONNECTIONS API (for user role) ========================
+
+
+class MyAddConnectionRequest(BaseModel):
+    server_id: int
+    protocol: str = "awg"
+    name: str = "Connection"
+    telemt_quota: Optional[str] = None
+    telemt_max_ips: Optional[int] = None
+    telemt_expiry: Optional[str] = None
 
 
 @app.get("/api/my/connections")
@@ -2250,17 +2094,18 @@ async def api_my_connections(request: Request):
     user = get_current_user(request)
     if not user:
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    conns = [c for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
+    db = get_db()
+    conns = db.get_connections_by_user(user["id"])
     for c in conns:
         sid = c.get("server_id", 0)
-        if sid < len(data["servers"]):
-            c["server_name"] = data["servers"][sid].get("name", "")
+        srv = db.get_server_by_index(sid)
+        if srv:
+            c["server_name"] = srv.get("name", srv.get("host", ""))
         else:
             c["server_name"] = "Unknown"
 
     # Include effective limits for the frontend
-    settings = data.get("settings", {})
+    settings = db.get_all_settings()
     global_limits = settings.get("limits", {})
     user_limits = user.get("limits", {})
     effective_limits = {
@@ -2271,15 +2116,6 @@ async def api_my_connections(request: Request):
     }
 
     return {"connections": conns, "limits": effective_limits}
-
-
-class MyAddConnectionRequest(BaseModel):
-    server_id: int
-    protocol: str = "awg"
-    name: str = "Connection"
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
 
 
 @app.post("/api/my/connections/add")
@@ -2308,111 +2144,90 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
     if traffic_limit > 0 and traffic_used >= traffic_limit:
         return JSONResponse({"error": "Traffic limit exceeded"}, status_code=403)
 
-    # ---- Rate Limiting & Connection Limits (resolved inside lock below) ----
+    # ---- Rate Limiting & Connection Limits ----
+    db = get_db()
 
-    # ==================== PHASE 1: Atomic check + validate (under lock) ====================
-    async with DATA_LOCK:
-        current_data = load_data()
+    # Resolve limits
+    settings = db.get_all_settings()
+    global_limits = settings.get("limits", {})
+    user_limits = user.get("limits", {})
+    max_conns_per_user = user_limits.get(
+        "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
+    )
+    rate_limit_count = user_limits.get(
+        "connection_rate_limit_count", global_limits.get("connection_rate_limit_count", 5)
+    )
+    rate_limit_window = user_limits.get(
+        "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
+    )
 
-        # Resolve limits
-        settings = current_data.get("settings", {})
-        global_limits = settings.get("limits", {})
-        user_limits = user.get("limits", {})
-        max_conns_per_user = user_limits.get(
-            "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
+    # Check per-user connection count
+    user_conns = db.get_connections_by_user(user["id"])
+    if len(user_conns) >= max_conns_per_user:
+        logger.warning(
+            f"Rate limit triggered (max connections): user_id={user['id']}, "
+            f"current={len(user_conns)}, limit={max_conns_per_user}"
         )
-        rate_limit_count = user_limits.get(
-            "connection_rate_limit_count", global_limits.get("connection_rate_limit_count", 5)
+        return JSONResponse(
+            {
+                "error": f"Maximum connections limit reached ({max_conns_per_user})",
+                "limit": max_conns_per_user,
+                "current": len(user_conns),
+            },
+            status_code=428,
         )
-        rate_limit_window = user_limits.get(
-            "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
+
+    # Check time-based rate limiting (sliding window)
+    now = datetime.now()
+    recent = db.get_recent_connections_log(user["id"], rate_limit_window)
+    if len(recent) >= rate_limit_count:
+        oldest = min(recent, key=lambda e: e["created_at"])
+        try:
+            oldest_ts = datetime.fromisoformat(oldest["created_at"])
+            retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
+        except Exception:
+            retry_after = rate_limit_window
+        logger.warning(
+            f"Rate limit triggered (sliding window): user_id={user['id']}, "
+            f"recent_count={len(recent)}, limit={rate_limit_count}, window={rate_limit_window}s"
+        )
+        return JSONResponse(
+            {
+                "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
+                "retry_after": retry_after,
+            },
+            status_code=428,
+            headers={"Retry-After": str(retry_after)},
         )
 
-        # Prune entries older than the window
-        now = datetime.now()
-        creation_log = current_data.get("connection_creation_log", [])
-        pruned_log = []
-        for entry in creation_log:
-            try:
-                ts = datetime.fromisoformat(entry["timestamp"])
-                if (now - ts).total_seconds() <= rate_limit_window:
-                    pruned_log.append(entry)
-            except Exception:
-                pass  # Skip malformed entries
-        current_data["connection_creation_log"] = pruned_log
+    # Validate server exists
+    server = db.get_server_by_index(req.server_id)
+    if server is None:
+        return JSONResponse({"error": "Server not found"}, status_code=404)
 
-        # Check per-user connection count
-        user_conns = [
-            c for c in current_data.get("user_connections", []) if c["user_id"] == user["id"]
-        ]
-        if len(user_conns) >= max_conns_per_user:
-            logger.warning(
-                f"Rate limit triggered (max connections): user_id={user['id']}, "
-                f"current={len(user_conns)}, limit={max_conns_per_user}"
-            )
-            save_data(current_data)
-            return JSONResponse(
-                {
-                    "error": f"Maximum connections limit reached ({max_conns_per_user})",
-                    "limit": max_conns_per_user,
-                    "current": len(user_conns),
-                },
-                status_code=428,
-            )
+    # Verify protocol is installed
+    proto_info = server.get("protocols", {}).get(req.protocol, {})
+    if not proto_info or not proto_info.get("installed", False):
+        return JSONResponse(
+            {"error": f"Protocol {req.protocol} is not installed on this server"},
+            status_code=400,
+        )
 
-        # Check time-based rate limiting (sliding window)
-        recent = [e for e in pruned_log if e.get("user_id") == user["id"]]
-        if len(recent) >= rate_limit_count:
-            oldest = min(recent, key=lambda e: e["timestamp"])
-            try:
-                oldest_ts = datetime.fromisoformat(oldest["timestamp"])
-                retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
-            except Exception:
-                retry_after = rate_limit_window
-            logger.warning(
-                f"Rate limit triggered (sliding window): user_id={user['id']}, "
-                f"recent_count={len(recent)}, limit={rate_limit_count}, window={rate_limit_window}s"
-            )
-            save_data(current_data)
-            return JSONResponse(
-                {
-                    "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
-                    "retry_after": retry_after,
-                },
-                status_code=428,
-                headers={"Retry-After": str(retry_after)},
-            )
+    # Check for duplicate connection name
+    existing_names = {c.get("name", "") for c in user_conns}
+    if req.name in existing_names:
+        return JSONResponse(
+            {
+                "error": "duplicate_name",
+                "message": "A connection with this name already exists.",
+            },
+            status_code=409,
+        )
 
-        # Validate server exists
-        if req.server_id >= len(current_data["servers"]):
-            return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = current_data["servers"][req.server_id]
+    port = proto_info.get("port", "55424")
 
-        # Verify protocol is installed
-        proto_info = server.get("protocols", {}).get(req.protocol, {})
-        if not proto_info or not proto_info.get("installed", False):
-            return JSONResponse(
-                {"error": f"Protocol {req.protocol} is not installed on this server"},
-                status_code=400,
-            )
-
-        # Check for duplicate connection name
-        existing_names = {c.get("name", "") for c in user_conns}
-        if req.name in existing_names:
-            return JSONResponse(
-                {
-                    "error": "duplicate_name",
-                    "message": "A connection with this name already exists.",
-                },
-                status_code=409,
-            )
-
-        port = proto_info.get("port", "55424")
-
-        # Save pruned log
-        save_data(current_data)
-
-    # ==================== PHASE 2: SSH work (no lock) ====================
+    # Prune old connection log entries
+    db.prune_connection_log(1000)
 
     ssh = None
     try:
@@ -2438,7 +2253,6 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
             )
 
         if result.get("client_id"):
-            # Build connection record (use `now` from Phase 1 for consistency)
             new_conn = {
                 "id": str(uuid.uuid4()),
                 "user_id": user["id"],
@@ -2448,17 +2262,8 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
                 "name": req.name,
                 "created_at": now.isoformat(),
             }
-
-            # ==================== PHASE 3: Write result (under lock) ====================
-            async with DATA_LOCK:
-                write_data = load_data()
-                write_data["user_connections"].append(new_conn)
-                log_entry = {"user_id": user["id"], "timestamp": now.isoformat()}
-                write_data.setdefault("connection_creation_log", []).append(log_entry)
-                write_data["connection_creation_log"] = write_data["connection_creation_log"][
-                    -1000:
-                ]
-                save_data(write_data)
+            db.create_connection(new_conn)
+            db.log_connection_creation(user["id"])
 
             # Enrich connection with server_name for frontend
             new_conn["server_name"] = server.get("name", server.get("host", "Unknown"))
@@ -2488,27 +2293,29 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
 async def api_user_share_setup(user_id: str, req: ShareSetupRequest, request: Request):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    user = next((u for u in data["users"] if u["id"] == user_id), None)
+    db = get_db()
+    user = db.get_user(user_id)
     if not user:
         return JSONResponse({"error": "User not found"}, status_code=404)
 
-    user["share_enabled"] = req.enabled
+    updates = {"share_enabled": req.enabled}
     if not user.get("share_token"):
-        user["share_token"] = secrets.token_urlsafe(16)
+        updates["share_token"] = secrets.token_urlsafe(16)
     if req.password:
-        user["share_password_hash"] = hash_password(req.password)
+        updates["share_password_hash"] = hash_password(req.password)
     elif req.password == "":  # Clear
-        user["share_password_hash"] = None
+        updates["share_password_hash"] = None
 
-    save_data(data)
+    db.update_user(user_id, updates)
+    # Refresh user to get current share_token
+    user = db.get_user(user_id)
     return {"status": "success", "share_token": user.get("share_token")}
 
 
 @app.get("/share/{token}", response_class=HTMLResponse)
 async def share_page(token: str, request: Request):
-    data = load_data()
-    user = next((u for u in data["users"] if u.get("share_token") == token), None)
+    db = get_db()
+    user = db.get_user_by_share_token(token)
     if not user or not user.get("share_enabled"):
         lang = request.cookies.get("lang", "ru")
         return HTMLResponse(
@@ -2528,8 +2335,8 @@ async def share_page(token: str, request: Request):
 
 @app.post("/api/share/{token}/auth")
 async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
-    data = load_data()
-    user = next((u for u in data["users"] if u.get("share_token") == token), None)
+    db = get_db()
+    user = db.get_user_by_share_token(token)
     if not user or not user.get("share_enabled"):
         return JSONResponse({"error": "Link expired or disabled"}, status_code=404)
 
@@ -2543,8 +2350,8 @@ async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
 
 @app.get("/api/share/{token}/connections")
 async def api_share_connections(token: str, request: Request):
-    data = load_data()
-    user = next((u for u in data["users"] if u.get("share_token") == token), None)
+    db = get_db()
+    user = db.get_user_by_share_token(token)
     if not user or not user.get("share_enabled"):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
@@ -2552,11 +2359,12 @@ async def api_share_connections(token: str, request: Request):
         if not request.session.get(f"share_auth_{token}"):
             return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
-    conns = [dict(c) for c in data.get("user_connections", []) if c["user_id"] == user["id"]]
+    conns = [dict(c) for c in db.get_connections_by_user(user["id"])]
     for c in conns:
         sid = c["server_id"]
-        if sid < len(data["servers"]):
-            c["server_name"] = data["servers"][sid].get("name") or data["servers"][sid]["host"]
+        srv = db.get_server_by_index(sid)
+        if srv:
+            c["server_name"] = srv.get("name") or srv["host"]
         else:
             c["server_name"] = "Unknown"
 
@@ -2565,8 +2373,8 @@ async def api_share_connections(token: str, request: Request):
 
 @app.post("/api/share/{token}/config/{connection_id}")
 async def api_share_config(token: str, connection_id: str, request: Request):
-    data = load_data()
-    user = next((u for u in data["users"] if u.get("share_token") == token), None)
+    db = get_db()
+    user = db.get_user_by_share_token(token)
     if not user or not user.get("share_enabled"):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
 
@@ -2574,20 +2382,15 @@ async def api_share_config(token: str, connection_id: str, request: Request):
         if not request.session.get(f"share_auth_{token}"):
             return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
-    conn = next(
-        (
-            c
-            for c in data.get("user_connections", [])
-            if c["id"] == connection_id and c["user_id"] == user["id"]
-        ),
-        None,
-    )
-    if not conn:
+    conn = db.get_connection_by_id(connection_id)
+    if not conn or conn.get("user_id") != user["id"]:
         return JSONResponse({"error": "Not found"}, status_code=404)
 
     try:
         sid = conn["server_id"]
-        server = data["servers"][sid]
+        server = db.get_server_by_index(sid)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
@@ -2611,26 +2414,19 @@ async def api_my_connection_config(request: Request, connection_id: str):
     if not user:
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        conn = next(
-            (
-                c
-                for c in data.get("user_connections", [])
-                if c["id"] == connection_id and c["user_id"] == user["id"]
-            ),
-            None,
-        )
-        if not conn:
+        db = get_db()
+        conn = db.get_connection_by_id(connection_id)
+        if not conn or conn.get("user_id") != user["id"]:
             return JSONResponse({"error": "Connection not found"}, status_code=404)
         sid = conn["server_id"]
-        if sid >= len(data["servers"]):
+        server = db.get_server_by_index(sid)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][sid]
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
         ssh.connect()
-        # Use appropriate manager for the protocol (fixes Telemt/Xray not working for users)
+        # Use appropriate manager for the protocol
         manager = get_protocol_manager(ssh, conn["protocol"])
         config = manager.get_client_config(
             conn["protocol"], conn["client_id"], server["host"], port
@@ -2648,9 +2444,9 @@ async def settings_page(request: Request):
     user = _check_admin(request)
     if not user:
         return RedirectResponse("/login")
-    data = load_data()
+    db = get_db()
     return tpl(
-        request, "settings.html", settings=data.get("settings", {}), servers=data.get("servers", [])
+        request, "settings.html", settings=db.get_all_settings(), servers=db.get_all_servers()
     )
 
 
@@ -2658,39 +2454,22 @@ async def settings_page(request: Request):
 async def api_get_settings(request: Request):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    return data.get("settings", {})
-
-
-# @app.post('/api/settings/save')
-# async def api_save_settings(request: Request, body: SaveSettingsRequest):
-#     _check_admin(request)
-#     data = load_data()
-#     data['settings'] = body.dict()
-#     save_data(data)
-
-#     # Trigger sync if enabled
-#     if body.sync.remnawave_sync_users:
-#         await sync_users_with_remnawave(data)
-#         save_data(data)
-
-#     return {'status': 'success'}
+    db = get_db()
+    return db.get_all_settings()
 
 
 @app.post("/api/settings/save")
 async def save_settings(request: Request, payload: SaveSettingsRequest):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    data.setdefault("settings", {})
-    data["settings"]["appearance"] = payload.appearance.dict()
-    data["settings"]["sync"] = payload.sync.dict()
-    data["settings"]["captcha"] = payload.captcha.dict()
-    data["settings"]["telegram"] = payload.telegram.dict()
-    data["settings"]["ssl"] = payload.ssl.dict()
-    data["settings"]["limits"] = payload.limits.dict()
-    data["settings"]["protocol_paths"] = payload.protocol_paths.dict()
-    save_data(data)
+    db = get_db()
+    db.update_setting("appearance", payload.appearance.dict())
+    db.update_setting("sync", payload.sync.dict())
+    db.update_setting("captcha", payload.captcha.dict())
+    db.update_setting("telegram", payload.telegram.dict())
+    db.update_setting("ssl", payload.ssl.dict())
+    db.update_setting("limits", payload.limits.dict())
+    db.update_setting("protocol_paths", payload.protocol_paths.dict())
     logger.info("Settings saved (including captcha and telegram)")
 
     # Handle bot start/stop based on new telegram settings
@@ -2698,7 +2477,7 @@ async def save_settings(request: Request, payload: SaveSettingsRequest):
     if tg_cfg.enabled and tg_cfg.token:
         if not tg_bot.is_running():
             logger.info("Starting Telegram bot (settings save)...")
-            tg_bot.launch_bot(tg_cfg.token, load_data, generate_vpn_link)
+            tg_bot.launch_bot(tg_cfg.token, db.load_data, generate_vpn_link)
     else:
         if tg_bot.is_running():
             logger.info("Stopping Telegram bot (settings save)...")
@@ -2712,23 +2491,19 @@ async def api_telegram_toggle(request: Request):
     """Quick enable/disable of the bot without a full settings save."""
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    tg_cfg = data.get("settings", {}).get("telegram", {})
+    db = get_db()
+    tg_cfg = db.get_setting("telegram", {})
     token = tg_cfg.get("token", "")
     if not token:
         return JSONResponse({"error": "Telegram token not set in settings"}, status_code=400)
 
     if tg_bot.is_running():
         await tg_bot.stop_bot()
-        tg_cfg["enabled"] = False
-        data["settings"]["telegram"] = tg_cfg
-        save_data(data)
+        db.update_setting("telegram", {**tg_cfg, "enabled": False})
         return {"status": "stopped", "bot_running": False}
     else:
-        tg_bot.launch_bot(token, load_data, generate_vpn_link)
-        tg_cfg["enabled"] = True
-        data["settings"]["telegram"] = tg_cfg
-        save_data(data)
+        tg_bot.launch_bot(token, db.load_data, generate_vpn_link)
+        db.update_setting("telegram", {**tg_cfg, "enabled": True})
         return {"status": "started", "bot_running": True}
 
 
@@ -2736,8 +2511,7 @@ async def api_telegram_toggle(request: Request):
 async def api_sync_now(request: Request):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    count, msg = await sync_users_with_remnawave(data)
+    count, msg = await sync_users_with_remnawave()
     return {"status": "success", "count": count, "message": msg}
 
 
@@ -2745,8 +2519,9 @@ async def api_sync_now(request: Request):
 async def api_sync_delete(request: Request):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    data = load_data()
-    to_delete_ids = [u["id"] for u in data["users"] if u.get("remnawave_uuid")]
+    db = get_db()
+    all_users = db.get_all_users()
+    to_delete_ids = [u["id"] for u in all_users if u.get("remnawave_uuid")]
     if to_delete_ids:
         await perform_mass_operations(delete_uids=to_delete_ids)
     return {"status": "success", "count": len(to_delete_ids)}
@@ -2757,10 +2532,10 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
-        data = load_data()
-        if server_id >= len(data["servers"]):
+        db = get_db()
+        server = db.get_server_by_index(server_id)
+        if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        server = data["servers"][server_id]
         ssh = get_ssh(server)
         ssh.connect()
         manager = get_protocol_manager(ssh, protocol)
@@ -2768,11 +2543,8 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
         ssh.disconnect()
 
         # Filter: only show clients that are not assigned to anyone in the panel
-        assigned_ids = {
-            c["client_id"]
-            for c in data.get("user_connections", [])
-            if c["server_id"] == server_id and c["protocol"] == protocol
-        }
+        assigned_conns = db.get_connections_by_server_and_protocol(server_id, protocol)
+        assigned_ids = {c["client_id"] for c in assigned_conns}
 
         filtered = []
         for c in clients:
@@ -2794,9 +2566,18 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
 async def api_backup_download(request: Request):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    if not os.path.exists(DATA_FILE):
-        return JSONResponse({"error": "Data file not found"}, status_code=404)
-    return FileResponse(DATA_FILE, media_type="application/json", filename="data.json")
+    try:
+        db = get_db()
+        backup_data = db.load_data()
+        backup_json = json.dumps(backup_data, indent=2, ensure_ascii=False)
+        return Response(
+            content=backup_json,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=data.json"},
+        )
+    except Exception as e:
+        logger.exception("Error creating backup")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
 @app.post("/api/settings/backup/restore")
@@ -2830,8 +2611,8 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
             )
 
         # Save the new data
-        async with DATA_LOCK:
-            save_data(backup_data)
+        db = get_db()
+        db.save_data(backup_data)
 
         # In a real app we might want to restart or re-init background tasks
         return {"status": "success"}
@@ -2841,8 +2622,9 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
 
 
 if __name__ == "__main__":
-    data = load_data()
-    ssl_conf = data.get("settings", {}).get("ssl", {})
+    db = get_db()
+    settings = db.get_all_settings()
+    ssl_conf = settings.get("ssl", {})
 
     cert_file = ssl_conf.get("cert_path")
     key_file = ssl_conf.get("key_path")
