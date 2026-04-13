@@ -1009,11 +1009,11 @@
             const params = {
                 protocol: proto, name: connName, user_id: userId,
             };
-            if (proto === 'telemt') {
+            if (proto === 'telemt' && isEditingConn) {
                 params.telemt_quota = document.getElementById('telemtQuota').value || null;
                 params.telemt_max_ips = parseInt(document.getElementById('telemtMaxIps').value) || null;
                 params.telemt_expiry = document.getElementById('telemtExpiry').value || null;
-                if (isEditingConn) params.client_id = editingClientId;
+                params.client_id = editingClientId;
             }
             const result = await apiCall(isEditingConn ? `/api/servers/${SERVER_ID}/connections/edit` : `/api/servers/${SERVER_ID}/connections/add`, 'POST', params);
             if (isEditingConn) {
@@ -1059,7 +1059,7 @@
         document.getElementById('addConnBtnText').textContent = isEdit ? 'Сохранить' : 'Создать';
         document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
 
-        if (proto === 'telemt') {
+        if (proto === 'telemt' && isEdit) {
             telemtOpts.style.display = 'block';
             if (isEdit && clientData) {
                 editingClientId = clientData.clientName;
