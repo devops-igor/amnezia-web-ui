@@ -142,7 +142,9 @@ class Database:
     def get_server_by_id(self, server_id: int) -> Optional[Dict[str, Any]]:
         """Return a server by its database PRIMARY KEY id, or None if not found."""
         conn = self._get_conn()
-        row = conn.execute("SELECT * FROM servers WHERE id = ?", (server_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM servers WHERE id = ?", (server_id,)
+        ).fetchone()
         if row is None:
             return None
         return self._server_row_to_dict(row)
