@@ -2,11 +2,12 @@
 Tests for API connection endpoints
 """
 
-import json
 import pytest
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
-from app import app
+from database import Database
+import tempfile
+import os
 
 
 class TestApiMyAddConnection:
@@ -14,56 +15,64 @@ class TestApiMyAddConnection:
 
     def setup_method(self):
         """Set up test client and mock data"""
-        self.client = TestClient(app)
-        # Mock the load_data and save_data functions
-        self.mock_data = {
-            "users": [
-                {
-                    "id": "test-user-1",
-                    "username": "testuser",
-                    "password_hash": "hashed_password",
-                    "enabled": True,
-                    "traffic_limit": 0,
-                    "traffic_used": 0,
-                    "limits": {},
-                }
-            ],
-            "servers": [
-                {
-                    "id": 0,
-                    "name": "Test Server",
-                    "host": "test.example.com",
-                    "protocols": {"awg": {"installed": True, "port": "55424"}},
-                }
-            ],
-            "user_connections": [],
-            "connection_creation_log": [],
-            "settings": {
-                "limits": {
-                    "max_connections_per_user": 10,
-                    "connection_rate_limit_count": 5,
-                    "connection_rate_limit_window": 60,
-                }
-            },
-        }
+        # Create a temporary database for each test
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
 
-    @patch("app.load_data")
-    @patch("app.save_data")
+        # Insert a test user
+        self.db.create_user(
+            {
+                "id": "test-user-1",
+                "username": "testuser",
+                "password_hash": "hashed_password",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+
+        # Insert a test server
+        self.db.create_server(
+            {
+                "name": "Test Server",
+                "host": "test.example.com",
+                "protocols": {"awg": {"installed": True, "port": "55424"}},
+            }
+        )
+
+        # Configure settings for rate limiting
+        self.db.update_setting(
+            "limits",
+            {
+                "max_connections_per_user": 10,
+                "connection_rate_limit_count": 5,
+                "connection_rate_limit_window": 60,
+            },
+        )
+
+    def teardown_method(self):
+        """Clean up temporary database."""
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
     @patch("app.get_current_user")
     @patch("app.get_ssh")
     @patch("app.get_protocol_manager")
+    @patch("app.get_db")
     def test_duplicate_connection_name_returns_json_error(
         self,
+        mock_get_db,
         mock_get_protocol_manager,
         mock_get_ssh,
         mock_get_current_user,
-        mock_save_data,
-        mock_load_data,
     ):
         """Test that duplicate connection names return proper JSON error"""
-        # Setup mocks
-        mock_load_data.return_value = self.mock_data.copy()
-        mock_get_current_user.return_value = self.mock_data["users"][0]
+        mock_get_db.return_value = self.db
+        mock_get_current_user.return_value = self.db.get_user("test-user-1")
 
         # Mock SSH and protocol manager
         mock_ssh = MagicMock()
@@ -72,15 +81,19 @@ class TestApiMyAddConnection:
         mock_manager.add_client.return_value = {"client_id": "test-client-1"}
         mock_get_protocol_manager.return_value = mock_manager
 
+        from app import app
+
+        client = TestClient(app)
+
         # First connection should succeed
-        response1 = self.client.post(
+        response1 = client.post(
             "/api/my/connections/add",
             json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
         # Update mock data to include the first connection
-        self.mock_data["user_connections"].append(
+        self.db.create_connection(
             {
                 "id": "conn-1",
                 "user_id": "test-user-1",
@@ -91,10 +104,9 @@ class TestApiMyAddConnection:
                 "created_at": "2024-01-01T00:00:00",
             }
         )
-        mock_load_data.return_value = self.mock_data.copy()
 
         # Second connection with duplicate name should fail with JSON error
-        response2 = self.client.post(
+        response2 = client.post(
             "/api/my/connections/add",
             json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
@@ -110,22 +122,18 @@ class TestApiMyAddConnection:
             assert data["error"] == "duplicate_name"
             assert "message" in data
             assert "already exists" in data["message"]
-        except json.JSONDecodeError:
+        except Exception:
             pytest.fail("Response is not valid JSON")
 
-    @patch("app.load_data")
-    @patch("app.save_data")
     @patch("app.get_current_user")
-    def test_duplicate_connection_error_message_format(
-        self, mock_get_current_user, mock_save_data, mock_load_data
-    ):
+    @patch("app.get_db")
+    def test_duplicate_connection_error_message_format(self, mock_get_db, mock_get_current_user):
         """Test that the duplicate connection error message is user-friendly"""
-        # Setup mocks
-        mock_load_data.return_value = self.mock_data.copy()
-        mock_get_current_user.return_value = self.mock_data["users"][0]
+        mock_get_db.return_value = self.db
+        mock_get_current_user.return_value = self.db.get_user("test-user-1")
 
-        # Add a connection to the mock data
-        self.mock_data["user_connections"].append(
+        # Add a connection to the test data via the database
+        self.db.create_connection(
             {
                 "id": "conn-1",
                 "user_id": "test-user-1",
@@ -137,8 +145,12 @@ class TestApiMyAddConnection:
             }
         )
 
+        from app import app
+
+        client = TestClient(app)
+
         # Try to create a connection with duplicate name
-        response = self.client.post(
+        response = client.post(
             "/api/my/connections/add",
             json={"server_id": 0, "protocol": "awg", "name": "Existing Connection"},
             headers={"Authorization": "Bearer test-token"},
@@ -157,38 +169,29 @@ class TestApiMyAddConnection:
         expected_message = "A connection with this name already exists."
         assert data["message"] == expected_message
 
-    @patch("app.load_data")
     @patch("app.get_current_user")
-    def test_rate_limit_returns_json_error(self, mock_get_current_user, mock_load_data):
+    @patch("app.get_db")
+    def test_rate_limit_returns_json_error(self, mock_get_db, mock_get_current_user):
         """Test that rate limit errors return proper JSON response with retry_after"""
-        # Setup mocks
-        mock_load_data.return_value = self.mock_data.copy()
-        mock_get_current_user.return_value = self.mock_data["users"][0]
+        mock_get_db.return_value = self.db
+        mock_get_current_user.return_value = self.db.get_user("test-user-1")
 
         # Simulate rate limiting by adding many recent connection creations
-        from datetime import datetime, timedelta
-
-        now = datetime.now()
-        recent_entries = []
         for i in range(5):  # Same as rate_limit_count
-            recent_entries.append(
-                {
-                    "user_id": "test-user-1",
-                    "timestamp": (now - timedelta(seconds=i * 10)).isoformat(),
-                }
-            )
+            self.db.log_connection_creation("test-user-1")
 
-        self.mock_data["connection_creation_log"] = recent_entries
-        mock_load_data.return_value = self.mock_data.copy()
+        from app import app
+
+        client = TestClient(app)
 
         # Try to create a connection (should be rate limited)
-        response = self.client.post(
+        response = client.post(
             "/api/my/connections/add",
             json={"server_id": 0, "protocol": "awg", "name": "Test Connection"},
             headers={"Authorization": "Bearer test-token"},
         )
 
-        # Verify response
+        # Verify response — rate limit returns 428
         assert response.status_code == 428
 
         # Check that response is valid JSON
@@ -200,6 +203,7 @@ class TestApiMyAddConnection:
             assert "retry_after" in data
             assert isinstance(data["retry_after"], int)
             assert data["retry_after"] > 0
+
             # Check Retry-After header
             assert "Retry-After" in response.headers
             assert response.headers["Retry-After"] == str(data["retry_after"])
@@ -315,3 +319,16 @@ class TestApiAddConnectionTelemtFailure:
         assert response.status_code == 200
         # Verify save_data was called (connection written)
         mock_save_data.assert_called_once()
+=======
+        data = response.json()
+        assert isinstance(data, dict)
+        assert "error" in data
+        assert "rate limit" in data["error"].lower()
+        assert "retry_after" in data
+        assert isinstance(data["retry_after"], int)
+        assert data["retry_after"] > 0
+
+        # Check Retry-After header
+        assert "Retry-After" in response.headers
+        assert response.headers["Retry-After"] == str(data["retry_after"])
+>>>>>>> Stashed changes

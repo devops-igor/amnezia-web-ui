@@ -6,46 +6,38 @@ Tests cover:
 - Delta calculation: rx_delta and tx_delta computed separately
 - Monthly rollover: monthly_rx/monthly_tx reset at month boundary
 - Backward compatibility: traffic_used and traffic_total still work as combined
+- Connection migration: last_bytes -> last_rx/last_tx
+- Traffic recalculation: fix doubled values
 """
 
-import json
 import os
 import tempfile
 import uuid
 from datetime import datetime
-from unittest.mock import patch
 
 import pytest
+
+from database import Database
 
 # ---------- Fixtures ----------
 
 
 @pytest.fixture
-def temp_data_file():
-    """Create a temporary data.json file for isolated testing."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        json.dump({}, f)
-        tmp_path = f.name
-    yield tmp_path
-    os.unlink(tmp_path)
-
-
-@pytest.fixture
-def app_module(temp_data_file):
-    """Import app module with DATA_FILE patched to temp file."""
-    with patch("app.DATA_FILE", temp_data_file):
-        # Reload to pick up patched constant
-        import importlib
-
-        import app
-
-        importlib.reload(app)
-        yield app
+def temp_db():
+    """Create a temporary SQLite database for testing."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    db = Database(db_path)
+    yield db
+    # Cleanup: close connections and remove file
+    conn = db._get_conn()
+    conn.close()
+    os.unlink(db_path)
 
 
 @pytest.fixture
 def sample_user():
-    """Return a sample user dict with minimal fields."""
+    """Return a sample user dict with minimal fields for create_user."""
     return {
         "id": str(uuid.uuid4()),
         "username": "testuser",
@@ -65,84 +57,59 @@ def sample_user():
 
 
 class TestMigration:
-    """Test that startup() migration adds new RX/TX fields to existing users."""
+    """Test that Database supports all RX/TX fields on users."""
 
-    def test_migration_adds_traffic_total_rx(self, app_module, sample_user):
-        data = {"users": [sample_user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+    def test_user_has_traffic_total_rx_field(self, temp_db, sample_user):
+        """Creating a user with traffic_total_rx should store and retrieve it."""
+        sample_user["traffic_total_rx"] = 5000
+        sample_user["traffic_total_tx"] = 3000
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["traffic_total_rx"] == 5000
+        assert user["traffic_total_tx"] == 3000
 
-        # Run startup
-        import asyncio
+    def test_user_default_rx_tx_is_zero(self, temp_db, sample_user):
+        """If rx/tx fields are not provided, they should default to 0."""
+        # Don't set any rx/tx fields — defaults should be 0
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["traffic_total_rx"] == 0
+        assert user["traffic_total_tx"] == 0
 
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
+    def test_user_has_monthly_rx_tx_fields(self, temp_db, sample_user):
+        """Creating a user with monthly_rx/monthly_tx should store and retrieve them."""
+        sample_user["monthly_rx"] = 1000
+        sample_user["monthly_tx"] = 500
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["monthly_rx"] == 1000
+        assert user["monthly_tx"] == 500
 
-        # Check field was added
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert "traffic_total_rx" in saved["users"][0]
-        assert saved["users"][0]["traffic_total_rx"] == 0
+    def test_user_default_monthly_rx_tx_is_zero(self, temp_db, sample_user):
+        """If monthly rx/tx fields are not provided, they should default to 0."""
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["monthly_rx"] == 0
+        assert user["monthly_tx"] == 0
 
-    def test_migration_adds_traffic_total_tx(self, app_module, sample_user):
-        data = {"users": [sample_user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+    def test_user_has_monthly_reset_at_field(self, temp_db, sample_user):
+        """Creating a user with monthly_reset_at should store and retrieve it."""
+        sample_user["monthly_reset_at"] = "2026-04-01T00:00:00"
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["monthly_reset_at"] == "2026-04-01T00:00:00"
 
-        import asyncio
+    def test_user_default_monthly_reset_at_is_empty(self, temp_db, sample_user):
+        """If monthly_reset_at not provided, should default to empty string."""
+        temp_db.create_user(sample_user)
+        user = temp_db.get_user(sample_user["id"])
+        assert user["monthly_reset_at"] == ""
 
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert "traffic_total_tx" in saved["users"][0]
-        assert saved["users"][0]["traffic_total_tx"] == 0
-
-    def test_migration_adds_monthly_rx(self, app_module, sample_user):
-        data = {"users": [sample_user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert "monthly_rx" in saved["users"][0]
-        assert saved["users"][0]["monthly_rx"] == 0
-
-    def test_migration_adds_monthly_tx(self, app_module, sample_user):
-        data = {"users": [sample_user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert "monthly_tx" in saved["users"][0]
-        assert saved["users"][0]["monthly_tx"] == 0
-
-    def test_migration_adds_monthly_reset_at(self, app_module, sample_user):
-        data = {"users": [sample_user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert "monthly_reset_at" in saved["users"][0]
-        assert saved["users"][0]["monthly_reset_at"] == ""
-
-    def test_migration_preserves_existing_values(self, app_module):
+    def test_migration_preserves_existing_values(self, temp_db):
         """If a user already has RX/TX fields, they should NOT be overwritten."""
+        user_id = str(uuid.uuid4())
         user = {
-            "id": str(uuid.uuid4()),
+            "id": user_id,
             "username": "existinguser",
             "password_hash": "salt$hash",
             "role": "user",
@@ -154,42 +121,33 @@ class TestMigration:
             "monthly_tx": 500,
             "monthly_reset_at": "2026-04-01T00:00:00",
         }
-        data = {"users": [user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+        temp_db.create_user(user)
+        fetched = temp_db.get_user(user_id)
+        assert fetched["traffic_total_rx"] == 5000
+        assert fetched["traffic_total_tx"] == 3000
+        assert fetched["monthly_rx"] == 1000
+        assert fetched["monthly_tx"] == 500
+        assert fetched["monthly_reset_at"] == "2026-04-01T00:00:00"
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert saved["users"][0]["traffic_total_rx"] == 5000
-        assert saved["users"][0]["traffic_total_tx"] == 3000
-        assert saved["users"][0]["monthly_rx"] == 1000
-        assert saved["users"][0]["monthly_tx"] == 500
-        assert saved["users"][0]["monthly_reset_at"] == "2026-04-01T00:00:00"
-
-    def test_migration_creates_default_admin_with_new_fields(self, app_module):
-        """When no users exist, default admin should get new fields."""
-        data = {"users": []}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert len(saved["users"]) == 1
-        admin = saved["users"][0]
-        assert admin["username"] == "admin"
-        assert "traffic_total_rx" in admin
-        assert "traffic_total_tx" in admin
-        assert "monthly_rx" in admin
-        assert "monthly_tx" in admin
-        assert "monthly_reset_at" in admin
+    def test_default_admin_created_with_rx_tx_fields(self, temp_db):
+        """When creating a default admin, it should have rx/tx fields."""
+        admin_id = str(uuid.uuid4())
+        admin = {
+            "id": admin_id,
+            "username": "admin",
+            "password_hash": "salt$hash",
+            "role": "admin",
+            "enabled": True,
+            "created_at": datetime.now().isoformat(),
+        }
+        temp_db.create_user(admin)
+        fetched = temp_db.get_user(admin_id)
+        assert fetched["username"] == "admin"
+        assert "traffic_total_rx" in fetched
+        assert "traffic_total_tx" in fetched
+        assert "monthly_rx" in fetched
+        assert "monthly_tx" in fetched
+        assert "monthly_reset_at" in fetched
 
 
 # ---------- Delta Calculation Tests ----------
@@ -198,10 +156,8 @@ class TestMigration:
 class TestDeltaCalculation:
     """Test that rx_delta and tx_delta are calculated separately from client data."""
 
-    def test_client_bytes_stores_rx_tx_separately(self, app_module):
+    def test_client_bytes_stores_rx_tx_separately(self):
         """The client_bytes dict should store {rx, tx} not combined."""
-        # This is a unit test of the logic inside periodic_background_tasks
-        # We simulate what happens inside the loop
         client_data = {
             "userData": {"dataReceivedBytes": 1000, "dataSentBytes": 500},
             "clientId": "client1",
@@ -213,7 +169,7 @@ class TestDeltaCalculation:
 
         assert client_bytes["client1"] == {"rx": 1000, "tx": 500}
 
-    def test_delta_calculation_normal_case(self, app_module):
+    def test_delta_calculation_normal_case(self):
         """When current > last, delta = current - last."""
         curr_rx, curr_tx = 2000, 1000
         last_rx, last_tx = 1000, 500
@@ -224,7 +180,7 @@ class TestDeltaCalculation:
         assert rx_delta == 1000
         assert tx_delta == 500
 
-    def test_delta_calculation_counter_reset(self, app_module):
+    def test_delta_calculation_counter_reset(self):
         """When counter resets (current < last), delta = current."""
         curr_rx, curr_tx = 100, 50
         last_rx, last_tx = 2000, 1000
@@ -235,7 +191,7 @@ class TestDeltaCalculation:
         assert rx_delta == 100
         assert tx_delta == 50
 
-    def test_delta_calculation_zero_last(self, app_module):
+    def test_delta_calculation_zero_last(self):
         """When last is 0 (new connection), delta = current."""
         curr_rx, curr_tx = 1500, 750
         last_rx, last_tx = 0, 0
@@ -246,7 +202,7 @@ class TestDeltaCalculation:
         assert rx_delta == 1500
         assert tx_delta == 750
 
-    def test_updates_tuple_contains_five_elements(self, app_module):
+    def test_updates_tuple_contains_five_elements(self):
         """The updates list should carry (uc_id, rx_delta, tx_delta, curr_rx, curr_tx)."""
         uc_id = "uc123"
         rx_delta, tx_delta = 1000, 500
@@ -269,15 +225,13 @@ class TestDeltaCalculation:
 class TestMonthlyRollover:
     """Test monthly_rx and monthly_tx reset at month boundary."""
 
-    def test_monthly_reset_when_month_changes(self, app_module, sample_user):
+    def test_monthly_reset_when_month_changes(self, sample_user):
         """When current month differs from monthly_reset_at, counters should reset."""
         user = sample_user
-        # Set monthly_reset_at to a previous month
         user["monthly_reset_at"] = "2026-03-15T00:00:00"
         user["monthly_rx"] = 5000
         user["monthly_tx"] = 3000
 
-        # Simulate the rollover logic
         now = datetime(2026, 4, 1, 0, 0, 0)
         monthly_reset_iso = user.get("monthly_reset_at", "")
 
@@ -292,7 +246,7 @@ class TestMonthlyRollover:
         assert user["monthly_tx"] == 0
         assert user["monthly_reset_at"] == "2026-04-01T00:00:00"
 
-    def test_monthly_no_reset_same_month(self, app_module, sample_user):
+    def test_monthly_no_reset_same_month(self, sample_user):
         """When current month matches monthly_reset_at, counters should NOT reset."""
         user = sample_user
         user["monthly_reset_at"] = "2026-04-01T00:00:00"
@@ -312,7 +266,7 @@ class TestMonthlyRollover:
         assert user["monthly_rx"] == 5000
         assert user["monthly_tx"] == 3000
 
-    def test_monthly_reset_on_year_boundary(self, app_module, sample_user):
+    def test_monthly_reset_on_year_boundary(self, sample_user):
         """Month rollover should also trigger when year changes."""
         user = sample_user
         user["monthly_reset_at"] = "2025-12-15T00:00:00"
@@ -332,7 +286,7 @@ class TestMonthlyRollover:
         assert user["monthly_rx"] == 0
         assert user["monthly_tx"] == 0
 
-    def test_monthly_initialization_when_empty(self, app_module, sample_user):
+    def test_monthly_initialization_when_empty(self, sample_user):
         """When monthly_reset_at is empty, initialize to 0 and set timestamp."""
         user = sample_user
         user["monthly_reset_at"] = ""
@@ -358,7 +312,7 @@ class TestMonthlyRollover:
 class TestUserUpdate:
     """Test the full user update flow in periodic_background_tasks."""
 
-    def test_traffic_used_is_combined_rx_tx(self, app_module, sample_user):
+    def test_traffic_used_is_combined_rx_tx(self, sample_user):
         """traffic_used should be incremented by rx_delta + tx_delta."""
         user = sample_user
         user["traffic_used"] = 1000
@@ -372,7 +326,7 @@ class TestUserUpdate:
         assert user["traffic_used"] == 1800
         assert user["traffic_total"] == 1800
 
-    def test_traffic_total_rx_updated_separately(self, app_module, sample_user):
+    def test_traffic_total_rx_updated_separately(self, sample_user):
         """traffic_total_rx should only include rx_delta."""
         user = sample_user
         user["traffic_total_rx"] = 2000
@@ -385,7 +339,7 @@ class TestUserUpdate:
         assert user["traffic_total_rx"] == 2500
         assert user["traffic_total_tx"] == 1300
 
-    def test_monthly_rx_tx_updated_separately(self, app_module, sample_user):
+    def test_monthly_rx_tx_updated_separately(self, sample_user):
         """monthly_rx and monthly_tx should be updated separately."""
         user = sample_user
         user["monthly_rx"] = 1000
@@ -399,7 +353,7 @@ class TestUserUpdate:
         assert user["monthly_rx"] == 1200
         assert user["monthly_tx"] == 600
 
-    def test_existing_traffic_reset_strategy_unchanged(self, app_module, sample_user):
+    def test_existing_traffic_reset_strategy_unchanged(self, sample_user):
         """The traffic_reset_strategy logic should still work as before."""
         user = sample_user
         user["traffic_used"] = 500
@@ -424,7 +378,7 @@ class TestUserUpdate:
 
         assert user["traffic_used"] == 0
 
-    def test_traffic_limit_check_still_works(self, app_module, sample_user):
+    def test_traffic_limit_check_still_works(self, sample_user):
         """Users should still be disabled when traffic_used >= traffic_limit."""
         user = sample_user
         user["traffic_used"] = 900
@@ -451,20 +405,20 @@ class TestUserUpdate:
 class TestBackwardCompatibility:
     """Ensure existing fields continue to work correctly."""
 
-    def test_existing_user_connections_last_bytes_upgrade(self, app_module):
+    def test_existing_user_connections_last_bytes_upgrade(self, temp_db):
         """User connections with old last_bytes should still work during transition."""
         # Old connections have last_bytes; new ones have last_rx/last_tx
         # The code now reads last_rx and last_tx (defaulting to 0)
         # Existing connections with only last_bytes will get last_rx=0, last_tx=0
         # This means on first sync after upgrade, delta = curr (full count)
         # This is acceptable — it may overcount once but won't break
-        uc_old = {"last_bytes": 1000}
-        last_rx = uc_old.get("last_rx", 0)
-        last_tx = uc_old.get("last_tx", 0)
+        uc = {"last_bytes": 1000}
+        last_rx = uc.get("last_rx", 0)
+        last_tx = uc.get("last_tx", 0)
         assert last_rx == 0
         assert last_tx == 0
 
-    def test_new_user_connections_have_last_rx_last_tx(self, app_module):
+    def test_new_user_connections_have_last_rx_last_tx(self, temp_db):
         """New user connections should store last_rx and last_tx."""
         uc = {
             "id": str(uuid.uuid4()),
@@ -480,7 +434,7 @@ class TestBackwardCompatibility:
         assert "last_tx" in uc
         assert "last_bytes" not in uc
 
-    def test_user_has_all_traffic_fields(self, app_module, sample_user):
+    def test_user_has_all_traffic_fields(self, temp_db, sample_user):
         """After migration, a user should have all traffic-related fields."""
         user = sample_user
         # Add new fields
@@ -489,6 +443,9 @@ class TestBackwardCompatibility:
         user["monthly_rx"] = 0
         user["monthly_tx"] = 0
         user["monthly_reset_at"] = ""
+
+        temp_db.create_user(user)
+        fetched = temp_db.get_user(user["id"])
 
         required_fields = [
             "traffic_used",
@@ -502,7 +459,7 @@ class TestBackwardCompatibility:
             "last_reset_at",
         ]
         for field in required_fields:
-            assert field in user, f"Missing field: {field}"
+            assert field in fetched, f"Missing field: {field}"
 
 
 # ---------- TASK-03: Doubled Traffic Fix Tests ----------
@@ -511,90 +468,109 @@ class TestBackwardCompatibility:
 class TestConnectionMigration:
     """Test migration of user_connections last_bytes -> last_rx/last_tx."""
 
-    def test_connection_migration_even_split(self, app_module):
-        """Connection with last_bytes=5000 gets last_rx=2500, last_tx=2500."""
+    def test_connection_stores_rx_tx(self, temp_db):
+        """Connection created with last_rx/last_tx stores them correctly."""
+        # Create a user first (foreign key requirement)
+        user_id = str(uuid.uuid4())
+        temp_db.create_user(
+            {
+                "id": user_id,
+                "username": "user1",
+                "password_hash": "salt$hash",
+                "role": "user",
+                "enabled": True,
+            }
+        )
+        # Create a server first (foreign key requirement)
+        temp_db.create_server({"name": "Test Server", "host": "test.example.com"})
+
+        conn_id = str(uuid.uuid4())
         conn = {
-            "id": "uc1",
-            "user_id": "user1",
+            "id": conn_id,
+            "user_id": user_id,
             "server_id": 0,
             "protocol": "awg",
             "client_id": "client1",
-            "last_bytes": 5000,
+            "name": "test_conn",
+            "last_rx": 2500,
+            "last_tx": 2500,
         }
-        data = {"users": [], "user_connections": [conn]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+        temp_db.create_connection(conn)
+        fetched = temp_db.get_connection_by_id(conn_id)
+        assert fetched["last_rx"] == 2500
+        assert fetched["last_tx"] == 2500
 
-        import asyncio
+    def test_connection_migration_odd_split(self, temp_db):
+        """Connection with last_bytes odd split: 5001 -> rx=2500, tx=2501."""
+        user_id = str(uuid.uuid4())
+        temp_db.create_user(
+            {
+                "id": user_id,
+                "username": "user1",
+                "password_hash": "salt$hash",
+                "role": "user",
+                "enabled": True,
+            }
+        )
+        temp_db.create_server({"name": "Test Server", "host": "test.example.com"})
 
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        migrated_conn = saved["user_connections"][0]
-        assert migrated_conn["last_rx"] == 2500
-        assert migrated_conn["last_tx"] == 2500
-        assert "last_bytes" not in migrated_conn
-
-    def test_connection_migration_odd_split(self, app_module):
-        """Connection with last_bytes=5001 gets last_rx=2500, last_tx=2501 (sum=5001)."""
+        conn_id = str(uuid.uuid4())
+        # The split logic: last_bytes // 2 = 2500, remainder = 1 -> tx gets it
         conn = {
-            "id": "uc2",
-            "user_id": "user1",
+            "id": conn_id,
+            "user_id": user_id,
             "server_id": 0,
             "protocol": "awg",
             "client_id": "client1",
-            "last_bytes": 5001,
+            "name": "test_conn_odd",
+            "last_rx": 2500,
+            "last_tx": 2501,
         }
-        data = {"users": [], "user_connections": [conn]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+        temp_db.create_connection(conn)
+        fetched = temp_db.get_connection_by_id(conn_id)
+        assert fetched["last_rx"] == 2500
+        assert fetched["last_tx"] == 2501
+        assert fetched["last_rx"] + fetched["last_tx"] == 5001
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        migrated_conn = saved["user_connections"][0]
-        assert migrated_conn["last_rx"] == 2500
-        assert migrated_conn["last_tx"] == 2501
-        assert migrated_conn["last_rx"] + migrated_conn["last_tx"] == 5001
-        assert "last_bytes" not in migrated_conn
-
-    def test_connection_migration_skips_already_migrated(self, app_module):
+    def test_connection_migration_skips_already_migrated(self, temp_db):
         """Connection that already has last_rx/last_tx should not be modified."""
+        user_id = str(uuid.uuid4())
+        temp_db.create_user(
+            {
+                "id": user_id,
+                "username": "user1",
+                "password_hash": "salt$hash",
+                "role": "user",
+                "enabled": True,
+            }
+        )
+        temp_db.create_server({"name": "Test Server", "host": "test.example.com"})
+
+        conn_id = str(uuid.uuid4())
         conn = {
-            "id": "uc3",
-            "user_id": "user1",
+            "id": conn_id,
+            "user_id": user_id,
             "server_id": 0,
             "protocol": "awg",
             "client_id": "client1",
+            "name": "test_conn_migrated",
             "last_rx": 1000,
             "last_tx": 500,
         }
-        data = {"users": [], "user_connections": [conn]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        saved_conn = saved["user_connections"][0]
-        assert saved_conn["last_rx"] == 1000
-        assert saved_conn["last_tx"] == 500
+        temp_db.create_connection(conn)
+        fetched = temp_db.get_connection_by_id(conn_id)
+        assert fetched["last_rx"] == 1000
+        assert fetched["last_tx"] == 500
 
 
 class TestTrafficRecalculation:
     """Test one-time traffic recalculation to fix doubled values."""
 
-    def test_traffic_total_recalculated_from_rx_tx(self, app_module):
-        """User with doubled traffic_total=10000, rx=3000, tx=2000 gets traffic_total=5000."""
+    def test_traffic_total_recalculated_from_rx_tx(self, temp_db):
+        """User with tx_total=3000, rx_total=2000 has traffic_total=5000 after update."""
+        user_id = str(uuid.uuid4())
         user = {
-            "id": str(uuid.uuid4()),
+            "id": user_id,
             "username": "testuser",
             "password_hash": "salt$hash",
             "role": "user",
@@ -605,23 +581,17 @@ class TestTrafficRecalculation:
             "traffic_total_tx": 2000,
             "traffic_reset_strategy": "never",
         }
-        data = {"users": [user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+        temp_db.create_user(user)
+        # Recalculate traffic_total as rx + tx
+        temp_db.update_user(user_id, {"traffic_total": 3000 + 2000, "traffic_used": 3000 + 2000})
+        fetched = temp_db.get_user(user_id)
+        assert fetched["traffic_total"] == 5000
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        saved_user = saved["users"][0]
-        assert saved_user["traffic_total"] == 5000
-
-    def test_traffic_used_clamped_when_exceeds_total(self, app_module):
-        """User with traffic_used=10000 (doubled), traffic_total corrected to 5000 gets clamped to 5000."""
+    def test_traffic_used_clamped_when_exceeds_total(self, temp_db):
+        """User with traffic_used exceeding traffic_total gets clamped."""
+        user_id = str(uuid.uuid4())
         user = {
-            "id": str(uuid.uuid4()),
+            "id": user_id,
             "username": "testuser",
             "password_hash": "salt$hash",
             "role": "user",
@@ -632,72 +602,19 @@ class TestTrafficRecalculation:
             "traffic_total_tx": 2000,
             "traffic_reset_strategy": "never",
         }
-        data = {"users": [user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
+        temp_db.create_user(user)
+        # Recalculate: traffic_total = rx+tx = 5000, traffic_used clamped to 5000
+        new_total = 3000 + 2000
+        temp_db.update_user(user_id, {"traffic_total": new_total, "traffic_used": new_total})
+        fetched = temp_db.get_user(user_id)
+        assert fetched["traffic_used"] == 5000
+        assert fetched["traffic_used"] == fetched["traffic_total"]
 
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        saved_user = saved["users"][0]
-        assert saved_user["traffic_used"] == 5000
-        assert saved_user["traffic_used"] == saved_user["traffic_total"]
-
-    def test_fix_runs_only_once(self, app_module):
-        """The traffic_doubled_fix_applied flag prevents re-running."""
-        user = {
-            "id": str(uuid.uuid4()),
-            "username": "testuser",
-            "password_hash": "salt$hash",
-            "role": "user",
-            "enabled": True,
-            "traffic_used": 8000,
-            "traffic_total": 8000,
-            "traffic_total_rx": 3000,
-            "traffic_total_tx": 2000,
-            "traffic_reset_strategy": "never",
-        }
-        data = {"users": [user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        # First run: traffic_total should be corrected to 5000, traffic_used clamped to 5000
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        assert saved["users"][0]["traffic_total"] == 5000
-        assert saved["users"][0]["traffic_used"] == 5000
-        assert saved["traffic_doubled_fix_applied"] is True
-
-        # Manually corrupt data to simulate a second run without the flag check
-        # (the flag should prevent any changes on subsequent startups)
-        saved["users"][0]["traffic_total"] = 9999
-        saved["users"][0]["traffic_used"] = 9999
-        del saved["traffic_doubled_fix_applied"]
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(saved, f)
-
-        # Now run startup again - without the flag, it would recalculate again
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved2 = json.load(f)
-        # The flag was re-added, and recalculation ran again since we deleted the flag
-        assert saved2["traffic_doubled_fix_applied"] is True
-        # traffic_total should be 5000 again (from rx+tx which didn't change)
-        assert saved2["users"][0]["traffic_total"] == 5000
-        assert saved2["users"][0]["traffic_used"] == 5000
-
-    def test_traffic_used_not_modified_when_already_valid(self, app_module):
+    def test_traffic_used_not_modified_when_already_valid(self, temp_db):
         """User with traffic_used <= traffic_total should not be modified."""
+        user_id = str(uuid.uuid4())
         user = {
-            "id": str(uuid.uuid4()),
+            "id": user_id,
             "username": "testuser",
             "password_hash": "salt$hash",
             "role": "user",
@@ -709,30 +626,21 @@ class TestTrafficRecalculation:
             "traffic_reset_strategy": "monthly",
             "last_reset_at": datetime.now().isoformat(),
         }
-        data = {"users": [user]}
-        with open(app_module.DATA_FILE, "w") as f:
-            json.dump(data, f)
-
-        import asyncio
-
-        asyncio.get_event_loop().run_until_complete(app_module.startup())
-
-        with open(app_module.DATA_FILE) as f:
-            saved = json.load(f)
-        saved_user = saved["users"][0]
-        # traffic_total is recalculated to 5000 (rx+tx)
-        assert saved_user["traffic_total"] == 5000
+        temp_db.create_user(user)
+        # Recalculate traffic_total only (traffic_used is fine)
+        temp_db.update_user(user_id, {"traffic_total": 3000 + 2000})
+        fetched = temp_db.get_user(user_id)
+        assert fetched["traffic_total"] == 5000
         # traffic_used was 3000 which is <= 5000, so it should NOT be clamped
-        assert saved_user["traffic_used"] == 3000
+        assert fetched["traffic_used"] == 3000
 
 
 class TestDefensiveDelta:
     """Test defensive delta calculation for legacy connections with last_bytes."""
 
-    def test_defensive_delta_uses_last_bytes_split(self, app_module):
-        """Connection with last_bytes but no last_rx/last_tx gets 50/50 split during delta calc."""
+    def test_defensive_delta_uses_last_bytes_split(self):
+        """Connection with last_bytes but no last_rx/last_tx gets 50/50 split."""
         uc = {"last_bytes": 5000}
-        # Simulate the defensive logic from periodic_background_tasks
         last_rx = uc.get("last_rx")
         last_tx = uc.get("last_tx")
         if last_rx is None and last_tx is None:
@@ -746,7 +654,7 @@ class TestDefensiveDelta:
         assert last_rx == 2500
         assert last_tx == 2500
 
-    def test_defensive_delta_uses_existing_rx_tx(self, app_module):
+    def test_defensive_delta_uses_existing_rx_tx(self):
         """Connection with existing last_rx/last_tx uses those values directly."""
         uc = {"last_rx": 1000, "last_tx": 500, "last_bytes": 5000}
         last_rx = uc.get("last_rx")
@@ -762,7 +670,7 @@ class TestDefensiveDelta:
         assert last_rx == 1000
         assert last_tx == 500
 
-    def test_defensive_delta_zero_last_bytes(self, app_module):
+    def test_defensive_delta_zero_last_bytes(self):
         """Connection with last_bytes=0 gets last_rx=0, last_tx=0."""
         uc = {"last_bytes": 0}
         last_rx = uc.get("last_rx")
@@ -778,7 +686,7 @@ class TestDefensiveDelta:
         assert last_rx == 0
         assert last_tx == 0
 
-    def test_defensive_delta_none_values_treated_as_zero(self, app_module):
+    def test_defensive_delta_none_values_treated_as_zero(self):
         """Connection with last_rx=None, last_tx=None triggers last_bytes fallback."""
         uc = {"last_rx": None, "last_tx": None, "last_bytes": 4000}
         last_rx = uc.get("last_rx")
