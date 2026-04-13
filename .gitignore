@@ -30,10 +30,17 @@ coverage.xml
 
 # User data
 data.json
+panel.db
 .DS_Store
 
 # IDEs
 .vscode/
 .idea/
 task-leaderboard-template-fix
-.gitignore
+
+# Local work items (not for remote)
+tasks/
+telemt_task_*/
+leaderboard/
+screen/
+WORKLOG.md
