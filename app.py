@@ -1789,9 +1789,14 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
 
         if result.get("config"):
             result["vpn_link"] = generate_vpn_link(result["config"])
+        else:
+            # API call failed — do not write to data.json, return error
+            error_msg = result.get("error", "Failed to create connection")
+            logger.error(f"Failed to add connection for {req.name}: {error_msg}")
+            return JSONResponse({"error": error_msg}, status_code=500)
 
         # Link connection to user if specified
-        if req.user_id and result.get("client_id"):
+        if req.user_id:
             conn = {
                 "id": str(uuid.uuid4()),
                 "user_id": req.user_id,
@@ -2042,7 +2047,7 @@ async def api_add_user(request: Request, req: AddUserRequest):
                 conn_result = manager.add_client(req.protocol, conn_name, server["host"], port)
                 ssh.disconnect()
 
-                if conn_result.get("client_id"):
+                if conn_result.get("config"):
                     conn = {
                         "id": str(uuid.uuid4()),
                         "user_id": new_user["id"],
@@ -2059,6 +2064,14 @@ async def api_add_user(request: Request, req: AddUserRequest):
                     if conn_result.get("config"):
                         result["config"] = conn_result["config"]
                         result["vpn_link"] = generate_vpn_link(conn_result["config"])
+                else:
+                    # API call failed — skip writing connection, include error in response
+                    error_msg = conn_result.get("error", "Failed to create auto-connection")
+                    logger.warning(
+                        f"Auto-connection creation failed for user {new_user['username']}: {error_msg}"
+                    )
+                    result["connection_created"] = False
+                    result["connection_error"] = error_msg
         return result
     except Exception as e:
         logger.exception("Error adding user")
@@ -2184,7 +2197,7 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
 
         await asyncio.to_thread(ssh.disconnect)
 
-        if result.get("client_id"):
+        if result.get("config"):
             conn = {
                 "id": str(uuid.uuid4()),
                 "user_id": user_id,
@@ -2198,10 +2211,14 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
             data["user_connections"].append(conn)
             save_data(data)
 
-        resp = {"status": "success"}
-        if result.get("config"):
+            resp = {"status": "success"}
             resp["config"] = result["config"]
             resp["vpn_link"] = generate_vpn_link(result["config"])
+        else:
+            # API call failed — do not write to data.json
+            error_msg = result.get("error", "Failed to create connection")
+            logger.error(f"Failed to create user connection for {req.name}: {error_msg}")
+            resp = {"status": "error", "error": error_msg}
         return resp
     except Exception as e:
         logger.exception("Error adding user connection")
