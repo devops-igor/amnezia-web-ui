@@ -383,9 +383,27 @@ class TestAddClient:
 
         result = self.manager.add_client("telemt", "existing_user")
 
-        assert result["client_id"] == "existing_user"
+        # On API failure, client_id should be empty, config/vpn_link empty, error present
+        assert result["client_id"] == ""
         assert result["config"] == ""
         assert result["vpn_link"] == ""
+        assert result["error"] == "User already exists"
+
+    @patch.object(TelemtManager, "_api_request")
+    def test_add_client_no_links_user_created(self, mock_api):
+        """When API succeeds but returns no links, user was created — client_id is set."""
+        mock_api.return_value = {
+            "ok": True,
+            "data": {"username": "newuser", "secret": "***", "links": {}},
+        }
+
+        result = self.manager.add_client("telemt", "New User")
+
+        # User was created in API, but no links available
+        assert result["client_id"] == "New_User"
+        assert result["config"] == ""
+        assert result["vpn_link"] == ""
+        assert "error" not in result
 
 
 class TestEditClient:
