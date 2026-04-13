@@ -1024,8 +1024,7 @@ async def my_connections_page(request: Request):
             c["server_name"] = "Unknown"
     # Add explicit id to each server for template
     servers = db.get_all_servers()
-    servers_with_ids = [{"id": idx, **srv} for idx, srv in enumerate(servers)]
-    return tpl(request, "my_connections.html", connections=conns, servers=servers_with_ids)
+    return tpl(request, "my_connections.html", connections=conns, servers=servers)
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
