@@ -200,9 +200,118 @@ class TestApiMyAddConnection:
             assert "retry_after" in data
             assert isinstance(data["retry_after"], int)
             assert data["retry_after"] > 0
-
             # Check Retry-After header
             assert "Retry-After" in response.headers
             assert response.headers["Retry-After"] == str(data["retry_after"])
         except json.JSONDecodeError:
             pytest.fail("Response is not valid JSON")
+
+
+class TestApiAddConnectionTelemtFailure:
+    """Tests for telemt API failure handling in /api/servers/{server_id}/connections/add"""
+
+    def setup_method(self):
+        self.client = TestClient(app)
+        self.mock_data = {
+            "users": [
+                {
+                    "id": "test-user-1",
+                    "username": "testuser",
+                    "password_hash": "hashed_password",
+                    "enabled": True,
+                    "traffic_limit": 0,
+                    "traffic_used": 0,
+                    "limits": {},
+                }
+            ],
+            "servers": [
+                {
+                    "id": 0,
+                    "name": "Test Server",
+                    "host": "test.example.com",
+                    "protocols": {"telemt": {"installed": True, "port": "443"}},
+                }
+            ],
+            "user_connections": [],
+            "connection_creation_log": [],
+            "settings": {},
+        }
+
+    @patch("app.load_data")
+    @patch("app.save_data")
+    @patch("app._check_admin")
+    @patch("app.get_ssh")
+    @patch("app.get_protocol_manager")
+    def test_telemt_api_failure_returns_500_no_data_written(
+        self,
+        mock_get_protocol_manager,
+        mock_get_ssh,
+        mock_check_admin,
+        mock_save_data,
+        mock_load_data,
+    ):
+        """When telemt API fails, return 500 and do NOT write to data.json."""
+        mock_check_admin.return_value = True
+        mock_load_data.return_value = self.mock_data.copy()
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        # Simulate telemt API failure
+        mock_manager.add_client.return_value = {
+            "client_id": "",
+            "config": "",
+            "vpn_link": "",
+            "error": "User already exists",
+        }
+        mock_get_protocol_manager.return_value = mock_manager
+
+        response = self.client.post(
+            "/api/servers/0/connections/add",
+            json={"protocol": "telemt", "name": "Test Connection"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert "error" in data
+        assert data["error"] == "User already exists"
+        # Verify save_data was never called (no connection written)
+        mock_save_data.assert_not_called()
+
+    @patch("app.load_data")
+    @patch("app.save_data")
+    @patch("app._check_admin")
+    @patch("app.get_ssh")
+    @patch("app.get_protocol_manager")
+    def test_telemt_success_writes_connection(
+        self,
+        mock_get_protocol_manager,
+        mock_get_ssh,
+        mock_check_admin,
+        mock_save_data,
+        mock_load_data,
+    ):
+        """When telemt API succeeds, connection is written to data.json."""
+        mock_check_admin.return_value = True
+        mock_load_data.return_value = self.mock_data.copy()
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.add_client.return_value = {
+            "client_id": "test_user",
+            "config": "tg://proxy?server=test.example.com&port=443&secret=abc123",
+            "vpn_link": "tg://proxy?server=test.example.com&port=443&secret=abc123",
+        }
+        mock_get_protocol_manager.return_value = mock_manager
+
+        response = self.client.post(
+            "/api/servers/0/connections/add",
+            json={"protocol": "telemt", "name": "Test Connection", "user_id": "test-user-1"},
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+        assert response.status_code == 200
+        # Verify save_data was called (connection written)
+        mock_save_data.assert_called_once()
