@@ -18,6 +18,29 @@ import sys
 logger = logging.getLogger(__name__)
 
 
+def migrate_if_needed(data_dir: str) -> None:
+    """Check if migration is needed and run it.
+
+    Called by app.py on startup. Three cases:
+    1. panel.db exists → skip (already migrated)
+    2. data.json exists → migrate to panel.db, rename data.json → data.json.bak
+    3. Neither exists → skip (fresh install, Database.__init__ will create panel.db)
+    """
+    data_file = os.path.join(data_dir, "data.json")
+    db_path = os.path.join(data_dir, "panel.db")
+
+    if os.path.exists(db_path):
+        logger.info("panel.db already exists, skipping migration")
+        return
+
+    if not os.path.exists(data_file):
+        logger.info("No data.json found. Fresh install — panel.db will be created on first use.")
+        return
+
+    logger.info("data.json found without panel.db — running migration")
+    migrate_data_json_to_sqlite(data_file, db_path)
+
+
 def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     """Migrate data.json to panel.db. Raises on failure.
 
