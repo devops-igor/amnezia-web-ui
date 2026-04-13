@@ -336,7 +336,7 @@ class TelemtManager:
             if resp and resp.get("error"):
                 error_msg = resp["error"].get("message", error_msg)
             logger.error(f"Failed to add client {username}: {error_msg}")
-            return {"client_id": username, "config": "", "vpn_link": ""}
+            return {"client_id": "", "config": "", "vpn_link": "", "error": error_msg}
 
         data = resp.get("data", {})
         links = data.get("links", {})
