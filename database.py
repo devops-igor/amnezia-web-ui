@@ -110,6 +110,7 @@ class Database:
                 )
             conn.commit()
             logger.info("Populated default settings for fresh install")
+
     # ----------------------------------------------------------------
 
     def execute_transaction(self, func, *args, **kwargs):
