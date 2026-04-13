@@ -746,23 +746,30 @@ async def periodic_background_tasks():
 
             updates = []
 
-            for idx, server in enumerate(servers):
-                if idx not in conns_by_server:
+            for server in servers:
+                sid = server["id"]
+                if sid not in conns_by_server:
                     continue
                 try:
                     ssh = get_ssh(server)
                     ssh.connect()
                     for proto in ["awg", "awg2", "awg_legacy", "xray", "telemt"]:
                         if proto in server.get("protocols", {}):
-                            manager = get_protocol_manager(ssh, proto)
-                            clients = manager.get_clients(proto)
+                            try:
+                                manager = get_protocol_manager(ssh, proto)
+                                clients = manager.get_clients(proto)
+                            except Exception as e:
+                                logger.error(
+                                    f"get_clients failed for server {sid} proto {proto}: {e}"
+                                )
+                                continue
                             client_bytes = {}
                             for c in clients:
                                 rx = c.get("userData", {}).get("dataReceivedBytes", 0)
                                 tx = c.get("userData", {}).get("dataSentBytes", 0)
                                 client_bytes[c.get("clientId")] = {"rx": rx, "tx": tx}
 
-                            for uc in conns_by_server[idx]:
+                            for uc in conns_by_server[sid]:
                                 if uc["protocol"] == proto and uc["client_id"] in client_bytes:
                                     curr_rx = client_bytes[uc["client_id"]]["rx"]
                                     curr_tx = client_bytes[uc["client_id"]]["tx"]
@@ -778,10 +785,12 @@ async def periodic_background_tasks():
                                     rx_delta = curr_rx - last_rx if curr_rx >= last_rx else curr_rx
                                     tx_delta = curr_tx - last_tx if curr_tx >= last_tx else curr_tx
                                     updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
-                    ssh.disconnect()
                 except Exception as e:
-                    logger.error(f"Traffic sync err server {idx}: {e}")
-
+                    sid = server["id"]
+                    logger.error(f"Traffic sync err server {sid}: {e}")
+                    ssh.disconnect()
+                    continue
+                ssh.disconnect()
             to_disable_uids = []
             if updates:
                 now = datetime.now()
@@ -902,6 +911,11 @@ async def periodic_background_tasks():
                             u["traffic_total_tx"] = new_total_tx
                             u["monthly_rx"] = new_monthly_rx
                             u["monthly_tx"] = new_monthly_tx
+                            logger.debug(
+                                f"Traffic updated for {u['username']}: "
+                                f"rx={rx_delta}, tx={tx_delta}, "
+                                f"total_rx={new_total_rx}, total_tx={new_total_tx}"
+                            )
 
                             limit = u.get("traffic_limit", 0)
                             if limit > 0 and new_used >= limit and u.get("enabled", True):
