@@ -131,21 +131,6 @@
                 <label class="form-label" for="createConnName">{{ _('create_conn_name_label') }}</label>
                 <input class="form-input" type="text" id="createConnName" value="My Connection" required>
             </div>
-            <!-- Telemt fields (hidden by default) -->
-            <div id="telemtFields" class="hidden">
-                <div class="form-group">
-                    <label class="form-label" for="telemtQuota">{{ _('telemt_quota_label') }}</label>
-                    <input class="form-input" type="text" id="telemtQuota" placeholder="0">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="telemtMaxIps">{{ _('telemt_max_ips_label') }}</label>
-                    <input class="form-input" type="number" min="0" id="telemtMaxIps" value="0">
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="telemtExpiry">{{ _('telemt_expiry_label') }}</label>
-                    <input class="form-input" type="date" id="telemtExpiry">
-                </div>
-            </div>
             <div class="flex gap-sm" style="margin-top: var(--space-md);">
                 <button type="submit" class="btn btn-primary" id="createConnSubmit">{{ _('create_conn_submit') }}</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModal('createConnModal')">{{ _('cancel') }}</button>
@@ -263,7 +248,6 @@
     function openCreateConnectionModal() {
         // Reset form
         document.getElementById('createConnForm').reset();
-        document.getElementById('telemtFields').classList.add('hidden');
         // Populate protocol dropdown based on first server? We'll clear it.
         const protoSelect = document.getElementById('createProtoSelect');
         protoSelect.innerHTML = '<option value="">- {{ _('select') }} -</option>';
@@ -275,11 +259,9 @@
         const serverSelect = document.getElementById('createServerSelect');
         const serverId = parseInt(serverSelect.value);
         const protoSelect = document.getElementById('createProtoSelect');
-        const telemtFields = document.getElementById('telemtFields');
 
         // Clear current options
         protoSelect.innerHTML = '<option value="">- {{ _('select') }} -</option>';
-        telemtFields.classList.add('hidden');
 
         if (isNaN(serverId)) return;
 
@@ -310,14 +292,9 @@
         // We'll handle on change of protoSelect too
     }
 
-    // Also listen to protocol change to toggle telemt fields
+    // Also listen to protocol change for other future use cases
     document.getElementById('createProtoSelect').addEventListener('change', function() {
-        const telemtFields = document.getElementById('telemtFields');
-        if (this.value === 'telemt') {
-            telemtFields.classList.remove('hidden');
-        } else {
-            telemtFields.classList.add('hidden');
-        }
+        // Protocol changed - any future protocol-specific logic goes here
     });
 
     // Re-render the full connections list from an array of connection objects
@@ -375,20 +352,12 @@
             return;
         }
 
-        // Collect telemt parameters if applicable
-        const telemtQuota = protocol === 'telemt' ? document.getElementById('telemtQuota').value || null : null;
-        const telemtMaxIps = protocol === 'telemt' ? parseInt(document.getElementById('telemtMaxIps').value) || null : null;
-        const telemtExpiry = protocol === 'telemt' ? document.getElementById('telemtExpiry').value || null : null;
-
         // Prepare payload
         const payload = {
             server_id: serverId,
             protocol: protocol,
             name: name,
         };
-        if (telemtQuota !== null) payload.telemt_quota = telemtQuota;
-        if (telemtMaxIps !== null) payload.telemt_max_ips = telemtMaxIps;
-        if (telemtExpiry !== null) payload.telemt_expiry = telemtExpiry;
 
         try {
             submitBtn.disabled = true;
