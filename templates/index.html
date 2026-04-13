@@ -44,10 +44,10 @@
             </div>
 
             <div class="server-actions">
-                <a href="/server/{{ loop.index0 }}" class="btn btn-secondary btn-sm" style="flex:1">
+                <a href="/server/{{ srv.id }}" class="btn btn-secondary btn-sm" style="flex:1">
                     {{ _('manage') }}
                 </a>
-                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteServer({{ loop.index0 }})"
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteServer({{ srv.id }})"
                     title="{{ _('delete') }}">
                     🗑
                 </button>

@@ -1,186 +1,201 @@
 # Amnezia Web Panel
 
-A modern, high-performance web interface for simplified management of AmneziaWG and Xray (XTLS-Reality) servers. Designed to provide a premium user experience with robust administrative capabilities.
+A self-hosted web administration panel for managing AmneziaWG, Xray (XTLS-Reality), Telemt, and AmneziaDNS servers. Forked from [PRVTPRO/Amnezia-Web-Panel](https://github.com/PRVTPRO/Amnezia-Web-Panel), but rebuilt from the ground up with a new data layer, expanded protocol support, and a self-service user portal.
 
-> ### 🔄 Compatibility with Official Amnezia Client
-> 
-> This panel is fully compatible with the official **Amnezia** applications!
-> 
-> **How to connect an existing server:**
-> 1. Add your pre-configured server by entering its **IP address**, **login** and **password**
-> 2. Go to the "Added Servers" section
-> 3. Wait for the automatic server verification
-> 4. The panel will automatically detect:
->    - ✅ Installed protocols
->    - ✅ Existing users
->    - ✅ Current configuration
->
-> ⚡ **After verification, you can manage the server directly from the panel!**
-
-![Servers Dashboard](https://github.com/PRVTPRO/Amnezia-Web-Panel/blob/main/screen/panel1.png)
-
-
-### Additional Sections
-
-<details>
-<summary><b>👥 Users Management</b> (click to expand)</summary>
-<br>
-User management interface with permissions and access controls:
-
-![Users Management](https://github.com/PRVTPRO/Amnezia-Web-Panel/blob/main/screen/panel1-2.png)
-</details>
-
-<details>
-<summary><b>⚙️ System Settings</b> (click to expand)</summary>
-<br>
-Configuration panel for system parameters and preferences:
-
-![Settings Panel](https://github.com/PRVTPRO/Amnezia-Web-Panel/blob/main/screen/panel1-3.png)
-</details>
-
-### 👤 User Self-Service Portal
-
-Regular users (non-admins) have access to their own **My Connections** page (`/my`) where they can:
-
-*   **Create new VPN connections** — select from available servers and installed protocols
-*   **View connection details** — server name, protocol type, creation date
-*   **Get configuration files** — download `.conf` files, QR codes, or VPN key links
-*   **Compatible with Amnezia apps** — all configs work with official AmneziaVPN and AmneziaWG clients
-
-> 💡 No need to bother admins — users can provision their own VPN access instantly!
-
-Admins can configure global connection limits and per-user rate limits in **Settings → Connection Limits**.
+Originally inspired by AmneziaVPN, this panel lets administrators manage users, servers, and VPN connections through a modern web interface — while end users can provision and manage their own connections without admin involvement.
 
 ---
 
-## 🚀 Key Features
+## Features
 
-*   **⚡ Multi-Protocol Support**:
-    *   **AmneziaWG**: Advanced WireGuard-based protocol with S3/S4 obfuscation to bypass deep packet inspection (DPI).
-    *   **Xray (XTLS-Reality)**: Stealthy protocol that masks VPN traffic as standard HTTPS browsing.
-    *   **Telemt (Telegram Proxy)**: High-performance Telegram MTProxy with TLS emulation and comprehensive management (quotas, IP limits, and real-time session tracking).
-    *   **AmneziaDNS**: Internal DNS resolver overriding default behavior to prevent DNS leaks and blockings.
-*   **⚙️ Core Server Management**:
-    *   Reboot servers and perform full Amnezia software cleanup directly from the UI.
-    *   Lightning-fast, strictly concurrent protocol status polling for immediate feedback.
-*   **🌐 Internationalization (i18n)**:
-    *   Full support for **English**, **Russian**, **French**, **Chinese**, and **Persian**.
-    *   Native **RTL (Right-to-Left)** support for Persian language.
-*   **👥 Advanced User Management**:
-    *   Role-based access (Admin, Support, Regular User).
-    *   Traffic limits, status monitoring, and account expiration.
-    *   One-click user enabling/disabling.
-    *   **Self-Service Connections**: Users can create and manage their own VPN connections from the `/my` page — no admin intervention required. Supports all protocols (AmneziaWG, Xray, Telemt, AmneziaDNS) with automatic server/protocol detection.
-    *   **Rate Limiting & Quotas**: Configurable per-user connection limits and rate limits to prevent abuse.
-*   **🎨 Premium UI/UX**:
-    *   Stunning glassmorphism design.
-    *   Dynamic **Dark/Light** mode transition.
-    *   Fully responsive for mobile and desktop.
-*   **🤖 Telegram Bot Integration**:
-    *   Notify users about new connections or limits.
-    *   Integrated management via Telegram commands.
-*   **📤 Data Interoperability**:
-    *   **Remnawave Sync**: Automatically import and sync users from Remnawave.
-    *   **Simple Backup**: Effortless JSON-based export and restore of all panel data.
-*   **🔗 Public Sharing**:
-    *   Generate password-protected links for users to download their configurations without panel access.
+### Multi-Protocol VPN Management
 
-## 💡 Need Additional Functionality?
+| Protocol | Description |
+|----------|-------------|
+| **AmneziaWG** | WireGuard-based with S3/S4 obfuscation to defeat deep packet inspection (DPI) |
+| **Xray (XTLS-Reality)** | Stealthy protocol masking VPN traffic as standard HTTPS |
+| **Telemt (MTProxy)** | High-performance Telegram MTProxy with TLS emulation, quotas, IP limits, and session tracking |
+| **AmneziaDNS** | Internal DNS resolver preventing leaks and blocking |
 
-If you require any custom features not currently available in the panel, **let us know – we'll implement them quickly!** 
+### User Self-Service Portal
 
-* **Database Support**: PostgreSQL, MySQL/MariaDB, SQLite, Oracle, and MS SQL Server
-* **In-Panel File Editor**: Edit configuration files inside containers directly from the web interface
-* **Backup & Restore nodes/protocols**: Comprehensive backup solutions for nodes and protocols
-* **Protocol Migration**: Seamlessly move protocols between nodes
-* **Xray Self-Steal Mode**: Advanced Xray configuration with self-steal functionality
-* **And much more!**
+Regular (non-admin) users get their own **My Connections** page at `/my`:
+- Create VPN connections — select server and protocol, no admin needed
+- View connection details — server name, protocol, creation date
+- Download configuration files, QR codes, or VPN key links
+- Fully compatible with official AmneziaVPN and AmneziaWG clients
 
-**Or better yet, contribute!**
+### Admin Capabilities
 
+- Add/remove VPN servers via SSH (password or private key)
+- Install and uninstall protocols per server
+- User management — create, suspend, set traffic limits and expiration
+- Per-user connection rate limiting and global connection quotas
+- Server health monitoring and one-click reboot
+- Remnawave user sync
+- Traffic usage leaderboard
+- Generate password-protected share links for configs
 
-## 🏗 Prerequisites
+### Internationalization
 
-*   **Python 3.10+**
-*   Target servers: **Ubuntu 20.04/22.04/24.04** (Architecture: x86_64 or ARM64).
-*   SSH access to target servers (Password or Private Key).
+Full i18n support: **English**, **Russian**, **French**, **Chinese**, **Persian** (with RTL).
 
-## 📦 Installation 
+### Security
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/PRVTPRO/Amnezia-Web-Panel.git
-    cd Amnezia-Web-Panel
-    ```
+- Role-based access: Admin, Support, Regular User
+- Connection rate limiting (sliding window) to prevent abuse
+- Per-user traffic limits with auto-disable on exhaustion
+- Account expiration enforcement
+- SSH keys preferred over passwords
 
-2.  **Set up Virtual Environment**:
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # Windows: venv\Scripts\activate
-    ```
+---
 
-3.  **Install Dependencies**:
-    ```bash
-    pip install -r requirements.txt
-    ```
-## 🚀 Getting Started
+## Architecture
 
-Launch the application:
+```
+app.py                  # FastAPI/Starlette application, all routes and business logic
+database.py             # SQLite (WAL mode) database wrapper — replaces data.json
+schema.sql              # SQLite schema definitions
+ssh_manager.py          # SSH connection manager (Paramiko)
+awg_manager.py           # AmneziaWG protocol manager
+xray_manager.py          # Xray (XTLS-Reality) protocol manager
+telemt_manager.py        # Telemt (MTProto) protocol manager
+dns_manager.py           # AmneziaDNS protocol manager
+telegram_bot.py          # Optional Telegram bot notifications
+migrate_to_sqlite.py     # One-time migration script from data.json to SQLite
+```
+
+### Database
+
+Originally this project stored all data in a `data.json` flat file. It has been migrated to **SQLite (WAL mode)** for ACID compliance, concurrent safety, and reliable storage. Migration is handled by `migrate_to_sqlite.py`.
+
+### Tests
+
+A full pytest suite covers all protocol managers and API endpoints:
+
+```
+tests/
+  test_api_connections.py
+  test_awg_manager.py
+  test_dns_manager.py
+  test_leaderboard.py
+  test_telemt_manager.py
+  test_traffic_rxtx.py
+```
+
+---
+
+## Prerequisites
+
+- **Python 3.10+**
+- **SQLite3** (bundled with Python)
+- Target servers: **Ubuntu 20.04/22.04/24.04** (x86_64 or ARM64)
+- SSH access to target servers (password or private key)
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/devops-igor/amnezia-web-ui.git
+cd amnezia-web-ui
+
+python -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+If migrating from an existing `data.json` setup:
+
+```bash
+python migrate_to_sqlite.py
+```
+
+Then start the panel:
 
 ```bash
 python app.py
 ```
 
-The panel will be accessible at `http://localhost:5000`.
+The panel will be available at `http://localhost:5000`.
 
-## 📦 Installation Method 2
+### First Login
 
-Download and run the executable file for your system.
-```
-Windows
-Linux
-Mac
-```
+- **Username**: `admin`
+- **Password**: `admin`
 
-## 🐳 Docker Image
-
-https://hub.docker.com/r/prvtpro/amnezia-panel
-
-
-### Initial Login
-*   **Username**: `admin`
-*   **Password**: `admin`
-> [!IMPORTANT]  
-> Secure your panel by changing the default password in the **Users** section immediately after first login.
-
-## 🔧 Project Details
-
-### API Documentation
-The project includes self-documenting API endpoints:
-*   **Swagger UI**: `/docs`
-*   **ReDoc**: `/redoc`
-
-> **Note:** The current API is designed exclusively for internal panel operations (requires session authentication). A dedicated public REST API for external integrations is not yet available and would need to be implemented.
-
-### Technology Stack
-*   **Backend**: FastAPI (Python)
-*   **Frontend**: Vanilla JS, Jinja2, Custom CSS (Glassmorphism)
-*   **Database**: Local JSON storage (`data.json`)
-*   **SSH Engine**: Paramiko
-
-## 🛡 Security Recommendations
-
-*   **Reverse Proxy**: It is highly recommended to run the panel behind Nginx/Apache with an SSL certificate.
-*   **SSH Keys**: Use SSH keys rather than passwords for connecting to your VPN servers.
-*   **Secret Key**: Set a custom `SECRET_KEY` environment variable for secure session management.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit Pull Requests or open Issues for feature requests and bug reports.
-
-## 📄 License
-
-This project is licensed under the **GNU General Public License v3.0** - see the [LICENSE](../LICENSE) file for details.
+> [!IMPORTANT]
+> Change the default `admin` password immediately after first login.
 
 ---
-*Built with ❤️ for the Amnezia community.*
+
+## Running with Docker
+
+```bash
+docker build -t amnezia-web-panel .
+docker run -p 5000:5000 -v $(pwd)/panel.db:/app/panel.db amnezia-web-panel
+```
+
+The container uses SQLite with a volume mount so data persists across restarts.
+
+---
+
+## API Documentation
+
+The panel ships with self-documenting API endpoints:
+
+- **Swagger UI**: `http://localhost:5000/docs`
+- **ReDoc**: `http://localhost:5000/redoc`
+
+Note: API authentication is session-based (cookie). A dedicated public REST API for external integrations is not currently implemented.
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SECRET_KEY` | `dev-secret-key` | Session signing key — **change in production** |
+| `DATABASE_PATH` | `panel.db` | Path to SQLite database file |
+
+### Rate Limiting
+
+Connection rate limits are configurable per-user and globally via **Settings → Connection Limits**:
+- Maximum connections per user
+- Connection rate limit (connections per time window)
+
+### Traffic Limits
+
+Admins can set per-user traffic limits (bytes). When a user hits their limit, their account is automatically suspended.
+
+---
+
+## Technology Stack
+
+- **Backend**: FastAPI / Starlette (Python)
+- **Frontend**: Vanilla JS, Jinja2 templates, custom CSS (glassmorphism design, dark/light mode)
+- **Database**: SQLite (WAL mode) — threaded, concurrent-safe
+- **SSH**: Paramiko
+- **Telegram Bot**: python-telegram-bot
+- **Testing**: pytest
+
+---
+
+## Security Recommendations
+
+- Run behind a reverse proxy (Nginx/Caddy) with SSL termination
+- Set a strong `SECRET_KEY` environment variable in production
+- Prefer SSH keys over passwords for server connections
+- Restrict access to the panel via firewall/network segmentation
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome. When submitting a PR, please ensure:
+
+- All pytest tests pass (`pytest`)
+- No black formatting violations (`black --check .`)
