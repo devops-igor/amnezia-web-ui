@@ -319,16 +319,3 @@ class TestApiAddConnectionTelemtFailure:
         assert response.status_code == 200
         # Verify save_data was called (connection written)
         mock_save_data.assert_called_once()
-=======
-        data = response.json()
-        assert isinstance(data, dict)
-        assert "error" in data
-        assert "rate limit" in data["error"].lower()
-        assert "retry_after" in data
-        assert isinstance(data["retry_after"], int)
-        assert data["retry_after"] > 0
-
-        # Check Retry-After header
-        assert "Retry-After" in response.headers
-        assert response.headers["Retry-After"] == str(data["retry_after"])
->>>>>>> Stashed changes
