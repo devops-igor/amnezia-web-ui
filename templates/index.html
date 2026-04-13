@@ -15,7 +15,7 @@
     {% if servers %}
     <div class="server-grid" id="serverGrid">
         {% for server in servers %}
-        <div class="card card-hover server-card" id="server-{{ loop.index0 }}">
+        <div class="card card-hover server-card" id="server-{{ server.id }}">
             <div class="server-meta">
                 <div class="server-icon">🖥</div>
                 <div>
@@ -24,7 +24,7 @@
                 </div>
             </div>
 
-            <div class="server-protocols" id="server-protocols-{{ loop.index0 }}">
+            <div class="server-protocols" id="server-protocols-{{ server.id }}">
                 {% if server.protocols %}
                 {% for proto_key, proto_val in server.protocols.items() %}
                 {% if proto_val.get('installed') %}
@@ -44,10 +44,10 @@
             </div>
 
             <div class="server-actions">
-                <a href="/server/{{ srv.id }}" class="btn btn-secondary btn-sm" style="flex:1">
+                <a href="/server/{{ server.id }}" class="btn btn-secondary btn-sm" style="flex:1">
                     {{ _('manage') }}
                 </a>
-                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteServer({{ srv.id }})"
+                <button class="btn btn-danger btn-sm btn-icon" onclick="deleteServer({{ server.id }})"
                     title="{{ _('delete') }}">
                     🗑
                 </button>
