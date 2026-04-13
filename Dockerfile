@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code and assets
 COPY *.py ./
+COPY schema.sql ./
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY translations/ ./translations/
