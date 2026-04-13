@@ -594,9 +594,11 @@ class AddUserRequest(BaseModel):
     email: Optional[str] = None
     description: Optional[str] = None
     traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = None
+    traffic_reset_strategy: Optional[str] = "never"
+    server_id: Optional[int] = None
+    protocol: Optional[str] = None
+    connection_name: Optional[str] = None
     expiration_date: Optional[str] = None
-    password: Optional[str] = None
 
 
 class ServerConfigSaveRequest(BaseModel):
