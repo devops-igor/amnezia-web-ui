@@ -6,14 +6,30 @@ Replicates the ServerController logic from the AmneziaVPN client.
 import paramiko
 import io
 import logging
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+class SSHHostKeyError(Exception):
+    """Raised when host key verification fails (MITM attack detected)."""
+
+    pass
 
 
 class SSHManager:
     """Manages SSH connections and command execution on remote servers."""
 
-    def __init__(self, host, port, username, password=None, private_key=None):
+    def __init__(
+        self,
+        host,
+        port,
+        username,
+        password=None,
+        private_key=None,
+        database=None,
+        server_id: Optional[int] = None,
+    ):
         self.host = host
         self.port = int(port)
         self.username = username
@@ -21,11 +37,13 @@ class SSHManager:
         self.private_key = private_key
         self.client = None
         self._is_root = username == "root"
+        self._database = database
+        self._server_id = server_id
 
     def connect(self):
-        """Establish SSH connection to the server."""
+        """Establish SSH connection to the server with host key verification."""
         self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         kwargs = {
             "hostname": self.host,
@@ -51,7 +69,48 @@ class SSHManager:
         elif self.password:
             kwargs["password"] = self.password
 
-        self.client.connect(**kwargs)
+        # Set up host key verification if we have database access
+        if self._database and self._server_id is not None:
+            known_fingerprint = self._database.get_known_host_fingerprint(self._server_id)
+
+            def verify_host_key(ssh_client, hostname, key):
+                """Verify host key against known_hosts database."""
+                fingerprint = key.get_fingerprint()
+                if known_fingerprint is None:
+                    # First connection - accept and store fingerprint
+                    self._database.save_known_host_fingerprint(self._server_id, fingerprint)
+                    logger.warning(
+                        "New host key for %s: %s (stored for future connections)",
+                        hostname,
+                        fingerprint,
+                    )
+                    return True
+                elif fingerprint == known_fingerprint:
+                    logger.info("Host key verified for %s", hostname)
+                    return True
+                else:
+                    logger.error(
+                        "Host key mismatch for %s: expected %s, got %s",
+                        hostname,
+                        known_fingerprint,
+                        fingerprint,
+                    )
+                    raise SSHHostKeyError(
+                        f"Host key mismatch for {hostname}. "
+                        f"This may indicate a man-in-the-middle attack. "
+                        f"Expected: {known_fingerprint[:16]}..., "
+                        f"Got: {fingerprint[:16]}..."
+                    )
+
+            kwargs["host_key_verify"] = True
+            kwargs["disabled_algorithms"] = {}
+            # Use callback for verification
+            self.client.connect(**kwargs, progress_handler=verify_host_key)
+        else:
+            # No database - require host key verification but no storage
+            kwargs["host_key_verify"] = True
+            self.client.connect(**kwargs)
+
         return True
 
     def disconnect(self):
@@ -65,32 +124,53 @@ class SSHManager:
         if not self.client:
             raise ConnectionError("Not connected to server")
 
-        logger.info(f"Running command: {command[:100]}...")
+        logger.info("Running command: %s...", command[:100])
         stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
         exit_code = stdout.channel.recv_exit_status()
         out = stdout.read().decode("utf-8", errors="replace").strip()
         err = stderr.read().decode("utf-8", errors="replace").strip()
 
         if exit_code != 0:
-            logger.warning(f"Command exited with code {exit_code}: {err}")
+            logger.warning("Command exited with code %s: %s", exit_code, err)
 
         return out, err, exit_code
 
-    def _sudo_prefix(self):
-        """Get the sudo command prefix with password handling."""
-        if self._is_root:
-            return ""
+    def _run_sudo_command(self, command: str, timeout: int = 60) -> Tuple[str, str, int]:
+        """
+        Execute command with sudo using stdin for password delivery.
+
+        This method avoids shell string interpolation of the password,
+        preventing command injection through specially crafted passwords.
+        """
+        if not self.client:
+            raise ConnectionError("Not connected to server")
+
+        logger.info("Running sudo command: %s...", command[:100])
+
+        # Execute sudo command directly - password will be written to stdin
+        stdin, stdout, stderr = self.client.exec_command(f"sudo {command}", timeout=timeout)
+
+        # Send password via stdin - never interpolated into shell string
         if self.password:
-            # Use sudo -S to read password from stdin
-            escaped_pass = self.password.replace("'", "'\\''")
-            return f"echo '{escaped_pass}' | sudo -S "
-        return "sudo "
+            stdin.write(self.password + "\n")
+            stdin.flush()
+            stdin.channel.shutdown_write()
+
+        exit_code = stdout.channel.recv_exit_status()
+        out = stdout.read().decode("utf-8", errors="replace").strip()
+        err = stderr.read().decode("utf-8", errors="replace").strip()
+
+        if exit_code != 0:
+            logger.warning("Sudo command exited with code %s: %s", exit_code, err)
+
+        return out, err, exit_code
 
     def run_sudo_command(self, command, timeout=60):
         """
         Execute command with sudo, automatically handling password.
+
         Strips 'sudo ' from the beginning of command if present,
-        and re-adds it with password piping.
+        and re-adds it with password handling via stdin.
         """
         # Remove existing sudo prefix if present
         clean_cmd = command
@@ -100,15 +180,7 @@ class SSHManager:
         if self._is_root:
             return self.run_command(clean_cmd, timeout=timeout)
 
-        if self.password:
-            escaped_pass = self.password.replace("'", "'\\''")
-            # Pipe password directly to sudo -S, preserving original command quoting
-            # 2>/dev/null on echo suppresses '[sudo] password for...' prompt noise
-            full_cmd = f"echo '{escaped_pass}' | sudo -S -p '' {clean_cmd}"
-        else:
-            full_cmd = f"sudo {clean_cmd}"
-
-        return self.run_command(full_cmd, timeout=timeout)
+        return self._run_sudo_command(clean_cmd, timeout=timeout)
 
     def run_sudo_script(self, script, timeout=120):
         """
@@ -125,16 +197,12 @@ class SSHManager:
         tmp_script = f"/tmp/_amnz_script_{script_hash}.sh"
         self.upload_file(script, tmp_script)
 
-        # Run with sudo
-        if self.password:
-            escaped_pass = self.password.replace("'", "'\\''")
-            full_cmd = (
-                f"echo '{escaped_pass}' | sudo -S -p '' bash {tmp_script}; rm -f {tmp_script}"
-            )
-        else:
-            full_cmd = f"sudo bash {tmp_script}; rm -f {tmp_script}"
-
-        return self.run_command(full_cmd, timeout=timeout)
+        # Move to target with sudo
+        self._run_sudo_command(
+            f"mv {tmp_script} /root/ 2>/dev/null || mv {tmp_script} {tmp_script}"
+        )
+        result = self._run_sudo_command(f"bash {tmp_script}; rm -f {tmp_script}", timeout=timeout)
+        return result
 
     def run_script(self, script, timeout=120):
         """Execute a multi-line script on remote server."""

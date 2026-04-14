@@ -36,6 +36,68 @@ def _rows_to_dicts(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
 class Database:
     """Thread-safe SQLite wrapper with WAL mode and typed CRUD methods."""
 
+    # ----------------------------------------------------------------
+    # Column allowlists for update methods (SQL injection prevention)
+    # See: tasks/sql-injection-column-names/spec.md
+    # ----------------------------------------------------------------
+    ALLOWED_SERVER_COLUMNS = frozenset(
+        {
+            "name",
+            "host",
+            "ssh_user",
+            "ssh_port",
+            "ssh_pass",
+            "ssh_key",
+            "protocols",
+            "created_at",
+        }
+    )
+
+    ALLOWED_USER_COLUMNS = frozenset(
+        {
+            "username",
+            "email",
+            "telegramId",
+            "description",
+            "password_hash",
+            "role",
+            "enabled",
+            "traffic_limit",
+            "traffic_used",
+            "traffic_total",
+            "traffic_total_rx",
+            "traffic_total_tx",
+            "monthly_rx",
+            "monthly_tx",
+            "monthly_reset_at",
+            "traffic_reset_strategy",
+            "share_enabled",
+            "share_token",
+            "share_password_hash",
+            "remnawave_uuid",
+            "created_at",
+            "last_reset_at",
+            "expiration_date",
+            "password_change_required",
+            "limits",
+        }
+    )
+
+    ALLOWED_CONNECTION_COLUMNS = frozenset(
+        {
+            "user_id",
+            "server_id",
+            "protocol",
+            "client_id",
+            "name",
+            "last_rx",
+            "last_tx",
+            "traffic_delta_rx",
+            "traffic_delta_tx",
+            "created_at",
+        }
+    )
+
     def __init__(self, db_path: str) -> None:
         self.db_path = db_path
         self._local = threading.local()
@@ -64,10 +126,26 @@ class Database:
             raise FileNotFoundError(f"schema.sql not found at {SCHEMA_PATH}")
         conn.commit()
 
+        # Run schema migrations for existing databases
+        self._run_migrations(conn)
+
         # Populate default settings on fresh installs
         self._ensure_default_settings()
 
         logger.info("Database initialized: %s", self.db_path)
+
+    def _run_migrations(self, conn: sqlite3.Connection) -> None:
+        """Run schema migrations for existing databases that may lack newer columns."""
+        # Migration: add password_change_required column to users table
+        try:
+            conn.execute("SELECT password_change_required FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating users table: adding password_change_required column")
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN password_change_required "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
 
     # ----------------------------------------------------------------
     # Default settings
@@ -177,15 +255,20 @@ class Database:
 
     def update_server(self, server_id: int, updates: Dict[str, Any]) -> None:
         """Update a server by its database id."""
+        # Validate column names against allowlist to prevent SQL injection
+        unknown = set(updates.keys()) - self.ALLOWED_SERVER_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown server columns: {', '.join(sorted(unknown))}")
+
         conn = self._get_conn()
-        # Map common field names
+        # Map common field names to DB column names
         field_map = {
             "name": "name",
             "host": "host",
             "username": "ssh_user",
             "ssh_user": "ssh_user",
             "ssh_port": "ssh_port",
-            "password": "ssh_pass",
+            "password": "***",
             "ssh_pass": "ssh_pass",
             "private_key": "ssh_key",
             "ssh_key": "ssh_key",
@@ -229,8 +312,40 @@ class Database:
             "UPDATE user_connections SET server_id = server_id - 1 " "WHERE server_id > ?",
             (index,),
         )
+        # Remove known host entry for this server
+        conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (db_id,))
         conn.commit()
         return True
+
+    # ----------------------------------------------------------------
+    # Known Hosts
+    # ----------------------------------------------------------------
+
+    def get_known_host_fingerprint(self, server_id: int) -> Optional[str]:
+        """Return the stored fingerprint for a server, or None if unknown."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT fingerprint FROM known_hosts WHERE server_id = ?", (server_id,)
+        ).fetchone()
+        return row["fingerprint"] if row else None
+
+    def save_known_host_fingerprint(self, server_id: int, fingerprint: str) -> None:
+        """Store or update the host key fingerprint for a server."""
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO known_hosts (server_id, fingerprint)
+               VALUES (?, ?)
+               ON CONFLICT(server_id) DO UPDATE SET fingerprint = excluded.fingerprint""",
+            (server_id, fingerprint),
+        )
+        conn.commit()
+
+    def delete_known_host(self, server_id: int) -> bool:
+        """Delete the known host entry for a server. Returns True if deleted."""
+        conn = self._get_conn()
+        cur = conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (server_id,))
+        conn.commit()
+        return cur.rowcount > 0
 
     def _server_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
         """Convert a server row, deserializing JSON fields."""
@@ -291,10 +406,10 @@ class Database:
                monthly_rx, monthly_tx, monthly_reset_at,
                traffic_reset_strategy, share_enabled, share_token,
                share_password_hash, remnawave_uuid, created_at,
-               last_reset_at, expiration_date, limits)
+               last_reset_at, expiration_date, password_change_required, limits)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?)""",
             (
                 user.get("id", ""),
                 user.get("username", ""),
@@ -320,6 +435,7 @@ class Database:
                 user.get("created_at", datetime.now().isoformat()),
                 user.get("last_reset_at", datetime.now().isoformat()),
                 user.get("expiration_date"),
+                1 if user.get("password_change_required", False) else 0,
                 limits_json,
             ),
         )
@@ -328,11 +444,16 @@ class Database:
 
     def update_user(self, user_id: str, updates: Dict[str, Any]) -> bool:
         """Update a user by id with the given fields. Returns True if found."""
+        # Validate column names against allowlist to prevent SQL injection
+        unknown = set(updates.keys()) - self.ALLOWED_USER_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown user columns: {', '.join(sorted(unknown))}")
+
         conn = self._get_conn()
         if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
             return False
 
-        bool_fields = {"enabled", "share_enabled"}
+        bool_fields = {"enabled", "share_enabled", "password_change_required"}
         json_fields = {"limits"}
 
         set_clauses = []
@@ -372,6 +493,8 @@ class Database:
             d["enabled"] = bool(d["enabled"])
         if "share_enabled" in d:
             d["share_enabled"] = bool(d["share_enabled"])
+        if "password_change_required" in d:
+            d["password_change_required"] = bool(d["password_change_required"])
         # Deserialize JSON fields
         if "limits" in d and isinstance(d["limits"], str):
             d["limits"] = json.loads(d["limits"])
@@ -453,6 +576,11 @@ class Database:
 
     def update_connection(self, conn_id: str, updates: Dict[str, Any]) -> bool:
         """Update a connection by id with the given fields. Returns True if found."""
+        # Validate column names against allowlist to prevent SQL injection
+        unknown = set(updates.keys()) - self.ALLOWED_CONNECTION_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown connection columns: {', '.join(sorted(unknown))}")
+
         conn = self._get_conn()
         if not conn.execute("SELECT 1 FROM user_connections WHERE id = ?", (conn_id,)).fetchone():
             return False
