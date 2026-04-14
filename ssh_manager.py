@@ -69,47 +69,54 @@ class SSHManager:
         elif self.password:
             kwargs["password"] = self.password
 
-        # Set up host key verification if we have database access
+        # Host key verification
+        known_fingerprint = None
         if self._database and self._server_id is not None:
             known_fingerprint = self._database.get_known_host_fingerprint(self._server_id)
 
-            def verify_host_key(ssh_client, hostname, key):
-                """Verify host key against known_hosts database."""
-                fingerprint = key.get_fingerprint()
-                if known_fingerprint is None:
-                    # First connection - accept and store fingerprint
-                    self._database.save_known_host_fingerprint(self._server_id, fingerprint)
-                    logger.warning(
-                        "New host key for %s: %s (stored for future connections)",
-                        hostname,
-                        fingerprint,
-                    )
-                    return True
-                elif fingerprint == known_fingerprint:
-                    logger.info("Host key verified for %s", hostname)
-                    return True
-                else:
-                    logger.error(
-                        "Host key mismatch for %s: expected %s, got %s",
-                        hostname,
-                        known_fingerprint,
-                        fingerprint,
-                    )
-                    raise SSHHostKeyError(
-                        f"Host key mismatch for {hostname}. "
-                        f"This may indicate a man-in-the-middle attack. "
-                        f"Expected: {known_fingerprint[:16]}..., "
-                        f"Got: {fingerprint[:16]}..."
-                    )
+        if known_fingerprint is None:
+            # First connection — no stored fingerprint yet.
+            # Temporarily allow the unknown key so we can retrieve and store it.
+            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        # else: RejectPolicy stays (set above) — paramiko will reject unknown keys.
 
-            kwargs["host_key_verify"] = True
-            kwargs["disabled_algorithms"] = {}
-            # Use callback for verification
-            self.client.connect(**kwargs, progress_handler=verify_host_key)
-        else:
-            # No database - require host key verification but no storage
-            kwargs["host_key_verify"] = True
-            self.client.connect(**kwargs)
+        self.client.connect(**kwargs)
+
+        # After successful connect, retrieve the server's actual host key
+        transport = self.client.get_transport()
+        host_key = transport.get_remote_server_key()
+        actual_fingerprint = host_key.get_fingerprint()
+
+        # If bytes, convert to hex string for consistent storage/comparison
+        if isinstance(actual_fingerprint, bytes):
+            actual_fingerprint = actual_fingerprint.hex()
+
+        if known_fingerprint is None and self._database and self._server_id is not None:
+            # First connection — store the fingerprint for future verification
+            self._database.save_known_host_fingerprint(self._server_id, actual_fingerprint)
+            logger.warning(
+                "New host key for %s: %s (stored for future connections)",
+                self.host,
+                actual_fingerprint,
+            )
+        elif known_fingerprint is not None and actual_fingerprint != known_fingerprint:
+            # Fingerprint mismatch — possible MITM attack
+            logger.error(
+                "Host key mismatch for %s: expected %s, got %s",
+                self.host,
+                known_fingerprint,
+                actual_fingerprint,
+            )
+            self.client.close()
+            raise SSHHostKeyError(
+                f"Host key mismatch for {self.host}. "
+                f"This may indicate a man-in-the-middle attack. "
+                f"Expected: {known_fingerprint[:16]}..., "
+                f"Got: {actual_fingerprint[:16]}..."
+            )
+
+        # Switch back to RejectPolicy for the rest of the session
+        self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         return True
 
