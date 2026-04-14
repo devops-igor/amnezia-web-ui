@@ -7,6 +7,7 @@
     <title>{{ site_settings.title or 'Amnezia Panel' }} — {{ _('login') }}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <script>!function () { var t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t) }()</script>
     <style>
         .login-wrapper {
@@ -252,8 +253,9 @@
             errEl.classList.remove('visible');
 
             try {
-                // Get CSRF token from cookie (set by CSRF middleware)
-                const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+                // Get CSRF token from meta tag (works with HttpOnly cookies)
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                const csrfToken = meta ? meta.getAttribute('content') : (document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '');
 
                 const res = await fetch('/api/auth/login', {
                     method: 'POST',
