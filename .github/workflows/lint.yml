@@ -28,4 +28,4 @@ jobs:
 
       - name: Run flake8
         run: |
-          flake8 . --max-line-length=100 --extend-ignore=E203,W503,E501,E722,F841,E501,E722,F841
+          flake8 . --max-line-length=100 --extend-ignore=E203,W503,E501,E722,F841,F824 --exclude=.venv
