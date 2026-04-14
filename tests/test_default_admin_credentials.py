@@ -381,7 +381,7 @@ class TestPasswordChangeIntegration:
         response = self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
         assert response.status_code == 200
         data = response.json()
@@ -394,7 +394,7 @@ class TestPasswordChangeIntegration:
         response = self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
         assert response.status_code == 200
 
@@ -410,7 +410,7 @@ class TestPasswordChangeIntegration:
         response = self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
         assert response.status_code == 200
 
@@ -423,7 +423,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "NewPass456!",
                 "confirm_password": "NewPass456!",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
         # Should be 200 (success), not 403 (blocked by middleware)
         assert response.status_code == 200
@@ -434,7 +434,7 @@ class TestPasswordChangeIntegration:
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
 
         new_csrf = self.client.cookies.get("csrftoken", self.csrf_token)
@@ -445,7 +445,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "NewPass456!",
                 "confirm_password": "NewPass456!",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
         assert response.status_code == 200
 
@@ -459,7 +459,7 @@ class TestPasswordChangeIntegration:
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
 
         # Change password
@@ -471,7 +471,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "NewPass456!",
                 "confirm_password": "NewPass456!",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
 
         # Now API should be accessible (not blocked by password middleware)
@@ -486,7 +486,7 @@ class TestPasswordChangeIntegration:
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
 
         new_csrf = self.client.cookies.get("csrftoken", self.csrf_token)
@@ -497,7 +497,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "NewPass456!",
                 "confirm_password": "NewPass456!",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
         assert response.status_code == 400
 
@@ -506,7 +506,7 @@ class TestPasswordChangeIntegration:
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
 
         new_csrf = self.client.cookies.get("csrftoken", self.csrf_token)
@@ -517,7 +517,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "NewPass456!",
                 "confirm_password": "DifferentPass!",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
         assert response.status_code == 400
 
@@ -526,7 +526,7 @@ class TestPasswordChangeIntegration:
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
 
         new_csrf = self.client.cookies.get("csrftoken", self.csrf_token)
@@ -537,7 +537,7 @@ class TestPasswordChangeIntegration:
                 "new_password": "short",
                 "confirm_password": "short",
             },
-            headers={"x-csrftoken": new_csrf},
+            headers={"x-csrf-token": new_csrf},
         )
         assert response.status_code == 400
 
@@ -548,7 +548,7 @@ class TestPasswordChangeIntegration:
         response = self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
         assert response.status_code == 200
 
@@ -580,7 +580,7 @@ class TestPasswordChangeIntegration:
         response = self.client.post(
             "/api/auth/login",
             json={"username": "normaluser", "password": "NormalPass1!"},
-            headers={"x-csrftoken": self.csrf_token},
+            headers={"x-csrf-token": self.csrf_token},
         )
         assert response.status_code == 200
         data = response.json()
