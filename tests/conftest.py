@@ -43,7 +43,7 @@ def csrf_client():
     def csrf_post(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_post(url, **kwargs)
 
@@ -55,7 +55,7 @@ def csrf_client():
     def csrf_put(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_put(url, **kwargs)
 
@@ -66,7 +66,7 @@ def csrf_client():
     def csrf_delete(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_delete(url, **kwargs)
 
@@ -106,7 +106,7 @@ def create_csrf_client():
     def csrf_post(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_post(url, **kwargs)
 
@@ -117,7 +117,7 @@ def create_csrf_client():
     def csrf_put(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_put(url, **kwargs)
 
@@ -128,7 +128,7 @@ def create_csrf_client():
     def csrf_delete(url, **kwargs):
         headers = kwargs.pop("headers", {})
         if csrf_token:
-            headers["x-csrftoken"] = csrf_token
+            headers["x-csrf-token"] = csrf_token
         kwargs["headers"] = headers
         return original_delete(url, **kwargs)
 
