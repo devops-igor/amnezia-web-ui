@@ -169,8 +169,9 @@ app.add_middleware(SessionMiddleware, secret_key=_get_secret_key())
 
 # Add CSRF protection middleware
 # safe_methods: GET, OPTIONS, HEAD, TRACE are considered safe and don't require CSRF
-# All other methods (POST, PUT, DELETE, PATCH) require a valid CSRF token
-# Note: /api/my/* and /api/servers/* use session-based auth (cookies) and ARE protected
+# sensitive_cookies={"session"}: CSRF enforcement only applies when the session cookie
+# is present (i.e., the user is authenticated). Unauthenticated requests like login
+# are exempt because CSRF protection is for authenticated state-changing requests.
 app.add_middleware(
     CSRFMiddleware,
     secret=_get_secret_key(),
@@ -179,6 +180,7 @@ app.add_middleware(
     cookie_path="/",
     cookie_samesite="lax",
     header_name="x-csrf-token",
+    sensitive_cookies={"session"},
 )
 
 
