@@ -366,7 +366,10 @@
             // Use apiCall for consistent auth handling (redirects to /login on 401/403)
             const response = await fetch('/api/my/connections/add', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken(),
+                },
                 body: JSON.stringify(payload),
             });
 
