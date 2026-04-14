@@ -178,7 +178,7 @@ app.add_middleware(
     cookie_name="csrftoken",
     cookie_path="/",
     cookie_samesite="lax",
-    header_name="x-csrftoken",
+    header_name="x-csrf-token",
 )
 
 
