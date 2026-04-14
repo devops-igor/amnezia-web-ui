@@ -8,6 +8,7 @@ import secrets
 import uuid
 import asyncio
 from datetime import datetime
+from pathlib import Path
 import io
 from fastapi.responses import (
     JSONResponse,
@@ -35,6 +36,7 @@ from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
 from database import Database
+from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
 
 # Configure logging
@@ -42,18 +44,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Amnezia Web Panel")
-app.add_middleware(
-    SessionMiddleware, secret_key=os.environ.get("SECRET_KEY", secrets.token_hex(32))
-)
 
-# Mount static files & templates
-app.mount(
-    "/static",
-    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
-    name="static",
-)
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
-
+# Define DATA_DIR early so it can be used by _get_secret_key()
 if getattr(sys, "frozen", False):
     application_path = os.path.dirname(sys.executable)
 else:
@@ -61,6 +53,143 @@ else:
 
 DATA_DIR = application_path
 DB_PATH = os.path.join(DATA_DIR, "panel.db")
+
+# ======================== SECRET_KEY Initialization ========================
+# SECRET_KEY is used for session encryption. We need a persistent key that survives
+# restarts. Priority: env var > file > generate new (with warning)
+
+
+def _get_secret_key() -> str:
+    """Get or generate a persistent SECRET_KEY.
+
+    Priority:
+    1. SECRET_KEY environment variable (highest priority, for production/Docker)
+    2. .secret_key file in application directory (persistence across restarts)
+    3. Generate new key and save to file (first boot scenario, logs warning)
+
+    The file-based approach ensures the key persists across container restarts
+    when using Docker volumes.
+    """
+    # 1. Check environment variable first
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        logger.info("Using SECRET_KEY from environment variable")
+        return env_key
+
+    # 2. Check for existing key file
+    key_file = Path(DATA_DIR) / ".secret_key"
+    if key_file.exists():
+        try:
+            stored_key = key_file.read_text().strip()
+            if stored_key:
+                logger.info("Loaded SECRET_KEY from persistent storage")
+                return stored_key
+        except Exception as e:
+            logger.warning(f"Failed to read SECRET_KEY from file: {e}")
+
+    # 3. Generate new key and save to file
+    new_key = secrets.token_hex(32)
+    try:
+        key_file.write_text(new_key)
+        # Ensure file permissions are restrictive (owner read/write only)
+        os.chmod(key_file, 0o600)
+        logger.warning(
+            "Generated new SECRET_KEY on first boot. "
+            "Set SECRET_KEY environment variable for production to prevent this warning. "
+            "Key stored in: %s",
+            key_file,
+        )
+    except Exception as e:
+        logger.error("Failed to save generated SECRET_KEY to file: %s", e)
+
+    return new_key
+
+
+# Password change required middleware
+# Blocks all /api/ requests (except auth endpoints) for users who must change their password
+# MUST be added BEFORE SessionMiddleware so it runs AFTER SessionMiddleware on request path
+# (add_middleware: last added = outermost = runs first on request)
+_PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/auth/login",
+    "/api/auth/change-password",
+    "/api/auth/captcha",
+}
+
+
+class PasswordChangeRequiredMiddleware:
+    """ASGI middleware that blocks API access for users with password_change_required flag.
+
+    Allows through: /api/auth/login, /api/auth/change-password, /api/auth/captcha,
+    all non-API paths (static, pages), and unauthenticated requests.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Peek at the path without constructing a full Request yet
+        path = scope.get("path", "")
+        if not path.startswith("/api/") or path in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        # We need Request for session access - construct it
+        from starlette.requests import Request as StarletteRequest
+
+        request = StarletteRequest(scope, receive, send)
+        user_id = request.session.get("user_id")
+        if not user_id:
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            db = get_db()
+            user = db.get_user(user_id)
+            if user and user.get("password_change_required", False):
+                response = JSONResponse(
+                    {"error": "Password change required", "password_change_required": True},
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
+        except Exception:
+            # If session or DB access fails, let the request through
+            pass
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(PasswordChangeRequiredMiddleware)
+
+app.add_middleware(SessionMiddleware, secret_key=_get_secret_key())
+
+# Add CSRF protection middleware
+# safe_methods: GET, OPTIONS, HEAD, TRACE are considered safe and don't require CSRF
+# All other methods (POST, PUT, DELETE, PATCH) require a valid CSRF token
+# Note: /api/my/* and /api/servers/* use session-based auth (cookies) and ARE protected
+app.add_middleware(
+    CSRFMiddleware,
+    secret=_get_secret_key(),
+    safe_methods={"GET", "OPTIONS", "HEAD", "TRACE"},
+    cookie_name="csrftoken",
+    cookie_path="/",
+    cookie_samesite="lax",
+    header_name="x-csrftoken",
+)
+
+
+# Password change required middleware
+# Mount static files & templates
+app.mount(
+    "/static",
+    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
+    name="static",
+)
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
 # ======================== Translations ========================
@@ -480,6 +609,8 @@ def tpl(request, template, **kwargs):
         "translations_json": json.dumps(TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))),
         "all_translations_json": json.dumps(TRANSLATIONS),
         "format_bytes": _format_bytes,
+        # CSRF token for forms - available from cookie, set by CSRF middleware
+        "csrf_token": request.cookies.get("csrftoken", ""),
     }
     ctx.update(kwargs)
     return templates.TemplateResponse(template, ctx)
@@ -685,6 +816,12 @@ class AddUserConnectionRequest(BaseModel):
     telemt_expiry: Optional[str] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str
+
+
 class ShareSetupRequest(BaseModel):
     enabled: bool
     password: Optional[str] = None
@@ -703,17 +840,27 @@ async def startup():
     db = get_db()
 
     if not db.get_all_users():
+        temp_password = secrets.token_urlsafe(12)
         db.create_user(
             {
                 "id": str(uuid.uuid4()),
                 "username": "admin",
-                "password_hash": hash_password("admin"),
+                "password_hash": hash_password(temp_password),
                 "role": "admin",
                 "enabled": True,
+                "password_change_required": True,
                 "created_at": datetime.now().isoformat(),
             }
         )
-        logger.info("Default admin created (admin / admin)")
+        print(f"\n{'=' * 60}")
+        print("  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW")
+        print("  Username: admin")
+        print(f"  Password: {temp_password}")
+        print("  You must change this password on first login.")
+        print(f"{'=' * 60}\n")
+        logger.info("Default admin created with random password (password_change_required=True)")
+    else:
+        logger.info("Existing users found, skipping default admin creation")
 
     # Start periodic background tasks
     asyncio.create_task(periodic_background_tasks())
@@ -1092,9 +1239,44 @@ async def api_login(request: Request, req: LoginRequest):
         if not user.get("enabled", True):
             return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
         request.session["user_id"] = user["id"]
-        return {"status": "success", "role": user["role"]}
+        return {
+            "status": "success",
+            "role": user["role"],
+            "password_change_required": user.get("password_change_required", False),
+        }
     lang = request.cookies.get("lang", "ru")
     return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
+
+
+@app.post("/api/auth/change-password")
+async def api_change_password(request: Request, req: ChangePasswordRequest):
+    """Change password for the currently authenticated user.
+
+    Clears password_change_required flag on success.
+    """
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    if not verify_password(req.current_password, user["password_hash"]):
+        return JSONResponse({"error": "Current password is incorrect"}, status_code=400)
+
+    if req.new_password != req.confirm_password:
+        return JSONResponse({"error": "New passwords do not match"}, status_code=400)
+
+    if len(req.new_password) < 8:
+        return JSONResponse({"error": "Password must be at least 8 characters"}, status_code=400)
+
+    db = get_db()
+    db.update_user(
+        user["id"],
+        {
+            "password_hash": hash_password(req.new_password),
+            "password_change_required": False,
+        },
+    )
+    logger.info(f"User '{user['username']}' changed their password")
+    return {"status": "success"}
 
 
 @app.get("/api/leaderboard")

@@ -44,3 +44,5 @@ telemt_task_*/
 leaderboard/
 screen/
 WORKLOG.md
+.secret_key
+=0.9.0

@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="{{ _('site_description') }}">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{{ site_settings.title or 'Amnezia Panel' }} {% block title_extra %}{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
@@ -120,6 +121,16 @@
         window.I18N = {{ translations_json | safe }};
         window._ = function (key) { return window.I18N[key] || key; };
 
+        /* ===== CSRF Token for AJAX requests ===== */
+        window.getCsrfToken = function() {
+            // Try meta tag first (more reliable)
+            const meta = document.querySelector('meta[name="csrf-token"]');
+            if (meta) return meta.getAttribute('content');
+            // Fallback to cookie
+            const match = document.cookie.match(/csrftoken=([^;]+)/);
+            return match ? match[1] : '';
+        };
+
         /* ===== Theme Toggle ===== */
         (function () {
             const saved = localStorage.getItem('theme') || 'dark';
@@ -128,7 +139,7 @@
             const updateUI = () => {
                 const isLight = document.documentElement.getAttribute('data-theme') === 'light';
                 document.querySelectorAll('.theme-toggle').forEach(btn => {
-                    const isLang = btn.getAttribute('onclick').includes('langModal');
+                    const isLang = btn.getAttribute('onclick') && btn.getAttribute('onclick').includes('langModal');
                     if (!isLang) {
                         btn.textContent = isLight ? '☀️' : '🌙';
                     }
@@ -251,7 +262,10 @@
         async function apiCall(url, method = 'GET', body = null) {
             const opts = {
                 method,
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': window.getCsrfToken(),
+                },
             };
             if (body) opts.body = JSON.stringify(body);
 
@@ -264,7 +278,7 @@
 
             let data;
             let contentType = res.headers.get('content-type') || '';
-            
+
             try {
                 // Check if response is JSON before parsing
                 if (contentType.includes('application/json')) {
