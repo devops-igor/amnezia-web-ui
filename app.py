@@ -38,6 +38,7 @@ from xray_manager import XrayManager
 from database import Database
 from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
+import credential_crypto
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -230,7 +231,7 @@ def get_db() -> Database:
     """Return the singleton Database instance, creating it if needed."""
     global _db_instance
     if _db_instance is None:
-        _db_instance = Database(DB_PATH)
+        _db_instance = Database(DB_PATH, secret_key=_get_secret_key())
     return _db_instance
 
 
@@ -274,6 +275,17 @@ def get_ssh(server):
         password=server.get("password"),
         private_key=server.get("private_key"),
     )
+
+
+def serialize_protocols(protocols: dict) -> dict:
+    """Strip sensitive fields from protocols before returning via API.
+
+    This is an additional defense-in-depth layer on top of the stripping
+    that already happens in _server_row_to_dict().
+    """
+    if not isinstance(protocols, dict):
+        return protocols
+    return credential_crypto.strip_sensitive_protocol_fields(protocols)
 
 
 def get_protocol_manager(ssh, protocol: str):
@@ -2754,6 +2766,14 @@ async def api_backup_download(request: Request):
     try:
         db = get_db()
         backup_data = db.load_data()
+        # Strip credentials from backup — they must not be exported
+        for srv in backup_data.get("servers", []):
+            srv.pop("password", None)
+            srv.pop("private_key", None)
+            # Also strip sensitive protocol fields (defense-in-depth)
+            if isinstance(srv.get("protocols"), dict):
+                srv["protocols"] = serialize_protocols(srv["protocols"])
+        backup_data["credentials_excluded"] = True
         backup_json = json.dumps(backup_data, indent=2, ensure_ascii=False)
         return Response(
             content=backup_json,
@@ -2784,7 +2804,8 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
         missing = [k for k in required_keys if k not in backup_data]
         if missing:
             return JSONResponse(
-                {"error": f'Invalid structure. Missing keys: {", ".join(missing)}'}, status_code=400
+                {"error": f'Invalid structure. Missing keys: {", ".join(missing)}'},
+                status_code=400,
             )
 
         # Ensure types are correct
@@ -2792,8 +2813,20 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
             backup_data["users"], list
         ):
             return JSONResponse(
-                {"error": "Invalid structure: servers and users must be lists"}, status_code=400
+                {"error": "Invalid structure: servers and users must be lists"},
+                status_code=400,
             )
+
+        # If backup has credentials_excluded flag, set empty strings so
+        # restore works without error (credentials must be re-entered)
+        if backup_data.get("credentials_excluded"):
+            logger.warning(
+                "Restoring backup without credentials — "
+                "SSH passwords and keys must be re-entered manually"
+            )
+            for srv in backup_data.get("servers", []):
+                srv["password"] = ""
+                srv["private_key"] = ""
 
         # Save the new data
         db = get_db()
