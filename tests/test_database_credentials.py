@@ -302,6 +302,43 @@ class TestProtocolFieldStripping:
         assert "reality_private_key" not in server.get("protocols", {}).get("xray", {})
         assert server["protocols"]["xray"]["public_key"] == "pub-key"
 
+    def test_create_server_strips_sensitive_protocol_fields(self, db, tmp_path):
+        """Sensitive protocol fields must be stripped at write time in create_server().
+
+        This verifies the raw DB, not the read path (_server_row_to_dict).
+        """
+        server_id = db.create_server(
+            {
+                "name": "srv-strip-test",
+                "host": "9.8.7.6",
+                "username": "root",
+                "protocols": {
+                    "xray": {
+                        "installed": True,
+                        "port": 443,
+                        "reality_private_key": "must-not-be-in-db",
+                        "public_key": "should-remain",
+                    },
+                    "shadowsocks": {
+                        "installed": True,
+                        "port": 8388,
+                    },
+                },
+            }
+        )
+        # Read raw protocols JSON directly from SQLite (bypass _server_row_to_dict)
+        conn = sqlite3.connect(str(tmp_path / "test.db"))
+        row = conn.execute("SELECT protocols FROM servers WHERE id = ?", (server_id,)).fetchone()
+        conn.close()
+        protocols = json.loads(row[0])
+        # Sensitive field must NOT be in the raw DB
+        assert "reality_private_key" not in protocols.get("xray", {})
+        # Non-sensitive fields must survive
+        assert protocols["xray"]["public_key"] == "should-remain"
+        assert protocols["xray"]["port"] == 443
+        assert protocols["xray"]["installed"] is True
+        assert protocols["shadowsocks"]["port"] == 8388
+
 
 # ----------------------------------------------------------------
 # Migration tests
