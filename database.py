@@ -16,6 +16,8 @@ import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import credential_crypto
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -98,10 +100,15 @@ class Database:
         }
     )
 
-    def __init__(self, db_path: str) -> None:
+    def __init__(self, db_path: str, secret_key: Optional[str] = None) -> None:
         self.db_path = db_path
+        self._secret_key = secret_key or ""
         self._local = threading.local()
         self._init_db()
+        # Initialise Fernet encryption for credentials at DB init time.
+        # The secret_key must be provided — typically the app's SECRET_KEY.
+        if secret_key:
+            credential_crypto._init_fernet(secret_key)
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local connection with WAL mode and Row factory."""
@@ -146,6 +153,45 @@ class Database:
                 "INTEGER NOT NULL DEFAULT 0"
             )
             conn.commit()
+
+        # Migration: encrypt existing plaintext ssh_pass / ssh_key values
+        if self.get_migration_flag("credentials_encrypted") is None:
+            logger.info("Migration: encrypting plaintext ssh_pass/ssh_key values")
+            credential_crypto.encrypt_existing_plaintext(self.db_path, self._secret_key)
+            self.set_migration_flag("credentials_encrypted", "1")
+            logger.info("Migration: credentials_encrypted complete")
+
+        # Migration: strip reality_private_key from protocols JSON in DB
+        if self.get_migration_flag("xray_private_keys_cleared") is None:
+            logger.info("Migration: stripping reality_private_key from protocols")
+            rows = conn.execute("SELECT id, protocols FROM servers").fetchall()
+            for row in rows:
+                sid = row["id"]
+                try:
+                    protocols = json.loads(row["protocols"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(protocols, dict):
+                    continue
+                dirty = False
+                for proto_key in protocols:
+                    if isinstance(protocols[proto_key], dict):
+                        for field in credential_crypto.SENSITIVE_PROTOCOL_FIELDS:
+                            if field in protocols[proto_key]:
+                                del protocols[proto_key][field]
+                                dirty = True
+                if dirty:
+                    conn.execute(
+                        "UPDATE servers SET protocols = ? WHERE id = ?",
+                        (json.dumps(protocols), sid),
+                    )
+                    logger.info(
+                        "Migration: cleared sensitive fields from " "server id=%d protocols",
+                        sid,
+                    )
+            conn.commit()
+            self.set_migration_flag("xray_private_keys_cleared", "1")
+            logger.info("Migration: xray_private_keys_cleared complete")
 
     # ----------------------------------------------------------------
     # Default settings
@@ -235,6 +281,11 @@ class Database:
         """Insert a server and return its database id."""
         conn = self._get_conn()
         protocols_json = json.dumps(server.get("protocols", {}))
+        # Encrypt credentials before storing
+        raw_pass = server.get("password") or server.get("ssh_pass", "")
+        raw_key = server.get("private_key") or server.get("ssh_key", "")
+        encrypted_pass = credential_crypto.encrypt_credential(raw_pass)
+        encrypted_key = credential_crypto.encrypt_credential(raw_key)
         cur = conn.execute(
             """INSERT INTO servers (name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
                protocols, created_at)
@@ -244,8 +295,8 @@ class Database:
                 server.get("host", ""),
                 server.get("username") or server.get("ssh_user", ""),
                 server.get("ssh_port", 22),
-                server.get("password") or server.get("ssh_pass", ""),
-                server.get("private_key") or server.get("ssh_key", ""),
+                encrypted_pass,
+                encrypted_key,
                 protocols_json,
                 server.get("created_at", datetime.now().isoformat()),
             ),
@@ -255,31 +306,40 @@ class Database:
 
     def update_server(self, server_id: int, updates: Dict[str, Any]) -> None:
         """Update a server by its database id."""
-        # Validate column names against allowlist to prevent SQL injection
-        unknown = set(updates.keys()) - self.ALLOWED_SERVER_COLUMNS
-        if unknown:
-            raise ValueError(f"Unknown server columns: {', '.join(sorted(unknown))}")
-
-        conn = self._get_conn()
-        # Map common field names to DB column names
+        # Map common field names to DB column names BEFORE allowlist validation
+        # so that both API-friendly names (password, private_key) and DB column
+        # names (ssh_pass, ssh_key) are accepted.
         field_map = {
             "name": "name",
             "host": "host",
             "username": "ssh_user",
             "ssh_user": "ssh_user",
             "ssh_port": "ssh_port",
-            "password": "***",
+            "password": "ssh_pass",
             "ssh_pass": "ssh_pass",
             "private_key": "ssh_key",
             "ssh_key": "ssh_key",
             "protocols": "protocols",
         }
-        set_clauses = []
-        values = []
+        mapped_updates = {}
         for key, value in updates.items():
             col = field_map.get(key, key)
+            mapped_updates[col] = value
+
+        # Validate mapped DB column names against allowlist to prevent SQL injection
+        unknown = set(mapped_updates.keys()) - self.ALLOWED_SERVER_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown server columns: {', '.join(sorted(unknown))}")
+
+        conn = self._get_conn()
+        set_clauses = []
+        values = []
+        for col, value in mapped_updates.items():
             if col == "protocols" and isinstance(value, dict):
                 value = json.dumps(value)
+            # Encrypt credential fields before storing
+            if col in ("ssh_pass", "ssh_key"):
+                value = credential_crypto.encrypt_credential(str(value) if value else "")
             set_clauses.append(f"{col} = ?")
             values.append(value)
         if not set_clauses:
@@ -290,6 +350,9 @@ class Database:
 
     def update_server_protocols(self, server_id: int, protocols: Dict) -> None:
         """Update just the protocols JSON blob for a server by db id."""
+        # Strip sensitive fields before storing (defense-in-depth)
+        if isinstance(protocols, dict):
+            protocols = credential_crypto.strip_sensitive_protocol_fields(protocols)
         conn = self._get_conn()
         conn.execute(
             "UPDATE servers SET protocols = ? WHERE id = ?",
@@ -352,10 +415,14 @@ class Database:
         d = dict(row)
         # Map DB column names back to original JSON field names
         d["username"] = d.pop("ssh_user", "")
-        d["password"] = d.pop("ssh_pass", "")
-        d["private_key"] = d.pop("ssh_key", "")
+        # Decrypt credentials (transparent to callers like SSHManager)
+        d["password"] = credential_crypto.decrypt_credential(d.pop("ssh_pass", ""))
+        d["private_key"] = credential_crypto.decrypt_credential(d.pop("ssh_key", ""))
         if "protocols" in d and isinstance(d["protocols"], str):
             d["protocols"] = json.loads(d["protocols"])
+        # Strip sensitive protocol fields (defense-in-depth)
+        if isinstance(d.get("protocols"), dict):
+            d["protocols"] = credential_crypto.strip_sensitive_protocol_fields(d["protocols"])
         return d
 
     def _server_rows_to_dicts(self, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
@@ -768,7 +835,15 @@ class Database:
 
             # Insert servers
             for srv in data.get("servers", []):
-                protocols_json = json.dumps(srv.get("protocols", {}))
+                protocols_raw = srv.get("protocols", {})
+                if isinstance(protocols_raw, dict):
+                    protocols_raw = credential_crypto.strip_sensitive_protocol_fields(protocols_raw)
+                protocols_json = json.dumps(protocols_raw)
+                # Encrypt credentials before inserting
+                raw_pass = srv.get("password") or srv.get("ssh_pass", "")
+                raw_key = srv.get("private_key") or srv.get("ssh_key", "")
+                encrypted_pass = credential_crypto.encrypt_credential(raw_pass)
+                encrypted_key = credential_crypto.encrypt_credential(raw_key)
                 conn.execute(
                     """INSERT INTO servers (name, host, ssh_user, ssh_port,
                        ssh_pass, ssh_key, protocols, created_at)
@@ -778,8 +853,8 @@ class Database:
                         srv.get("host", ""),
                         srv.get("username") or srv.get("ssh_user", ""),
                         srv.get("ssh_port", 22),
-                        srv.get("password") or srv.get("ssh_pass", ""),
-                        srv.get("private_key") or srv.get("ssh_key", ""),
+                        encrypted_pass,
+                        encrypted_key,
                         protocols_json,
                         srv.get("created_at", datetime.now().isoformat()),
                     ),
@@ -911,10 +986,11 @@ class Database:
 _db_instance: Optional[Database] = None
 
 
-def get_db(db_path: Optional[str] = None) -> Database:
+def get_db(db_path: Optional[str] = None, secret_key: Optional[str] = None) -> Database:
     """Get or create the singleton Database instance.
 
     If db_path is None, uses the default path next to app.py.
+    If secret_key is None, credentials will not be encrypted/decrypted.
     """
     global _db_instance
     if _db_instance is None:
@@ -924,11 +1000,11 @@ def get_db(db_path: Optional[str] = None) -> Database:
             else:
                 app_path = os.path.dirname(os.path.abspath(__file__))
             db_path = os.path.join(app_path, "panel.db")
-        _db_instance = Database(db_path)
+        _db_instance = Database(db_path, secret_key=secret_key)
     return _db_instance
 
 
-def reset_db(db_path: Optional[str] = None) -> Database:
+def reset_db(db_path: Optional[str] = None, secret_key: Optional[str] = None) -> Database:
     """Create a fresh Database instance (for testing or reinitialization)."""
     global _db_instance
     if db_path is None:
@@ -937,5 +1013,5 @@ def reset_db(db_path: Optional[str] = None) -> Database:
         else:
             app_path = os.path.dirname(os.path.abspath(__file__))
         db_path = os.path.join(app_path, "panel.db")
-    _db_instance = Database(db_path)
+    _db_instance = Database(db_path, secret_key=secret_key)
     return _db_instance
