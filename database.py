@@ -280,7 +280,10 @@ class Database:
     def create_server(self, server: Dict[str, Any]) -> int:
         """Insert a server and return its database id."""
         conn = self._get_conn()
-        protocols_json = json.dumps(server.get("protocols", {}))
+        protocols_raw = server.get("protocols", {})
+        if isinstance(protocols_raw, dict):
+            protocols_raw = credential_crypto.strip_sensitive_protocol_fields(protocols_raw)
+        protocols_json = json.dumps(protocols_raw)
         # Encrypt credentials before storing
         raw_pass = server.get("password") or server.get("ssh_pass", "")
         raw_key = server.get("private_key") or server.get("ssh_key", "")
