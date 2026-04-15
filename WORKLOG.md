@@ -1,0 +1,103 @@
+# Amnezia Web Panel — WORKLOG
+
+| Timestamp | Agent | Action | Description |
+|-----------|-------|--------|-------------|
+| [2026-04-14 11:55] | pm_bot | PROJECT_START | Phase 1 — Critical Security Fixes: 16 issues across 9 implementation batches |
+| [2026-04-14 12:25] | py_bot | IMPLEMENTATION_COMPLETE | SQL Injection Prevention via Dynamic Column Names: Added allowlists for update_server, update_user, update_connection in database.py. 16 tests pass. |
+| [2026-04-14 12:30] | py_bot | IMPLEMENTATION_COMPLETE | SSH Shell Injection Fix: Removed password shell interpolation from ssh_manager.py. Added _run_sudo_command(). SSHHostKeyError exception. 189 tests pass. |
+| [2026-04-14 12:30] | py_bot | IMPLEMENTATION_COMPLETE | paramiko AutoAddPolicy MITM Fix: Replaced AutoAddPolicy with RejectPolicy. Added known_hosts table and fingerprint storage. 189 tests pass. |
+| [2026-04-14 13:10] | qa_bot | REVIEW_REJECTED | Batch 1A: CRITICAL BUG — ssh_manager.py line 49 calls non-existent method. Password injection PASSES. MITM fix PASSES but contains dead code. |
+| [2026-04-14 13:10] | qa_bot | REVIEW_APPROVED | Batch 1B (sql-injection-column-names): SQL injection allowlists correctly implemented. 16/16 tests pass. |
+| [2026-04-14 13:45] | qa_bot | REVIEW_APPROVED | Batch 1A Re-Review: Dead code line 49 confirmed removed. 189 tests pass. All acceptance criteria met. |
+| [2026-04-14 13:15] | pm_bot | DEV_REWORK | Batch 1A: Removed dead code line (get_host_key_policy) from ssh_manager.py:49. Re-spawning qa_bot. |
+| [2026-04-14 14:49] | py_bot | IMPLEMENTATION_COMPLETE | Batch 1C (ephemeral-secret-key + no-csrf-protection): Fixed CSRF exempt_urls. 189 tests pass. |
+| [2026-04-14 14:58] | qa_bot | REVIEW_REJECTED | Batch 1C: no-csrf-protection REJECTED — exempt_urls on /api/my/* and /api/servers/* defeats CSRF protection. |
+| [2026-04-14 15:05] | pm_bot | DEV_REWORK | Batch 1C: QA rejected CSRF exempt_urls. Sending back to py_bot to remove exempt_urls and add csrf test helper. |
+| [2026-04-14 15:25] | qa_bot | REVIEW_APPROVED | Batch 1C Re-Review: No exempt_urls found. CSRF protection active on all POST/PUT/DELETE. 189 tests pass. |
+| [2026-04-14 14:40] | py_bot | IMPLEMENTATION_COMPLETE | Batch 1D (default-admin-credentials): Random password, PasswordChangeRequiredMiddleware, change-password endpoint. 218 tests pass. |
+| [2026-04-14 15:38] | qa_bot | REVIEW_APPROVED | Batch 1D: All 6 acceptance criteria met. 218/218 tests pass. No MEDIUM+ security findings. |
+| [2026-04-14 15:20] | pm_bot | GIT_PUSH | Committed Phase 1 batches 1A-1D (14 files, +1457/-80 lines) as 44cf69f. Pushed to origin. CI/CD triggered. |
+| [2026-04-14 19:25] | py_bot | IMPLEMENTATION_COMPLETE | CSRF header name mismatch fix: header_name="x-csrftoken" → "x-csrf-token". 218 tests pass. |
+| [2026-04-14 19:28] | qa_bot | REVIEW_APPROVED | CSRF header name mismatch fix: Verified. 218/218 tests pass. |
+| [2026-04-14 19:32] | pm_bot | GIT_PUSH | Committed CSRF fix (7e522a9) + CI fixes (d9ae170). Pushed to origin. |
+| [2026-04-14 19:45] | pm_bot | DIAGNOSIS | CSRF 403 persists: missing sensitive_cookies config. Fix: add sensitive_cookies={"session"} to CSRFMiddleware. |
+| [2026-04-14 20:04] | py_bot | IMPLEMENTATION_COMPLETE | Added sensitive_cookies={"session"} to CSRFMiddleware. 218 tests pass. |
+| [2026-04-14 20:18] | pm_bot | GIT_PUSH | Committed sensitive_cookies fix (c4b1ea2). Pushed to origin. All 4 CI pipelines green. |
+| [2026-04-14 20:25] | pm_bot | DIAGNOSIS | SSH connection failure: host_key_verify/progress_handler are invalid paramiko kwargs. Batch 1A host key verification code broken. |
+| [2026-04-14 21:00] | py_bot | IMPLEMENTATION_COMPLETE | Fixed paramiko connect(): removed invalid kwargs. AutoAddPolicy on first connect, RejectPolicy + fingerprint comparison on subsequent. 232 tests pass. |
+| [2026-04-14 21:05] | pm_bot | GIT_PUSH | Committed paramiko fix (3929b5c). Pushed to origin. All 4 CI pipelines green. |
+| [2026-04-14 22:30] | py_bot | IMPLEMENTATION_COMPLETE | Added csrf-token meta tags + X-CSRF-Token headers to all fetch() calls. 232 tests pass. |
+| [2026-04-14 22:35] | pm_bot | GIT_PUSH | Committed meta tag CSRF fix (59ff641). Pushed to origin. |
+| [2026-04-14 22:50] | pm_bot | DEPLOY_TEST | Deployed to dev server. Verified: login works, connection creation works, no 403s, SSH paramiko works. |
+| [2026-04-15 14:48] | pm_bot | PROJECT_START | Batch 1E (plaintext-credentials-db + xray-plaintext-private-key) started. Both issues share encryption-at-rest theme. Dependencies met (1C done). |
+| [2026-04-15 14:50] | pm_bot | SPAWN | Spawned py_bot for Batch 1E implementation. TASK_PROMPT.md written. |
+| [2026-04-15 15:18] | pm_bot | RECEIVED | py_bot completed Batch 1E implementation. Core code compiles, 278/280 tests pass, 2 failures (allowlist issue). Lint issues in test files. Spawning cleanup py_bot. |
+| [2026-04-15 15:20] | pm_bot | SPAWN | Spawned py_bot for Batch 1E cleanup: fix 2 failing tests + lint issues. |
+| [2026-04-15 15:30] | pm_bot | RECEIVED | Cleanup py_bot completed. Fixed allowlist order in update_server(), removed unused imports, black formatting. 280/280 tests pass. |
+| [2026-04-15 15:35] | py_bot | IMPLEMENTATION_COMPLETE | Batch 1E: credential_crypto.py with HKDF+Fernet, database.py encrypts ssh_pass/ssh_key at rest, backup strips credentials, xray_manager strips private_key from protocols, migrations for existing data. 280 tests pass (48 new). black/flake8 clean. |
+| [2026-04-15 16:20] | pm_bot | QA_ASSIGNED | Smoke test passed: 280/280 tests, black/flake8 clean. Spawning qa_bot. |
+| [2026-04-15 16:45] | qa_bot | REVIEW_APPROVED | Batch 1E: All 12 security checks verified. 280/280 tests. HKDF-SHA256 verified. No MEDIUM+ findings. |
+| [2026-04-15 16:50] | pm_bot | GIT_PUSH | Committed Batch 1E (8 files, +1424/-25 lines) as 092a911. Pushed to feat/phase1-critical-security. CI/CD green. |
+| [2026-04-15 17:00] | pm_bot | DEPLOY_TEST | Deployed to dev server. Migrations ran (credentials_encrypted + xray_private_keys_cleared). BUG FOUND: create_server() doesn't strip SENSITIVE_PROTOCOL_FIELDS from protocols before DB write. |
+| [2026-04-15 17:20] | py_bot | BUGFIX_COMPLETE | Added strip_sensitive_protocol_fields() in create_server() (database.py:285). save_data() already fixed. 281/281 tests pass. |
+| [2026-04-15 17:25] | pm_bot | GIT_PUSH | Committed bugfix (2 files, +41/-1) as 0bb1ad6. Pushed. CI/CD green. |
+| [2026-04-15 17:30] | pm_bot | DEPLOY_TEST | Redeployed. Bug verified fixed: private_key NOT in raw DB protocols. All live checks passed. |
+| [2026-04-15 17:50] | pm_bot | DEPLOY_TEST | Full web UI verification: login, server detail page, SSH connection to real server — all working. Encrypted credentials decrypt transparently for SSH. |
+| [2026-04-15 18:00] | pm_bot | PROJECT_COMPLETED | Batch 1E done-done. 8/16 Phase 1 issues complete. |
+
+---
+
+## Session Summary — April 14, 2026
+
+### Phase 1 Security Fixes (Batches 1A-1D) — Completed
+- 6/16 issues implemented and QA-approved
+- Committed as `44cf69f`, pushed to `feat/phase1-critical-security`
+
+### Post-Deployment Bug Fixes (Found via Runtime Testing)
+
+| Bug | Commit | Root Cause |
+|-----|--------|------------|
+| CSRF header name mismatch | `7e522a9` | `x-csrftoken` ≠ `x-csrf-token` in Starlette headers |
+| CSRF on unauthenticated login | `c4b1ea2` | No `sensitive_cookies` — all POSTs blocked for logged-out users |
+| Paramiko invalid kwargs | `3929b5c` | `host_key_verify`/`progress_handler` are asyncssh params, not paramiko |
+| CSRF HttpOnly cookie | `59ff641` | Bunkerweb adds HttpOnly — JS can't read csrf cookie; use meta tag instead |
+| CI fixes (black, Pillow, flake8) | `d9ae170` | Black version mismatch, CVE-2026-40192, flake8 |
+
+### Dev Server Verified
+- URL: https://vpn.dev.drochi.games/ (admin / MIjdQNO6!xe5ypHF7e7u)
+- SSH: root@207.2.120.44 (key at /tmp/dev_server_key)
+- Login | Connection creation | SSH paramiko | All 232 tests pass | All 4 CI pipelines green
+
+---
+
+## Session Summary — April 15, 2026
+
+### Phase 1 Security Fixes — Batch 1E Completed
+- **plaintext-credentials-db (#55)**: SSH credentials (ssh_pass, ssh_key) encrypted at rest using Fernet with HKDF-SHA256 key derivation from SECRET_KEY. Backup strips credentials. Restore handles missing creds. Migration encrypts existing plaintext rows.
+- **xray-plaintext-private-key (#57)**: Xray Reality private keys stripped from DB protocols at all 4 write/read paths (create_server, update_server_protocols, save_data, _server_row_to_dict). Private key stays on server (meta.json). Migration clears existing records.
+
+### Progress: 8/16 issues done (Batches 1A-1E)
+
+### Deployment Bug Found and Fixed
+- **Bug**: `create_server()` did not strip `reality_private_key` from protocols before DB write. The read-path (`_server_row_to_dict()`) masked this — API output was clean, but raw DB still leaked private keys.
+- **Root cause**: Only `update_server_protocols()` and `_server_row_to_dict()` had the stripping; `create_server()` bypassed that path.
+- **Fix**: Added `strip_sensitive_protocol_fields()` call in `create_server()` (commit 0bb1ad6).
+- **Lesson**: Unit tests checked API output (read path), not raw DB state (write path). Live verification caught this because we checked the actual SQLite data.
+
+### Live Verification Checklist (April 15)
+- Login to web UI  
+- Server appears in UI after creation  
+- Server detail page loads (no auth error)  
+- SSH connection to real server works (key decrypted transparently)  
+- Raw DB: ssh_pass/ssh_key are Fernet-encrypted tokens  
+- Raw DB: reality_private_key NOT in protocols JSON  
+- API layer: decrypted credentials match originals  
+- API layer: reality_private_key NOT in response protocols  
+- Backup: password/private_key stripped, credentials_excluded=True  
+- Migration flags: credentials_encrypted=1, xray_private_keys_cleared=1  
+
+### Next Up
+- Batch 1F: tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection (#74, #78, #84)
+- Batch 1G: no-input-validation-pydantic (#71)
+- Batch 1H: stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped (#80, #87, #88)
+- Batch 1I: telemt-config-no-integrity (#90)
