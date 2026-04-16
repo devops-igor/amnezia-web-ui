@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title_extra %} — {{ server.name }}{% endblock %}
+{% block title_extra %} — {{ server.name | e }}{% endblock %}
 
 {% block head_extra %}
 <style>
@@ -23,9 +23,8 @@
         <div class="flex items-center gap-md">
             <div class="server-icon" style="width:56px; height:56px; font-size:1.6rem;">🖥</div>
             <div>
-                <h1 style="font-size:1.4rem; font-weight:700;">{{ server.name }}</h1>
-                <div class="font-mono text-muted text-sm">{{ server.host }}:{{ server.ssh_port }} • {{ server.username
-                    }}</div>
+                <h1 style="font-size:1.4rem; font-weight:700;">{{ server.name | e }}</h1>
+                <div class="font-mono text-muted text-sm">{{ server.host | e }}:{{ server.ssh_port }} • {{ server.username | e }}</div>
             </div>
         </div>
         <div class="flex gap-sm items-center">
@@ -951,15 +950,15 @@
                 if (created) metaHtml += `<span>📅 ${formatDate(created)}</span>`;
 
                 if (proto === 'telemt') {
-                    if (userData.total_octets) metaHtml += `<span class="traffic-badge">📊 ${formatBytes(userData.total_octets)}</span>`;
-                    if (userData.current_connections !== undefined) metaHtml += `<span>🔌 ${userData.current_connections} conns</span>`;
-                    if (userData.active_ips !== undefined) metaHtml += `<span>📍 ${userData.active_ips} IPs</span>`;
-                    if (userData.quota) metaHtml += `<span class="badge" style="font-size:0.65rem;">Quota: ${formatBytes(userData.quota)}</span>`;
-                    if (userData.expiry) metaHtml += `<span class="badge" style="font-size:0.65rem;">⌛ ${formatDate(userData.expiry)}</span>`;
+                    if (userData.total_octets) metaHtml += `<span class="traffic-badge">📊 ${escapeHtml(formatBytes(userData.total_octets))}</span>`;
+                    if (userData.current_connections !== undefined) metaHtml += `<span>🔌 ${escapeHtml(String(userData.current_connections))} conns</span>`;
+                    if (userData.active_ips !== undefined) metaHtml += `<span>📍 ${escapeHtml(String(userData.active_ips))} IPs</span>`;
+                    if (userData.quota) metaHtml += `<span class="badge" style="font-size:0.65rem;">Quota: ${escapeHtml(formatBytes(userData.quota))}</span>`;
+                    if (userData.expiry) metaHtml += `<span class="badge" style="font-size:0.65rem;">⌛ ${escapeHtml(formatDate(userData.expiry))}</span>`;
                 } else {
-                    if (handshake) metaHtml += `<span>🤝 ${handshake}</span>`;
-                    if (received) metaHtml += `<span class="traffic-badge traffic-down">↓ ${received}</span>`;
-                    if (sent) metaHtml += `<span class="traffic-badge traffic-up">↑ ${sent}</span>`;
+                    if (handshake) metaHtml += `<span>🤝 ${escapeHtml(handshake)}</span>`;
+                    if (received) metaHtml += `<span class="traffic-badge traffic-down">↓ ${escapeHtml(received)}</span>`;
+                    if (sent) metaHtml += `<span class="traffic-badge traffic-up">↑ ${escapeHtml(sent)}</span>`;
                 }
 
                 if (!enabled) metaHtml += `<span class="badge badge-danger" style="font-size:0.65rem">${_('stop')}</span>`;
@@ -974,7 +973,7 @@
                 listEl.innerHTML += `
                     <div class="client-item" style="${disabledStyle}">
                         <div class="client-info">
-                            <div class="client-avatar">${initial}</div>
+                            <div class="client-avatar">${escapeHtml(initial)}</div>
                             <div>
                                 <div class="client-name">${escapeHtml(name)}</div>
                                 <div class="client-meta">${metaHtml || `<span class="text-muted">${_('no_data')}</span>`}</div>
@@ -1204,15 +1203,7 @@
         return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
-    function escapeHtml(str) {
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
-    function escapeJs(str) {
-        return str.replace(/'/g, "\\'").replace(/"/g, '\\"');
-    }
+    // escapeHtml and escapeJs are now defined globally in base.html
 
     // ========== Management ==========
     async function rebootServer() {
