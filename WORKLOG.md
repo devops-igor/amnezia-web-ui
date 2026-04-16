@@ -123,3 +123,26 @@
 | [2026-04-16 12:35] | git_bot | GIT_PUSH | Committed Batch 1F (6 files, +644/-87 lines) as 9109f7d. Pushed to feat/phase1-critical-security. Closed GitHub issues #74, #78, #84. |
 | [2026-04-16 12:40] | pm_bot | DEPLOY_TEST | Deployed new image to dev server. amnezia-panel container recreated. Login works, server detail loads, AWG2 + Telemt running. CSRF protection active (blocks malicious API calls). |
 | [2026-04-16 12:45] | pm_bot | PROJECT_COMPLETED | Batch 1F done-done. 11/16 Phase 1 issues complete. |
+| [2026-04-16 12:50] | pm_bot | WRAP_UP | Session wrap-up. Committed docs updates as 2d2f703. Commented GitHub issues #71, #80, #87, #88, #90 with next-up status. Remaining: 1G (#71 pydantic validation), 1H (#80, #87, #88 XSS/unescaped), 1I (#90 telemt integrity). |
+
+---
+
+## Session Summary — April 16, 2026
+
+### Phase 1 Security Fixes — Batch 1F Completed
+- **tls-domain-injection (#74)**: Added `field_validator("tls_domain")` with strict regex allowlist on `InstallProtocolRequest`. Replaced unsafe `re.sub` f-string with match-and-slice in `telemt_manager.py`. 13 tests.
+- **wireguard-echo-injection (#78)**: Replaced `echo >>` shell pattern in `add_client()` and `toggle_client()` with SFTP upload + `docker cp`. User data never interpolated into shell commands. 4 tests.
+- **configure-container-shell-injection (#84)**: Split `_configure_container()` into keygen phase (safe `docker exec`, no user data) and config write phase (Python string + SFTP + `docker cp`). Added `_validate_awg_params()` for numeric AWG parameter validation. 17 tests.
+
+### Progress: 11/16 issues done (Batches 1A-1F)
+
+### Deployment Verified
+- New image pulled on dev server (207.2.120.44)
+- amnezia-panel container recreated successfully
+- Login works, server detail page loads, AWG2 + Telemt protocols running
+- CSRF protection active (blocks unauthenticated API calls)
+
+### Next Up (April 17)
+- **Batch 1G**: no-input-validation-pydantic (#71) — Pydantic model input validation
+- **Batch 1H**: stored-xss-innerhtml (#80) + stored-xss-onclick (#87) + wireguard-values-unescaped (#88) — XSS fixes
+- **Batch 1I**: telemt-config-no-integrity (#90) — Config integrity checks
