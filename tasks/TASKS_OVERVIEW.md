@@ -39,15 +39,15 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 || 9 | wireguard-echo-injection | WireGuard Peer Config echo Injection | IMP3 §15 | #78 ✅ DONE |
 || 10 | configure-container-shell-injection | _configure_container f-string Injection | IMP3 §18 | #84 ✅ DONE |
 || 11 | no-input-validation-pydantic | No Input Validation on Pydantic Models | IMP3 §16 | #71 ✅ DONE |
-| 12 | stored-xss-innerhtml | Stored XSS in users.html (innerHTML) | IMP4 §17 | #80 🔲 TODO |
-| 13 | stored-xss-onclick | Stored XSS via onclick in users.html | IMP4 §18 | #87 🔲 TODO |
-| 14 | wireguard-values-unescaped | WireGuard Values Unescaped in server.html | IMP4 §19 | #88 🔲 TODO |
+|| 12 | stored-xss-innerhtml | Stored XSS in users.html (innerHTML) | IMP4 §17 | #80 ✅ DONE ||
+|| 13 | stored-xss-onclick | Stored XSS via onclick in users.html | IMP4 §18 | #87 ✅ DONE ||
+|| 14 | wireguard-values-unescaped | WireGuard Values Unescaped in server.html | IMP4 §19 | #88 ✅ DONE ||
 || 15 | xray-plaintext-private-key | Xray Private Key in Plaintext | IMP2 §9 | #57 ✅ DONE |
 | 16 | telemt-config-no-integrity | Telemt Config No Integrity Checks | IMP4 §24 | #90 🔲 TODO |
 
 ### Phase 1 Progress
 
-**Completed: 12/16 issues (Batches 1A-1G)** ✅ Pushed to `feat/phase1-critical-security` branch
+**Completed: 15/16 issues (Batches 1A-1H)** ✅ Pushed to `feat/phase1-critical-security` branch
 
 **BUG FIXES (post-commit):** 4 additional fixes required after deployment testing:
 
@@ -68,14 +68,14 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | 1C | ephemeral-secret-key + no-csrf-protection | #56, #62 | ✅ QA Approved, Pushed |
 | 1D | default-admin-credentials | #54 | ✅ QA Approved, Pushed |
 
-**Remaining: 5/16 issues (Batches 1G–1I)** 🔲 Not yet started
+**Remaining: 1/16 issues (Batch 1I)** 🔲 Not yet started
 
 | Batch | Issues | GitHub # | Depends On |
 |-------|--------|----------|------------|
 || 1E | plaintext-credentials-db + xray-plaintext-private-key | #55, #57 | ✅ QA Approved, Pushed, Deploy-verified |
 || 1F | tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection | #74, #78, #84 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1G | no-input-validation-pydantic | #71 | ✅ QA Approved, Pushed, Deploy-verified |
-| 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | None |
+| 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1I | telemt-config-no-integrity | #90 | None |
 
 ### Phase 2 — Critical Bugs & Operational Issues
