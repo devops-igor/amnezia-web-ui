@@ -293,12 +293,12 @@ class TestPasswordChangeValidation:
 
         req = ChangePasswordRequest(
             current_password="oldpass",
-            new_password="newpass123",
-            confirm_password="newpass123",
+            new_password="Newpass123",
+            confirm_password="Newpass123",
         )
         assert req.current_password == "oldpass"
-        assert req.new_password == "newpass123"
-        assert req.confirm_password == "newpass123"
+        assert req.new_password == "Newpass123"
+        assert req.confirm_password == "Newpass123"
 
     def test_change_password_request_model_missing_field(self):
         """ChangePasswordRequest should reject missing fields."""
@@ -311,7 +311,7 @@ class TestPasswordChangeValidation:
         with pytest.raises(ValidationError):
             ChangePasswordRequest(
                 current_password="oldpass",
-                new_password="newpass123",
+                new_password="Newpass123",
                 # missing confirm_password
             )
 
@@ -523,8 +523,8 @@ class TestPasswordChangeIntegration:
         )
         assert response.status_code == 400
 
-    def test_change_password_too_short_returns_400(self):
-        """Password shorter than 8 chars should return 400."""
+    def test_change_password_too_short_returns_422(self):
+        """Password shorter than 8 chars should return 422 (Pydantic validation error)."""
         self.client.post(
             "/api/auth/login",
             json={"username": "testadmin", "password": self.test_password},
@@ -541,7 +541,7 @@ class TestPasswordChangeIntegration:
             },
             headers={"x-csrf-token": new_csrf},
         )
-        assert response.status_code == 400
+        assert response.status_code == 422
 
     def test_middleware_allows_login_endpoint(self):
         """Login endpoint should never be blocked by password middleware."""
