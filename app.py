@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, Request, Query, UploadFile, File
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 import uvicorn
 import httpx
@@ -697,6 +697,29 @@ class InstallProtocolRequest(BaseModel):
     tls_emulation: Optional[bool] = None
     tls_domain: Optional[str] = None
     max_connections: Optional[int] = None
+
+    @field_validator("tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: Optional[str]) -> Optional[str]:
+        """Validate tls_domain to prevent regex/config injection.
+
+        Only allow alphanumeric chars, dots, hyphens, and underscores.
+        Must not contain newlines, shell metacharacters, or regex specials.
+        """
+        if v is None or v == "":
+            return v
+        # Allowlist: letters, digits, dots, hyphens, underscores
+        # Length 1-128, must start/end with alphanumeric
+        import re as _re
+
+        pattern = _re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$")
+        if not pattern.match(v):
+            raise ValueError(
+                "tls_domain must be 1-128 chars, alphanumeric/dots/hyphens/underscores only, "
+                "starting and ending with alphanumeric. No newlines, shell metacharacters, "
+                "or regex specials allowed."
+            )
+        return v
 
 
 class ProtocolRequest(BaseModel):

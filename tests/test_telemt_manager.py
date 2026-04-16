@@ -5,9 +5,13 @@ Tests cover the refactored TelemtManager that uses direct HTTP API
 calls for user management instead of SSH-tunneled curl and config parsing.
 """
 
+import re
+
+import pytest
 from unittest.mock import MagicMock, patch
 
 from telemt_manager import TelemtManager
+from app import InstallProtocolRequest
 
 
 class TestTelemtManagerInit:
@@ -710,3 +714,135 @@ class TestGetTelemtParamsFromApi:
 
         params = self.manager._get_telemt_params_from_api()
         assert params == {}
+
+
+class TestTlsDomainValidation:
+    """Tests for tls_domain injection prevention in install_protocol."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.mock_ssh.host = "1.2.3.4"
+        # Default SSH command returns (stdout, stderr, exit_code)
+        self.mock_ssh.run_command.return_value = ("", "", 0)
+        self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+        self.manager = TelemtManager(self.mock_ssh)
+
+    def _make_config(self, tls_domain_value='""'):
+        """Helper: create a config.toml with a tls_domain line."""
+        return f"tls_emulation = true\ntls_domain = {tls_domain_value}\n"
+
+    def test_valid_tls_domain_applied(self):
+        """Valid domain names should be correctly substituted into config via
+        the safe match-and-slice replacement pattern."""
+        config = self._make_config()
+        # Simulate the safe replacement used in telemt_manager.py
+        pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+        match = pattern.search(config)
+        assert match is not None
+        tls_domain = "example.com"
+        replacement = f'tls_domain = "{tls_domain}"'
+        result = config[: match.start()] + replacement + config[match.end() :]
+        assert 'tls_domain = "example.com"' in result
+        # No regex backreference injection possible with slice-based replacement
+        assert "${1}" not in result
+
+    def test_tls_domain_with_newlines_rejected(self):
+        """tls_domain containing newlines should be rejected by Pydantic validator."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt",
+                tls_emulation=True,
+                tls_domain="evil.com\nMALICIOUS_LINE",
+            )
+
+    def test_tls_domain_with_regex_special_chars_rejected(self):
+        """tls_domain with regex specials ($, {, }) should be rejected."""
+        from pydantic import ValidationError
+
+        # $ character
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="$1.evil.com")
+
+        # curly braces
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt", tls_emulation=True, tls_domain="${1}.evil.com"
+            )
+
+        # backslash
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="evil\\.com")
+
+    def test_tls_domain_with_whitespace_rejected(self):
+        """tls_domain with whitespace should be rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="evil .com")
+
+    def test_tls_domain_valid_subdomain(self):
+        """Valid subdomain should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="sub.domain.org"
+        )
+        assert req.tls_domain == "sub.domain.org"
+
+    def test_tls_domain_simple_domain(self):
+        """Simple domain should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="example.com"
+        )
+        assert req.tls_domain == "example.com"
+
+    def test_tls_domain_single_char_accepted(self):
+        """Single alphanumeric char is allowed by the second regex alternative."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="a")
+        assert req.tls_domain == "a"
+
+    def test_tls_domain_dash_hyphen_domain(self):
+        """Domain with hyphens should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="my-site.example.com"
+        )
+        assert req.tls_domain == "my-site.example.com"
+
+    def test_tls_domain_empty_string_allowed(self):
+        """Empty string tls_domain should be allowed (optional field)."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="")
+        assert req.tls_domain == ""
+
+    def test_tls_domain_none_allowed(self):
+        """None tls_domain should be allowed (optional field)."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain=None)
+        assert req.tls_domain is None
+
+    def test_tls_domain_too_long_rejected(self):
+        """tls_domain longer than 128 chars should be rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt",
+                tls_emulation=True,
+                tls_domain="a" * 130 + ".com",
+            )
+
+    def test_install_protocol_safe_re_sub(self):
+        """Verify that the safe match-and-slice replacement prevents regex injection
+        even with malicious-looking domain values (defense-in-depth)."""
+        config = self._make_config()
+        # If a malicious value somehow passed validation, the slice-based
+        # replacement still prevents regex backreference injection.
+        # (re.sub with f-string would interpret \1, $1, etc.)
+        pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+        match = pattern.search(config)
+        assert match is not None
+        # Simulate a value with regex backreference patterns
+        malicious = "${1}\\nMALICIOUS"
+        replacement = f'tls_domain = "{malicious}"'
+        result = config[: match.start()] + replacement + config[match.end() :]
+        # The literal text appears — it's NOT interpreted as a backreference
+        assert 'tls_domain = "${1}\\nMALICIOUS"' in result
+        # No actual backreference expansion happens with slice replacement

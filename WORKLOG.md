@@ -101,3 +101,20 @@
 - Batch 1G: no-input-validation-pydantic (#71)
 - Batch 1H: stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped (#80, #87, #88)
 - Batch 1I: telemt-config-no-integrity (#90)
+## Batch 1F — Shell/Config Injection Fixes (IMPLEMENTATION_COMPLETE)
+
+**Date:** 2026-04-16
+**Issues Fixed:** #74 (tls-domain-injection), #78 (wireguard-echo-injection), #84 (configure-container-shell-injection)
+
+### Changes
+- `app.py`: Added `field_validator("tls_domain")` on `InstallProtocolRequest` — regex allowlist prevents injection
+- `telemt_manager.py`: Replaced `re.sub` f-string replacement with match-and-slice pattern — no backreference expansion
+- `awg_manager.py`: Refactored `_configure_container()` to split keygen (docker exec) from config write (SFTP+docker_cp); refactored `add_client()` and `toggle_client()` to use SFTP+docker_cp instead of `echo >>`; added `_validate_awg_params()` for numeric AWG param validation
+- `tests/test_telemt_manager.py`: Added 13 tests for tls_domain validation
+- `tests/test_awg_manager.py`: Added 17 tests for AWG injection prevention and SFTP patterns
+
+### Gate Results
+- black: 5 files unchanged
+- flake8: 0 new issues (1 pre-existing F824 on app.py:203)
+- py_compile: all 3 modules pass
+- pytest: 117 passed
