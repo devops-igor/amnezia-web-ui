@@ -179,9 +179,18 @@ class TelemtManager:
         )
 
         if tls_emulation and tls_domain:
-            config_content = re.sub(
-                r'tls_domain\s*=\s*".*?"', f'tls_domain = "{tls_domain}"', config_content
-            )
+            # Use string find/replace instead of re.sub to prevent regex
+            # injection via backreferences ($1, \1, etc.) in tls_domain.
+            # The value is already validated by InstallProtocolRequest.validate_tls_domain.
+            pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+            match = pattern.search(config_content)
+            if match:
+                escaped_replacement = f'tls_domain = "{tls_domain}"'
+                config_content = (
+                    config_content[: match.start()]
+                    + escaped_replacement
+                    + config_content[match.end() :]
+                )
 
         if max_connections is not None and max_connections > 0:
             config_content = re.sub(
