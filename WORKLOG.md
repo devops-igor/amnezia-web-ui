@@ -161,3 +161,10 @@
 | [2026-04-16 15:15] | pm_bot | PROJECT_COMPLETED | Batch 1G COMPLETE. 12/16 Phase 1 issues done. Issue #71 closed. |
 | [2026-04-16 15:20] | pm_bot | WRAP_UP | Updated TASKS_OVERVIEW.md (12/16 done), VERIFICATION_PLAN.md (partial L3 noted), GitHub #71 closed with summary comment. Session wrap-up complete. |
 | [2026-04-16 15:10] | qa_bot | REVIEW_APPROVED | Batch 1G (No Input Validation on Pydantic Models #71): APPROVED. All 25 models validated, 453+141 tests pass, no MEDIUM+ security findings. One LOW observation about null bytes in non-pattern-validated fields. See tasks/no-input-validation-pydantic/QA_REVIEW.md. |
+
+[2026-04-16 15:30] | pm_bot | PROJECT_START | Batch 1H: XSS fixes — stored-xss-innerhtml (#80), stored-xss-onclick (#87), wireguard-values-unescaped (#88). Task prompt written, spawning py_bot.
+| [2026-04-16 16:35] | py_bot | IMPLEMENTATION_COMPLETE | Batch 1H: XSS fixes implemented. 3 template files changed. 452-line test suite added. 35/36 tests pass, 1 test assertion fix pending. Zero regressions in 453 existing tests. |
+| [2026-04-16 16:35] | pm_bot | RECEIVED | py_bot completed Batch 1H. Smoke test: py_compile passes, 453 existing tests pass. Fixing 1 test assertion. |
+| [2026-04-16 16:40] | pm_bot | SMOKE_TEST_PASS | Batch 1H smoke test: 489/489 tests pass (453 existing + 36 new XSS). py_compile passes. Zero regressions. |
+| [2026-04-16 16:40] | pm_bot | SPAWN | Spawned qa_bot for Batch 1H review. |
+| [2026-04-16 16:55] | qa_bot | REVIEW_APPROVED | Batch 1H (XSS fixes #80/#87/#88): APPROVED. 489/489 tests pass. escapeHtml/escapeJs correctly in base.html. All user data escaped in users.html. Data-attributes replace JSON onclick injection. WireGuard data escaped in server.html. Jinja2 vars use |e. Two LOW pre-existing issues noted (my_connections.html, traffic_reset_strategy). See tasks/batch-1h-xss-fixes/QA_REVIEW.md. |
