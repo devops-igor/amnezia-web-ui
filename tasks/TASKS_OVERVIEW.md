@@ -38,7 +38,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 || 8 | tls-domain-injection | tls_domain Config Injection | IMP3 §14 | #74 ✅ DONE |
 || 9 | wireguard-echo-injection | WireGuard Peer Config echo Injection | IMP3 §15 | #78 ✅ DONE |
 || 10 | configure-container-shell-injection | _configure_container f-string Injection | IMP3 §18 | #84 ✅ DONE |
-| 11 | no-input-validation-pydantic | No Input Validation on Pydantic Models | IMP3 §16 | #71 🔲 TODO |
+|| 11 | no-input-validation-pydantic | No Input Validation on Pydantic Models | IMP3 §16 | #71 ✅ DONE |
 | 12 | stored-xss-innerhtml | Stored XSS in users.html (innerHTML) | IMP4 §17 | #80 🔲 TODO |
 | 13 | stored-xss-onclick | Stored XSS via onclick in users.html | IMP4 §18 | #87 🔲 TODO |
 | 14 | wireguard-values-unescaped | WireGuard Values Unescaped in server.html | IMP4 §19 | #88 🔲 TODO |
@@ -47,7 +47,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 
 ### Phase 1 Progress
 
-**Completed: 11/16 issues (Batches 1A-1F)** ✅ Pushed to `feat/phase1-critical-security` branch
+**Completed: 12/16 issues (Batches 1A-1G)** ✅ Pushed to `feat/phase1-critical-security` branch
 
 **BUG FIXES (post-commit):** 4 additional fixes required after deployment testing:
 
@@ -74,7 +74,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 |-------|--------|----------|------------|
 || 1E | plaintext-credentials-db + xray-plaintext-private-key | #55, #57 | ✅ QA Approved, Pushed, Deploy-verified |
 || 1F | tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection | #74, #78, #84 | ✅ QA Approved, Pushed, Deploy-verified |
-| 1G | no-input-validation-pydantic | #71 | None |
+| 1G | no-input-validation-pydantic | #71 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | None |
 | 1I | telemt-config-no-integrity | #90 | None |
 
