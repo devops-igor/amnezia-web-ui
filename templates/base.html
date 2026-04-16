@@ -118,6 +118,19 @@
     </div>
 
     <script>
+        /* ===== XSS Prevention: Global escape functions ===== */
+        function escapeHtml(str) {
+            if (str === null || str === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = String(str);
+            return div.innerHTML;
+        }
+
+        function escapeJs(str) {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+        }
+
         window.I18N = {{ translations_json | safe }};
         window._ = function (key) { return window.I18N[key] || key; };
 
