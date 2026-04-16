@@ -21,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, Request, Query, UploadFile, File
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 import uvicorn
 import httpx
@@ -675,28 +675,62 @@ def get_leaderboard_entries(period: str) -> list[dict]:
 
 # ======================== Pydantic Models ========================
 
+VALID_PROTOCOLS = {"awg", "xray", "telemt", "awg-server", "xray-server"}
+
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
-    captcha: Optional[str] = None
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=4096)
+    captcha: Optional[str] = Field(default=None, max_length=4096)
 
 
 class AddServerRequest(BaseModel):
-    host: str = ""
-    ssh_port: int = 22
-    username: str = ""
-    password: str = ""
-    private_key: str = ""
-    name: str = ""
+    host: str = Field(default="", min_length=0, max_length=255)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(default="", min_length=0, max_length=255)
+    password: str = Field(default="", min_length=0, max_length=4096)
+    private_key: str = Field(default="", min_length=0, max_length=16384)
+    name: str = Field(default="", min_length=0, max_length=255)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, v: str) -> str:
+        """Validate host: must be a valid IPv4 or hostname if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        # IPv4 pattern
+        ipv4_pattern = _re.compile(
+            r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}" r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
+        )
+        # Hostname pattern: alphanumeric, dots, hyphens; labels 1-63 chars
+        hostname_pattern = _re.compile(
+            r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$"
+        )
+        if ipv4_pattern.match(v):
+            return v
+        if hostname_pattern.match(v):
+            return v
+        raise ValueError(
+            "host must be a valid IPv4 address or hostname " "(alphanumeric, dots, hyphens only)"
+        )
 
 
 class InstallProtocolRequest(BaseModel):
-    protocol: str = "awg"
-    port: str = "55424"
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    port: str = Field(default="55424", min_length=1, max_length=10)
     tls_emulation: Optional[bool] = None
-    tls_domain: Optional[str] = None
-    max_connections: Optional[int] = None
+    tls_domain: Optional[str] = Field(default=None, max_length=128)
+    max_connections: Optional[int] = Field(default=None, ge=1, le=100000)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
     @field_validator("tls_domain")
     @classmethod
@@ -723,71 +757,182 @@ class InstallProtocolRequest(BaseModel):
 
 
 class ProtocolRequest(BaseModel):
-    protocol: str = "awg"
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AddConnectionRequest(BaseModel):
-    protocol: str = "awg"
-    name: str = "Connection"
-    user_id: Optional[str] = None
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="Connection", min_length=1, max_length=255)
+    user_id: Optional[str] = Field(default=None, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class EditConnectionRequest(BaseModel):
-    protocol: str = "telemt"
-    client_id: str = ""
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    protocol: str = Field(default="telemt", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ConnectionActionRequest(BaseModel):
-    protocol: str = "awg"
-    client_id: str = ""
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ToggleConnectionRequest(BaseModel):
-    protocol: str = "awg"
-    client_id: str = ""
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
     enable: bool = True
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AddUserRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "user"
-    telegramId: Optional[str] = None
-    email: Optional[str] = None
-    description: Optional[str] = None
-    traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = "never"
-    server_id: Optional[int] = None
-    protocol: Optional[str] = None
-    connection_name: Optional[str] = None
-    expiration_date: Optional[str] = None
+    username: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=4096)
+    role: str = Field(default="user", min_length=1, max_length=50)
+    telegramId: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    traffic_limit: Optional[float] = Field(default=0, ge=0)
+    traffic_reset_strategy: Optional[str] = Field(default="never", max_length=50)
+    server_id: Optional[int] = Field(default=None, ge=1)
+    protocol: Optional[str] = Field(default=None, max_length=50)
+    connection_name: Optional[str] = Field(default=None, max_length=255)
+    expiration_date: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        """Validate username: alphanumeric, hyphens, underscores. Normalize to lowercase."""
+        import re as _re
+
+        v = v.lower()
+        if not _re.match(r"^[a-z0-9_-]+$", v):
+            raise ValueError(
+                "username must contain only lowercase letters, digits, " "hyphens, and underscores"
+            )
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password: at least 8 chars, 1 uppercase, 1 lowercase, 1 digit."""
+        import re as _re
+
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role: must be 'admin' or 'user'."""
+        if v not in ("admin", "user"):
+            raise ValueError("role must be 'admin' or 'user'")
+        return v
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: Optional[str]) -> Optional[str]:
+        """Validate protocol against allowlist, if provided."""
+        if v is not None and v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ServerConfigSaveRequest(BaseModel):
-    protocol: str
-    config: str
+    protocol: str = Field(min_length=1, max_length=50)
+    config: str = Field(min_length=1, max_length=65536)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AppearanceSettings(BaseModel):
-    title: str = "Amnezia"
-    logo: str = "🛡"
-    subtitle: str = "Web Panel"
+    title: str = Field(default="Amnezia", min_length=1, max_length=100)
+    logo: str = Field(default="🛡", min_length=1, max_length=100)
+    subtitle: str = Field(default="Web Panel", min_length=1, max_length=200)
 
 
 class SyncSettings(BaseModel):
-    remnawave_url: str = ""
-    remnawave_api_key: str = ""
+    remnawave_url: str = Field(default="", max_length=2048)
+    remnawave_api_key: str = Field(default="", max_length=512)
     remnawave_sync: bool = False
     remnawave_sync_users: bool = False
     remnawave_create_conns: bool = False
-    remnawave_server_id: int = 0
-    remnawave_protocol: str = "awg"
+    remnawave_server_id: int = Field(default=0, ge=0)
+    remnawave_protocol: str = Field(default="awg", min_length=1, max_length=50)
+
+    @field_validator("remnawave_url")
+    @classmethod
+    def validate_remnawave_url(cls, v: str) -> str:
+        """Validate remnawave_url: must be valid URL format if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        if not _re.match(r"^https?://[^\s<>\"']+$", v):
+            raise ValueError("remnawave_url must be a valid HTTP(S) URL")
+        return v
+
+    @field_validator("remnawave_protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class CaptchaSettings(BaseModel):
@@ -796,37 +941,84 @@ class CaptchaSettings(BaseModel):
 
 class SSLSettings(BaseModel):
     enabled: bool = False
-    domain: str = ""
-    cert_path: str = ""
-    key_path: str = ""
-    cert_text: str = ""
-    key_text: str = ""
-    panel_port: int = 5000
+    domain: str = Field(default="", max_length=255)
+    cert_path: str = Field(default="", max_length=4096)
+    key_path: str = Field(default="", max_length=4096)
+    cert_text: str = Field(default="", max_length=65536)
+    key_text: str = Field(default="", max_length=65536)
+    panel_port: int = Field(default=5000, ge=1, le=65535)
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: str) -> str:
+        """Validate domain: alphanumeric, dots, hyphens if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        pattern = _re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$")
+        if not pattern.match(v):
+            raise ValueError("domain must contain only letters, digits, dots, and hyphens")
+        return v
+
+    @field_validator("cert_path", "key_path")
+    @classmethod
+    def validate_path_no_traversal(cls, v: str) -> str:
+        """Validate paths: no directory traversal."""
+        if not v:
+            return v
+        if ".." in v:
+            raise ValueError("path must not contain directory traversal (..)")
+        return v
 
 
 class TelegramSettings(BaseModel):
-    token: str = ""
+    token: str = Field(default="", max_length=256)
     enabled: bool = False
 
 
 class ConnectionLimits(BaseModel):
-    max_connections_per_user: int = 10
-    connection_rate_limit_count: int = 5
-    connection_rate_limit_window: int = 60
+    max_connections_per_user: int = Field(default=10, ge=1, le=1000)
+    connection_rate_limit_count: int = Field(default=5, ge=1, le=1000)
+    connection_rate_limit_window: int = Field(default=60, ge=1, le=86400)
 
 
 class ProtocolPaths(BaseModel):
-    telemt_config_dir: str = "/opt/amnezia/telemt"
+    telemt_config_dir: str = Field(default="/opt/amnezia/telemt", min_length=1, max_length=4096)
+
+    @field_validator("telemt_config_dir")
+    @classmethod
+    def validate_path_no_traversal(cls, v: str) -> str:
+        """Validate path: no directory traversal."""
+        if ".." in v:
+            raise ValueError("path must not contain directory traversal (..)")
+        return v
 
 
 class UpdateUserRequest(BaseModel):
-    telegramId: Optional[str] = None
-    email: Optional[str] = None
-    description: Optional[str] = None
-    traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = None
-    expiration_date: Optional[str] = None
-    password: Optional[str] = None
+    telegramId: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    traffic_limit: Optional[float] = Field(default=0, ge=0)
+    traffic_reset_strategy: Optional[str] = Field(default=None, max_length=50)
+    expiration_date: Optional[str] = Field(default=None, max_length=50)
+    password: Optional[str] = Field(default=None, min_length=8, max_length=4096)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        """Validate password if provided: 8+ chars, 1 uppercase, 1 lowercase, 1 digit."""
+        if v is None:
+            return v
+        import re as _re
+
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
 
 
 class SaveSettingsRequest(BaseModel):
@@ -844,28 +1036,52 @@ class ToggleUserRequest(BaseModel):
 
 
 class AddUserConnectionRequest(BaseModel):
-    server_id: int
-    protocol: str = "awg"
-    name: str = "VPN Connection"
-    client_id: Optional[str] = None
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    server_id: int = Field(ge=1)
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="VPN Connection", min_length=1, max_length=255)
+    client_id: Optional[str] = Field(default=None, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
-    confirm_password: str
+    current_password: str = Field(min_length=1, max_length=4096)
+    new_password: str = Field(min_length=8, max_length=4096)
+    confirm_password: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password: 8+ chars, 1 uppercase, 1 lowercase, 1 digit, no null bytes."""
+        import re as _re
+
+        if "\x00" in v:
+            raise ValueError("password must not contain null bytes")
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
 
 
 class ShareSetupRequest(BaseModel):
     enabled: bool
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, max_length=4096)
 
 
 class ShareAuthRequest(BaseModel):
-    password: str
+    password: str = Field(min_length=1, max_length=4096)
 
 
 # ======================== Startup ========================
@@ -2301,12 +2517,20 @@ async def api_get_user_connections(request: Request, user_id: str):
 
 
 class MyAddConnectionRequest(BaseModel):
-    server_id: int
-    protocol: str = "awg"
-    name: str = "Connection"
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    server_id: int = Field(ge=1)
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="Connection", min_length=1, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 @app.get("/api/my/connections")
