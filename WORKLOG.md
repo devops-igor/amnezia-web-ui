@@ -118,3 +118,8 @@
 - flake8: 0 new issues (1 pre-existing F824 on app.py:203)
 - py_compile: all 3 modules pass
 - pytest: 117 passed
+
+| [2026-04-16 12:30] | qa_bot | REVIEW_APPROVED | Batch 1F: All 3 injection fixes verified. 31 new security tests pass. No MEDIUM+ findings. |
+| [2026-04-16 12:35] | git_bot | GIT_PUSH | Committed Batch 1F (6 files, +644/-87 lines) as 9109f7d. Pushed to feat/phase1-critical-security. Closed GitHub issues #74, #78, #84. |
+| [2026-04-16 12:40] | pm_bot | DEPLOY_TEST | Deployed new image to dev server. amnezia-panel container recreated. Login works, server detail loads, AWG2 + Telemt running. CSRF protection active (blocks malicious API calls). |
+| [2026-04-16 12:45] | pm_bot | PROJECT_COMPLETED | Batch 1F done-done. 11/16 Phase 1 issues complete. |
