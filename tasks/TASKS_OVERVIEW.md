@@ -1,7 +1,7 @@
 # Amnezia Web Panel — Improvement Tasks Overview
 
-**Generated:** 2026-04-14 | **Last Updated:** 2026-04-16
-**Total Findings:** 47
+**Generated:** 2026-04-14 | **Last Updated:** 2026-04-17
+**Total Findings:** 47 + 1 external UX bug (#19)
 **P1 (Critical):** 32 | **P2 (Medium):** 15
 
 ---
@@ -45,6 +45,12 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 || 15 | xray-plaintext-private-key | Xray Private Key in Plaintext | IMP2 §9 | #57 ✅ DONE |
 | 16 | telemt-config-no-integrity | Telemt Config No Integrity Checks | IMP4 §24 | #90 🔲 TODO |
 
+### Out-of-Phase UX Fix
+
+| # | Slug | Title | Source | Status |
+|---|------|-------|--------|--------|
+| UX-1 | telemt-qr-wrong-app | Telemt QR Code Instructions Say Wrong App | GitHub #19 | ✅ DONE (PR #93, deployed) |
+
 ### Phase 1 Progress
 
 **Completed: 15/16 issues (Batches 1A-1H)** ✅ Pushed to `feat/phase1-critical-security` branch
@@ -77,6 +83,12 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | 1G | no-input-validation-pydantic | #71 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1I | telemt-config-no-integrity | #90 | None |
+
+**Out-of-Phase UX Fix:**
+
+| Batch | Issue | GitHub # | Status |
+|-------|-------|----------|--------|
+| UX-1 | telemt-qr-wrong-app | #19 | ✅ PR #93 merged, Deploy-verified |
 
 ### Phase 2 — Critical Bugs & Operational Issues
 
