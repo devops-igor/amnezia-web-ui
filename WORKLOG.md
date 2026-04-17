@@ -176,3 +176,6 @@
 [2026-04-16 17:35] | pm_bot | DEPLOY | Deployed new Docker image to dev server. Container amnezia-panel running.
 [2026-04-16 17:40] | pm_bot | VERIFY | Live verification: escapeHtml() and escapeJs() working in production. Server page Jinja2 |e filter applied. GitHub issues #80, #87, #88 closed.
 [2026-04-16 17:40] | pm_bot | PROJECT_COMPLETED | Batch 1H DONE-DONE. 15/16 Phase 1 issues complete. Only #90 telemt-config-no-integrity remains.
+[2026-04-17 18:57] | py_bot | IMPLEMENTATION_START | Task #19: Fix telemt QR code instructions
+[2026-04-17 18:58] | py_bot | IMPLEMENTATION_COMPLETE | Added qr_hint_telemt to all 5 translation files (en/ru/fr/zh/fa). Updated my_connections.html and server.html with id="qrHint" dynamic hint switching via JS. All 489 tests pass, JSON valid, py_compile OK.
+[2026-04-17 19:30] | qa_bot | REVIEW_APPROVED | Task #19: All checks pass. 489/489 tests. No security findings. Translation keys verified in 5 languages. Both server.html config entry points covered. Edge cases safe.
