@@ -179,3 +179,6 @@
 [2026-04-17 18:57] | py_bot | IMPLEMENTATION_START | Task #19: Fix telemt QR code instructions
 [2026-04-17 18:58] | py_bot | IMPLEMENTATION_COMPLETE | Added qr_hint_telemt to all 5 translation files (en/ru/fr/zh/fa). Updated my_connections.html and server.html with id="qrHint" dynamic hint switching via JS. All 489 tests pass, JSON valid, py_compile OK.
 [2026-04-17 19:30] | qa_bot | REVIEW_APPROVED | Task #19: All checks pass. 489/489 tests. No security findings. Translation keys verified in 5 languages. Both server.html config entry points covered. Edge cases safe.
+[2026-04-17 19:45] | pm_bot | DEPLOY | Pulled new Docker image, restarted amnezia-panel on dev server.
+[2026-04-17 19:50] | pm_bot | VERIFY | Live verification: telemt QR hint shows "Scan the QR code with your phone's camera — this opens a Telegram proxy link". AWG2 QR hint still shows "AmneziaVPN or AmneziaWG app". GitHub issue #19 closed.
+[2026-04-17 19:50] | pm_bot | PROJECT_COMPLETED | Issue #19 DONE-DONE.
