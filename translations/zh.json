@@ -106,6 +106,7 @@
     "copy_key": "📋 复制密钥",
     "vpn_link_hint": "将此链接粘贴到 AmneziaVPN 应用中即可自动配置",
     "qr_hint": "使用 AmneziaVPN 或 AmneziaWG 应用扫描二维码",
+    "qr_hint_telemt": "用手机相机扫描二维码 — 这将打开 Telegram 代理链接",
     "no_data": "无数据",
     "start_btn": "▶ 启动",
     "stop_btn": "⏹ 停止",
