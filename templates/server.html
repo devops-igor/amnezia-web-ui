@@ -430,7 +430,7 @@
         <div class="config-panel" id="panel-qr">
             <div class="qr-container">
                 <div id="qrCode"></div>
-                <div class="qr-hint">{{ _('qr_hint') }}</div>
+                <div class="qr-hint" id="qrHint">{{ _('qr_hint') }}</div>
             </div>
         </div>
     </div>
@@ -1031,6 +1031,7 @@
                     document.getElementById('vpnLinkText').textContent = currentVpnLink;
                     document.getElementById('panel-vpn').style.display = (proto === 'telemt' ? 'none' : '');
                     document.querySelectorAll('.config-tab')[1].style.display = (proto === 'telemt' ? 'none' : '');
+                    document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
                     switchConfigTab('conf');
                     openModal('configModal');
                     generateQR(result.config);
@@ -1106,6 +1107,8 @@
         document.getElementById('panel-qr').style.display = '';
         document.querySelectorAll('.config-tab')[1].style.display = (proto === 'telemt' ? 'none' : '');
         document.querySelectorAll('.config-tab')[2].style.display = '';
+
+        document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
 
         // Client was created via native Amnezia app — private key is not stored server-side
         if (!hasKey) {
