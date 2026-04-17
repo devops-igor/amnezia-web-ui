@@ -98,7 +98,7 @@
         <div class="config-panel" id="panel-qr">
             <div class="qr-container">
                 <div id="qrCode"></div>
-                <div class="qr-hint">{{ _('qr_hint') }}</div>
+                <div class="qr-hint" id="qrHint">{{ _('qr_hint') }}</div>
             </div>
         </div>
     </div>
@@ -172,6 +172,8 @@
                 } else {
                     vpnTab.style.display = '';
                 }
+
+                document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
 
                 switchConfigTab('conf');
                 openModal('configModal');
