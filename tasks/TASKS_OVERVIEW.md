@@ -1,7 +1,7 @@
 # Amnezia Web Panel — Improvement Tasks Overview
 
 **Generated:** 2026-04-14 | **Last Updated:** 2026-04-17
-**Total Findings:** 47 + 1 external UX bug (#19)
+**Total Findings:** 47 + 2 post-Phase-1 fixes (#19, #95)
 **P1 (Critical):** 32 | **P2 (Medium):** 15
 
 ---
@@ -50,10 +50,11 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | # | Slug | Title | Source | Status |
 |---|------|-------|--------|--------|
 | UX-1 | telemt-qr-wrong-app | Telemt QR Code Instructions Say Wrong App | GitHub #19 | ✅ DONE (PR #93, deployed) |
+| REG-1 | awg2-connection-422 | VALID_PROTOCOLS Missing awg2/awg_legacy/dns | GitHub #95 | ✅ DONE (PR #94, deployed) |
 
 ### Phase 1 Progress
 
-**Completed: 15/16 issues (Batches 1A-1H)** ✅ Pushed to `feat/phase1-critical-security` branch
+**Completed: 15/16 issues (Batches 1A-1H) + 2 post-Phase-1 fixes** ✅ Pushed to `feat/phase1-critical-security` branch
 
 **BUG FIXES (post-commit):** 4 additional fixes required after deployment testing:
 
@@ -76,19 +77,20 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 
 **Remaining: 1/16 issues (Batch 1I)** 🔲 Not yet started
 
-| Batch | Issues | GitHub # | Depends On |
+|| Batch | Issues | GitHub # | Depends On |
 |-------|--------|----------|------------|
-|| 1E | plaintext-credentials-db + xray-plaintext-private-key | #55, #57 | ✅ QA Approved, Pushed, Deploy-verified |
-|| 1F | tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection | #74, #78, #84 | ✅ QA Approved, Pushed, Deploy-verified |
+| 1E | plaintext-credentials-db + xray-plaintext-private-key | #55, #57 | ✅ QA Approved, Pushed, Deploy-verified |
+| 1F | tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection | #74, #78, #84 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1G | no-input-validation-pydantic | #71 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1I | telemt-config-no-integrity | #90 | None |
 
-**Out-of-Phase UX Fix:**
+**Post-Phase-1 Bug Fixes (regressions from Phase 1):**
 
 | Batch | Issue | GitHub # | Status |
 |-------|-------|----------|--------|
 | UX-1 | telemt-qr-wrong-app | #19 | ✅ PR #93 merged, Deploy-verified |
+| REG-1 | VALID_PROTOCOLS missing awg2/awg_legacy/dns (HTTP 422) | #95 | ✅ PR #94 merged, Deploy-verified |
 
 ### Phase 2 — Critical Bugs & Operational Issues
 
