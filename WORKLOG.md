@@ -181,4 +181,7 @@
 [2026-04-17 19:30] | qa_bot | REVIEW_APPROVED | Task #19: All checks pass. 489/489 tests. No security findings. Translation keys verified in 5 languages. Both server.html config entry points covered. Edge cases safe.
 [2026-04-17 19:45] | pm_bot | DEPLOY | Pulled new Docker image, restarted amnezia-panel on dev server.
 [2026-04-17 19:50] | pm_bot | VERIFY | Live verification: telemt QR hint shows "Scan the QR code with your phone's camera — this opens a Telegram proxy link". AWG2 QR hint still shows "AmneziaVPN or AmneziaWG app". GitHub issue #19 closed.
-[2026-04-17 19:50] | pm_bot | PROJECT_COMPLETED | Issue #19 DONE-DONE.
+|[2026-04-17 19:50] | pm_bot | PROJECT_COMPLETED | Issue #19 DONE-DONE.
+|[2026-04-17 19:56] | py_bot | IMPLEMENTATION_COMPLETE | Fixed VALID_PROTOCOLS allowlist on app.py line 678: added awg2, awg_legacy, dns; removed awg-server, xray-server. Updated 2 test assertions. 489/489 tests pass. py_compile OK.
+[2026-04-17 19:59] | qa_bot | REVIEW_APPROVED | AWG2 Connection 422 Fix: VALID_PROTOCOLS allowlist corrected. 489/489 tests pass. Zero codebase refs to removed values. All 7 Pydantic models now accept awg2/awg_legacy/dns. No security findings. No scope creep.
+|

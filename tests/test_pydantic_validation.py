@@ -44,7 +44,7 @@ class TestValidProtocols:
     """Test that VALID_PROTOCOLS constant is correct."""
 
     def test_valid_protocols_set(self):
-        assert VALID_PROTOCOLS == {"awg", "xray", "telemt", "awg-server", "xray-server"}
+        assert VALID_PROTOCOLS == {"awg", "awg2", "awg_legacy", "xray", "telemt", "dns"}
 
 
 # ======================== LoginRequest ========================
@@ -884,7 +884,7 @@ class TestCrossCuttingSecurity:
 
     def test_protocol_allowlist_enforced(self):
         """All protocol fields must be in VALID_PROTOCOLS."""
-        for proto in ["awg", "xray", "telemt", "awg-server", "xray-server"]:
+        for proto in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]:
             req = ProtocolRequest(protocol=proto)
             assert req.protocol == proto
 

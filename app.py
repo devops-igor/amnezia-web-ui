@@ -675,7 +675,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
 
 # ======================== Pydantic Models ========================
 
-VALID_PROTOCOLS = {"awg", "xray", "telemt", "awg-server", "xray-server"}
+VALID_PROTOCOLS = {"awg", "awg2", "awg_legacy", "xray", "telemt", "dns"}
 
 
 class LoginRequest(BaseModel):
