@@ -106,6 +106,7 @@
     "copy_key": "📋 Copier la clé",
     "vpn_link_hint": "Collez ce lien dans AmneziaVPN pour une config automatique",
     "qr_hint": "Scannez le code QR dans l'application AmneziaVPN ou AmneziaWG",
+    "qr_hint_telemt": "Scannez le code QR avec l'appareil photo de votre téléphone — cela ouvrira un lien de proxy Telegram",
     "no_data": "Aucune donnée",
     "start_btn": "▶ Start",
     "stop_btn": "⏹ Stop",
