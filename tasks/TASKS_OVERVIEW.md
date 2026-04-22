@@ -43,7 +43,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 || 13 | stored-xss-onclick | Stored XSS via onclick in users.html | IMP4 §18 | #87 ✅ DONE ||
 || 14 | wireguard-values-unescaped | WireGuard Values Unescaped in server.html | IMP4 §19 | #88 ✅ DONE ||
 || 15 | xray-plaintext-private-key | Xray Private Key in Plaintext | IMP2 §9 | #57 ✅ DONE |
-| 16 | telemt-config-no-integrity | Telemt Config No Integrity Checks | IMP4 §24 | #90 🔲 TODO |
+|| 16 | telemt-config-no-integrity | Telemt Config No Integrity Checks | IMP4 §24 | #90 ✅ DONE |
 
 ### Out-of-Phase UX Fix
 
@@ -54,7 +54,9 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 
 ### Phase 1 Progress
 
-**Completed: 15/16 issues (Batches 1A-1H) + 2 post-Phase-1 fixes** ✅ Pushed to `feat/phase1-critical-security` branch
+**Completed: 16/16 issues (Batches 1A-1I) + 2 post-Phase-1 fixes** ✅ Pushed to `feat/phase1-critical-security` branch
+
+**🎉 Phase 1 — Critical Security Fixes — COMPLETE**
 
 **BUG FIXES (post-commit):** 4 additional fixes required after deployment testing:
 
@@ -75,7 +77,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | 1C | ephemeral-secret-key + no-csrf-protection | #56, #62 | ✅ QA Approved, Pushed |
 | 1D | default-admin-credentials | #54 | ✅ QA Approved, Pushed |
 
-**Remaining: 1/16 issues (Batch 1I)** 🔲 Not yet started
+**Remaining:** None — Phase 1 COMPLETE ✅
 
 || Batch | Issues | GitHub # | Depends On |
 |-------|--------|----------|------------|
@@ -83,7 +85,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | 1F | tls-domain-injection + wireguard-echo-injection + configure-container-shell-injection | #74, #78, #84 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1G | no-input-validation-pydantic | #71 | ✅ QA Approved, Pushed, Deploy-verified |
 | 1H | stored-xss-innerhtml + stored-xss-onclick + wireguard-values-unescaped | #80, #87, #88 | ✅ QA Approved, Pushed, Deploy-verified |
-| 1I | telemt-config-no-integrity | #90 | None |
+|| 1I | telemt-config-no-integrity | #90 | ✅ QA Approved, Pushed, Deploy-verified |
 
 **Post-Phase-1 Bug Fixes (regressions from Phase 1):**
 
