@@ -430,7 +430,7 @@ class TestEscapeFunctionSemantics:
     def test_escape_js_string_breakout(self):
         """escapeJs must prevent breaking out of JS string context."""
         # If username is: "); alert("XSS
-        payload = '\"); alert(\"XSS'
+        payload = '"); alert("XSS'
         result = self.escape_js_py(payload)
         # Every double-quote in the escaped result must be preceded by a
         # backslash, proving it is escaped and cannot close a JS string.
@@ -439,9 +439,9 @@ class TestEscapeFunctionSemantics:
         # is just an escaped quote, not a string terminator.
         for i, ch in enumerate(result):
             if ch == '"':
-                assert i > 0 and result[i - 1] == "\\", (
-                    f"Unescaped double-quote at position {i} in: {result!r}"
-                )
+                assert (
+                    i > 0 and result[i - 1] == "\\"
+                ), f"Unescaped double-quote at position {i} in: {result!r}"
 
     def test_escape_js_backslash_escape(self):
         """escapeJs must escape backslashes to prevent escape sequence attacks."""
