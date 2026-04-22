@@ -1,6 +1,6 @@
 # Amnezia Web Panel — Improvement Tasks Overview
 
-**Generated:** 2026-04-14 | **Last Updated:** 2026-04-17
+**Generated:** 2026-04-14 | **Last Updated:** 2026-04-22
 **Total Findings:** 47 + 2 post-Phase-1 fixes (#19, #95)
 **P1 (Critical):** 32 | **P2 (Medium):** 15
 
