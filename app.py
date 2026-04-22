@@ -32,6 +32,10 @@ try:
 except ImportError:
     CaptchaGenerator = None
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
@@ -45,6 +49,36 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Amnezia Web Panel")
+
+
+def _get_client_ip(request: Request) -> str:
+    """Get client IP, respecting X-Forwarded-For from reverse proxy."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_get_client_ip)
+app.state.limiter = limiter
+
+
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Custom rate limit exceeded handler with i18n and logging."""
+    lang = request.cookies.get("lang", "ru")
+    logger.warning(
+        "Rate limit exceeded: %s %s from %s",
+        request.method,
+        request.url.path,
+        _get_client_ip(request),
+    )
+    return JSONResponse(
+        {"error": _t("rate_limit_exceeded", lang)},
+        status_code=429,
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Define DATA_DIR early so it can be used by _get_secret_key()
 if getattr(sys, "frozen", False):
@@ -1489,6 +1523,7 @@ async def api_captcha(request: Request):
 
 
 @app.post("/api/auth/login")
+@limiter.limit("5/minute")
 async def api_login(request: Request, req: LoginRequest):
     db = get_db()
     captcha_settings = db.get_setting("captcha", {})
@@ -2771,6 +2806,7 @@ async def api_user_share_setup(user_id: str, req: ShareSetupRequest, request: Re
 
 
 @app.get("/share/{token}", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 async def share_page(token: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2792,6 +2828,7 @@ async def share_page(token: str, request: Request):
 
 
 @app.post("/api/share/{token}/auth")
+@limiter.limit("10/minute")
 async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2807,6 +2844,7 @@ async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
 
 
 @app.get("/api/share/{token}/connections")
+@limiter.limit("20/minute")
 async def api_share_connections(token: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2830,6 +2868,7 @@ async def api_share_connections(token: str, request: Request):
 
 
 @app.post("/api/share/{token}/config/{connection_id}")
+@limiter.limit("10/minute")
 async def api_share_config(token: str, connection_id: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)

@@ -290,5 +290,6 @@
     "leaderboard_nav": "排行榜",
     "protocol_paths": "协议路径",
     "telemt_config_dir": "Telemt 配置目录",
-    "telemt_config_dir_hint": "远程服务器上 Telemt 存储其配置文件的目录。"
+    "rate_limit_exceeded": "\u8bf7\u6c42\u8fc7\u4e8e\u9891\u7e41\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+    "telemt_config_dir_hint": "\u8fdc\u7a0b\u670d\u52a1\u5668\u4e0a Telemt \u5b58\u50a8\u5176\u914d\u7f6e\u6587\u4ef6\u7684\u76ee\u5f55\u3002"
 }
