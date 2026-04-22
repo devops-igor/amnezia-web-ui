@@ -295,6 +295,9 @@ class TelemtManager:
 
         Returns a list of client dicts with the same shape as the old
         config-parsing implementation for backward compatibility.
+
+        Note: This is a pure read operation. To disable over-quota users,
+        call disable_overquota_users() explicitly.
         """
         resp = self._api_request("GET", "/v1/users")
         if not resp or not resp.get("ok"):
@@ -303,7 +306,6 @@ class TelemtManager:
 
         users_data = resp.get("data", [])
         clients = []
-        needs_disable = []
 
         for user in users_data:
             username = user.get("username", "")
@@ -321,14 +323,6 @@ class TelemtManager:
 
             total_octets = user.get("total_octets", 0)
             quota = user.get("data_quota_bytes")
-
-            # Auto-disable if quota reached
-            if enabled and quota and total_octets >= quota:
-                logger.info(
-                    f"Auto-disabling client {username} - quota reached: {total_octets} >= {quota}"
-                )
-                enabled = False
-                needs_disable.append(username)
 
             clients.append(
                 {
@@ -349,11 +343,55 @@ class TelemtManager:
                 }
             )
 
-        # Disable users who exceeded quota
-        for username in needs_disable:
-            self.toggle_client(protocol_type, username, False, restart=False)
-
         return clients
+
+    def _is_overquota(self, client: dict[str, Any]) -> bool:
+        """Check if a client has exceeded their traffic quota.
+
+        Args:
+            client: Client dict as returned by get_clients().
+
+        Returns:
+            True if the client is over quota, False otherwise.
+        """
+        enabled = client.get("enabled", False)
+        user_data = client.get("userData", {})
+        total_octets = user_data.get("total_octets", 0)
+        quota = user_data.get("quota")
+        return enabled and quota is not None and total_octets >= quota
+
+    def disable_overquota_users(self, protocol_type: str) -> list[str]:
+        """Disable all clients that have exceeded their traffic quota.
+
+        This is a separate operation from get_clients() to avoid
+        side effects in what should be a pure read.
+
+        Args:
+            protocol_type: The protocol type (e.g., "telemt").
+
+        Returns:
+            List of client IDs that were disabled.
+        """
+        clients = self.get_clients(protocol_type)
+        disabled_ids = []
+
+        for client in clients:
+            if self._is_overquota(client):
+                client_id = client.get("clientId")
+                username = client.get("clientName")
+                total_octets = client.get("userData", {}).get("total_octets", 0)
+                quota = client.get("userData", {}).get("quota")
+                logger.info(
+                    f"Disabling over-quota client {username} "
+                    f"(traffic {total_octets} >= quota {quota})"
+                )
+                self.toggle_client(protocol_type, client_id, False, restart=False)
+                disabled_ids.append(client_id)
+
+        if disabled_ids:
+            logger.info(f"Disabled {len(disabled_ids)} over-quota users: {disabled_ids}")
+
+        return disabled_ids
 
     def add_client(
         self,

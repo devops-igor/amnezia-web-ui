@@ -8,10 +8,12 @@ Replicates the logic from:
 - client/ui/models/clientManagementModel.cpp
 """
 
+import ipaddress
 import json
 import secrets
 import logging
 import re
+import threading
 from base64 import b64encode
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
@@ -110,6 +112,7 @@ class AWGManager:
 
     def __init__(self, ssh_manager):
         self.ssh = ssh_manager
+        self._lock = threading.Lock()
 
     def _container_name(self, protocol_type):
         """Get Docker container name for protocol type."""
@@ -710,28 +713,39 @@ tail -f /dev/null
         return ips
 
     def _get_next_ip(self, protocol_type):
-        """Calculate the next available IP for a new client."""
-        used_ips = self._get_used_ips(protocol_type)
-        if not used_ips:
-            base = AWG_DEFAULTS["subnet_address"]
-            parts = base.split(".")
-            parts[3] = "2"
-            return ".".join(parts)
+        """Calculate the next available IP for a new client.
 
-        # Get the last used IP and increment
-        last_ip = used_ips[-1]
-        parts = last_ip.split(".")
-        last_octet = int(parts[3])
+        Uses ipaddress module to properly handle subnet boundaries,
+        excluding network and broadcast addresses. Raises RuntimeError
+        when the subnet is exhausted.
 
-        if last_octet == 254:
-            next_octet = last_octet + 3
-        elif last_octet == 255:
-            next_octet = last_octet + 2
-        else:
-            next_octet = last_octet + 1
+        Args:
+            protocol_type: The protocol type (awg, awg_legacy, awg2).
 
-        parts[3] = str(next_octet)
-        return ".".join(parts)
+        Returns:
+            The next available IP address as a string.
+
+        Raises:
+            RuntimeError: If no more IPs are available in the subnet.
+        """
+        subnet_ip = AWG_DEFAULTS["subnet_ip"]
+        used_ips = set(self._get_used_ips(protocol_type))
+        # Always exclude the server's own IP (gateway) from client allocation
+        used_ips.add(subnet_ip)
+
+        # Build subnet from defaults
+        subnet_addr = AWG_DEFAULTS["subnet_address"]
+        subnet_cidr = AWG_DEFAULTS["subnet_cidr"]
+        subnet = f"{subnet_addr}/{subnet_cidr}"
+        network = ipaddress.ip_network(subnet, strict=False)
+
+        for ip in network.hosts():
+            ip_str = str(ip)
+            if ip_str not in used_ips:
+                return ip_str
+
+        logger.error(f"Subnet {subnet} is exhausted. No more IPs available.")
+        raise RuntimeError(f"Subnet {subnet} is exhausted. No more IPs available.")
 
     def _parse_peers_from_config(self, protocol_type):
         """Parse [Peer] sections from WireGuard server config and return dict of pubkey -> {allowedIps}."""
@@ -874,119 +888,122 @@ tail -f /dev/null
         Add a new client/peer to the AWG config.
         Returns the client config as a string for the .conf file.
         """
-        container_name = self._container_name(protocol_type)
-        config_path = self._config_path(protocol_type)
-        wg_bin = self._wg_binary(protocol_type)
-        iface = self._interface_name(protocol_type)
+        with self._lock:
+            container_name = self._container_name(protocol_type)
+            config_path = self._config_path(protocol_type)
+            wg_bin = self._wg_binary(protocol_type)
+            iface = self._interface_name(protocol_type)
 
-        # Generate client keys
-        client_priv_key, client_pub_key = generate_wg_keypair()
+            # Generate client keys
+            client_priv_key, client_pub_key = generate_wg_keypair()
 
-        # Get server info
-        server_pub_key = self._get_server_public_key(protocol_type)
-        psk = self._get_server_psk(protocol_type)
+            # Get server info
+            server_pub_key = self._get_server_public_key(protocol_type)
+            psk = self._get_server_psk(protocol_type)
 
-        # Get next available IP
-        client_ip = self._get_next_ip(protocol_type)
+            # Get next available IP
+            client_ip = self._get_next_ip(protocol_type)
 
-        # Get AWG params from server config
-        awg_params = self._get_awg_params_from_config(protocol_type)
+            # Get AWG params from server config
+            awg_params = self._get_awg_params_from_config(protocol_type)
 
-        # Add peer to server config via SFTP + docker cp (no shell injection)
-        peer_section = f"""
+            # Add peer to server config via SFTP + docker cp (no shell injection)
+            peer_section = f"""
 [Peer]
 PublicKey = {client_pub_key}
 PresharedKey = {psk}
 AllowedIPs = {client_ip}/32
 
 """
-        # Get existing config, append peer, write back via SFTP
-        existing_config = self._get_server_config(protocol_type)
-        new_config = existing_config.rstrip("\n") + "\n" + peer_section
-        self.ssh.upload_file(new_config, "/tmp/_amnz_peer.conf")
-        self.ssh.run_sudo_command(f"docker cp /tmp/_amnz_peer.conf {container_name}:{config_path}")
-        self.ssh.run_command("rm -f /tmp/_amnz_peer.conf")
+            # Get existing config, append peer, write back via SFTP
+            existing_config = self._get_server_config(protocol_type)
+            new_config = existing_config.rstrip("\n") + "\n" + peer_section
+            self.ssh.upload_file(new_config, "/tmp/_amnz_peer.conf")
+            self.ssh.run_sudo_command(
+                f"docker cp /tmp/_amnz_peer.conf {container_name}:{config_path}"
+            )
+            self.ssh.run_command("rm -f /tmp/_amnz_peer.conf")
 
-        # Sync config without restart
-        self.ssh.run_sudo_command(
-            f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
-        )
+            # Sync config without restart
+            self.ssh.run_sudo_command(
+                f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
+            )
 
-        # Update clients table — store keys for config reconstruction
-        clients_table = self._get_clients_table(protocol_type)
-        new_client = {
-            "clientId": client_pub_key,
-            "userData": {
-                "clientName": client_name,
-                "creationDate": __import__("datetime").datetime.now().isoformat(),
-                "clientPrivateKey": client_priv_key,
-                "clientIp": client_ip,
-                "psk": psk,
-                "enabled": True,
-            },
-        }
-        clients_table.append(new_client)
-        self._save_clients_table(protocol_type, clients_table)
+            # Update clients table — store keys for config reconstruction
+            clients_table = self._get_clients_table(protocol_type)
+            new_client = {
+                "clientId": client_pub_key,
+                "userData": {
+                    "clientName": client_name,
+                    "creationDate": __import__("datetime").datetime.now().isoformat(),
+                    "clientPrivateKey": client_priv_key,
+                    "clientIp": client_ip,
+                    "psk": psk,
+                    "enabled": True,
+                },
+            }
+            clients_table.append(new_client)
+            self._save_clients_table(protocol_type, clients_table)
 
-        # Build client config
-        awg_params = self._get_awg_params_from_config(protocol_type)
-        if awg_params.get("port"):
-            port = awg_params["port"]
+            # Build client config
+            awg_params = self._get_awg_params_from_config(protocol_type)
+            if awg_params.get("port"):
+                port = awg_params["port"]
 
-        dns1 = AWG_DEFAULTS["dns1"]
-        dns2 = AWG_DEFAULTS["dns2"]
-        mtu = AWG_DEFAULTS["mtu"]
+            dns1 = AWG_DEFAULTS["dns1"]
+            dns2 = AWG_DEFAULTS["dns2"]
+            mtu = AWG_DEFAULTS["mtu"]
 
-        # Standard fields
-        config_lines = [
-            f"Address = {client_ip}/32",
-            f"DNS = {dns1}, {dns2}",
-            f"PrivateKey = {client_priv_key}",
-            f"MTU = {mtu}",
-        ]
+            # Standard fields
+            config_lines = [
+                f"Address = {client_ip}/32",
+                f"DNS = {dns1}, {dns2}",
+                f"PrivateKey = {client_priv_key}",
+                f"MTU = {mtu}",
+            ]
 
-        # Conditional obfuscation fields
-        mapping = [
-            ("junk_packet_count", "Jc"),
-            ("junk_packet_min_size", "Jmin"),
-            ("junk_packet_max_size", "Jmax"),
-            ("init_packet_junk_size", "S1"),
-            ("response_packet_junk_size", "S2"),
-            ("cookie_reply_packet_junk_size", "S3"),
-            ("transport_packet_junk_size", "S4"),
-            ("init_packet_magic_header", "H1"),
-            ("response_packet_magic_header", "H2"),
-            ("underload_packet_magic_header", "H3"),
-            ("transport_packet_magic_header", "H4"),
-            ("i1", "I1"),
-            ("i2", "I2"),
-            ("i3", "I3"),
-            ("i4", "I4"),
-            ("i5", "I5"),
-            ("cps", "CPS"),
-        ]
+            # Conditional obfuscation fields
+            mapping = [
+                ("junk_packet_count", "Jc"),
+                ("junk_packet_min_size", "Jmin"),
+                ("junk_packet_max_size", "Jmax"),
+                ("init_packet_junk_size", "S1"),
+                ("response_packet_junk_size", "S2"),
+                ("cookie_reply_packet_junk_size", "S3"),
+                ("transport_packet_junk_size", "S4"),
+                ("init_packet_magic_header", "H1"),
+                ("response_packet_magic_header", "H2"),
+                ("underload_packet_magic_header", "H3"),
+                ("transport_packet_magic_header", "H4"),
+                ("i1", "I1"),
+                ("i2", "I2"),
+                ("i3", "I3"),
+                ("i4", "I4"),
+                ("i5", "I5"),
+                ("cps", "CPS"),
+            ]
 
-        for param_key, config_key in mapping:
-            val = awg_params.get(param_key)
-            if val:
-                # Basic compatibility filtering
-                if protocol_type == self.AWG_LEGACY and config_key in (
-                    "S3",
-                    "S4",
-                    "I1",
-                    "I2",
-                    "I3",
-                    "I4",
-                    "I5",
-                    "CPS",
-                ):
-                    continue
-                config_lines.append(f"{config_key} = {val}")
+            for param_key, config_key in mapping:
+                val = awg_params.get(param_key)
+                if val:
+                    # Basic compatibility filtering
+                    if protocol_type == self.AWG_LEGACY and config_key in (
+                        "S3",
+                        "S4",
+                        "I1",
+                        "I2",
+                        "I3",
+                        "I4",
+                        "I5",
+                        "CPS",
+                    ):
+                        continue
+                    config_lines.append(f"{config_key} = {val}")
 
-        client_config = (
-            "[Interface]\n"
-            + "\n".join(config_lines)
-            + f"""
+            client_config = (
+                "[Interface]\n"
+                + "\n".join(config_lines)
+                + f"""
 
 [Peer]
 PublicKey = {server_pub_key}
@@ -995,14 +1012,14 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = {server_host}:{port}
 PersistentKeepalive = 25
 """
-        )
+            )
 
-        return {
-            "client_name": client_name,
-            "client_id": client_pub_key,
-            "client_ip": client_ip,
-            "config": client_config,
-        }
+            return {
+                "client_name": client_name,
+                "client_id": client_pub_key,
+                "client_ip": client_ip,
+                "config": client_config,
+            }
 
     def get_client_config(self, protocol_type, client_id, server_host, port):
         """Reconstruct client config from stored data."""
@@ -1099,76 +1116,77 @@ PersistentKeepalive = 25
 
     def toggle_client(self, protocol_type, client_id, enable):
         """Enable or disable a client by adding/removing their [Peer] from server config."""
-        container_name = self._container_name(protocol_type)
-        config_path = self._config_path(protocol_type)
-        wg_bin = self._wg_binary(protocol_type)
-        iface = self._interface_name(protocol_type)
+        with self._lock:
+            container_name = self._container_name(protocol_type)
+            config_path = self._config_path(protocol_type)
+            wg_bin = self._wg_binary(protocol_type)
+            iface = self._interface_name(protocol_type)
 
-        if enable:
-            # Re-add peer to server config
-            clients_table = self._get_clients_table(protocol_type)
-            client = None
-            for c in clients_table:
-                if c.get("clientId") == client_id:
-                    client = c
-                    break
-            if not client:
-                raise RuntimeError(f"Client {client_id} not found")
+            if enable:
+                # Re-add peer to server config
+                clients_table = self._get_clients_table(protocol_type)
+                client = None
+                for c in clients_table:
+                    if c.get("clientId") == client_id:
+                        client = c
+                        break
+                if not client:
+                    raise RuntimeError(f"Client {client_id} not found")
 
-            ud = client.get("userData", {})
-            psk = ud.get("psk", "")
-            client_ip = ud.get("clientIp", "")
+                ud = client.get("userData", {})
+                psk = ud.get("psk", "")
+                client_ip = ud.get("clientIp", "")
 
-            if not psk:
-                psk = self._get_server_psk(protocol_type)
+                if not psk:
+                    psk = self._get_server_psk(protocol_type)
 
-            peer_section = f"""
+                peer_section = f"""
 [Peer]
 PublicKey = {client_id}
 PresharedKey = {psk}
 AllowedIPs = {client_ip}/32
 
 """
-            # Read existing config, append peer, write back via SFTP + docker cp
-            # (no shell injection — peer data never enters a shell command)
-            existing_config = self._get_server_config(protocol_type)
-            new_config = existing_config.rstrip("\n") + "\n" + peer_section
-            self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
+                # Read existing config, append peer, write back via SFTP + docker cp
+                # (no shell injection — peer data never enters a shell command)
+                existing_config = self._get_server_config(protocol_type)
+                new_config = existing_config.rstrip("\n") + "\n" + peer_section
+                self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
+                self.ssh.run_sudo_command(
+                    f"docker cp /tmp/_amnz_config.conf {container_name}:{config_path}"
+                )
+                self.ssh.run_command("rm -f /tmp/_amnz_config.conf")
+            else:
+                # Remove peer from server config
+                config = self._get_server_config(protocol_type)
+                sections = config.split("[")
+                new_sections = []
+                for section in sections:
+                    if not section.strip():
+                        continue
+                    if client_id in section:
+                        continue
+                    new_sections.append(section)
+
+                new_config = "[" + "[".join(new_sections)
+                self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
+                self.ssh.run_sudo_command(
+                    f"docker cp /tmp/_amnz_config.conf {container_name}:{config_path}"
+                )
+                self.ssh.run_command("rm -f /tmp/_amnz_config.conf")
+
+            # Sync config
             self.ssh.run_sudo_command(
-                f"docker cp /tmp/_amnz_config.conf {container_name}:{config_path}"
+                f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
             )
-            self.ssh.run_command("rm -f /tmp/_amnz_config.conf")
-        else:
-            # Remove peer from server config
-            config = self._get_server_config(protocol_type)
-            sections = config.split("[")
-            new_sections = []
-            for section in sections:
-                if not section.strip():
-                    continue
-                if client_id in section:
-                    continue
-                new_sections.append(section)
 
-            new_config = "[" + "[".join(new_sections)
-            self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
-            self.ssh.run_sudo_command(
-                f"docker cp /tmp/_amnz_config.conf {container_name}:{config_path}"
-            )
-            self.ssh.run_command("rm -f /tmp/_amnz_config.conf")
-
-        # Sync config
-        self.ssh.run_sudo_command(
-            f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
-        )
-
-        # Update enabled status in clients table
-        clients_table = self._get_clients_table(protocol_type)
-        for c in clients_table:
-            if c.get("clientId") == client_id:
-                c.setdefault("userData", {})["enabled"] = enable
-                break
-        self._save_clients_table(protocol_type, clients_table)
+            # Update enabled status in clients table
+            clients_table = self._get_clients_table(protocol_type)
+            for c in clients_table:
+                if c.get("clientId") == client_id:
+                    c.setdefault("userData", {})["enabled"] = enable
+                    break
+            self._save_clients_table(protocol_type, clients_table)
 
     def remove_client(self, protocol_type, client_id):
         """Remove a client from AWG config (mirrors revokeWireGuard)."""
