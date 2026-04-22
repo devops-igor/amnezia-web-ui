@@ -54,6 +54,9 @@ class XrayManager:
         running = self.check_container_running()
         clients = self.get_clients() if exists else []
         meta = self._get_meta_json() if exists else {}
+        # Never include the private key in status responses — it must
+        # remain on the server only (meta.json on the remote host).
+        meta.pop("private_key", None)
         return {
             "container_exists": exists,
             "container_running": running,
@@ -190,6 +193,10 @@ ENTRYPOINT [ "dumb-init", "/opt/amnezia/start.sh" ]
         }
 
         # Save keys for our reference
+        # NOTE: meta.json is uploaded to the SERVER (which needs the private
+        # key for TLS). The private key must NOT be stored in the panel DB.
+        # Database storage of protocols is handled by update_server_protocols()
+        # which strips SENSITIVE_PROTOCOL_FIELDS automatically.
         meta_json = {
             "site_name": site_name,
             "public_key": pub_key,

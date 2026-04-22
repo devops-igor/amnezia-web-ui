@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -9,6 +11,7 @@ import uuid
 from typing import Any, Optional
 
 import httpx
+from integrity import IntegrityError, load_expected_hash, verify_integrity
 from ssh_manager import SSHManager
 
 logger = logging.getLogger(__name__)
@@ -167,6 +170,32 @@ class TelemtManager:
         self.ssh.run_sudo_command(f"mkdir -p {remote_dir}")
         self.ssh.run_sudo_command(f"chmod 755 {remote_dir}")
 
+        # Verify template integrity before reading
+        expected_config_hash = load_expected_hash(os.path.join(local_dir, "config.toml.sha256"))
+        if not verify_integrity(os.path.join(local_dir, "config.toml"), expected_config_hash):
+            raise IntegrityError(
+                f"Config template integrity check failed: "
+                f"{os.path.join(local_dir, 'config.toml')} does not match expected hash"
+            )
+
+        expected_compose_hash = load_expected_hash(
+            os.path.join(local_dir, "docker-compose.yml.sha256")
+        )
+        if not verify_integrity(
+            os.path.join(local_dir, "docker-compose.yml"), expected_compose_hash
+        ):
+            raise IntegrityError(
+                f"Docker Compose template integrity check failed: "
+                f"{os.path.join(local_dir, 'docker-compose.yml')} does not match expected hash"
+            )
+
+        expected_dockerfile_hash = load_expected_hash(os.path.join(local_dir, "Dockerfile.sha256"))
+        if not verify_integrity(os.path.join(local_dir, "Dockerfile"), expected_dockerfile_hash):
+            raise IntegrityError(
+                f"Dockerfile template integrity check failed: "
+                f"{os.path.join(local_dir, 'Dockerfile')} does not match expected hash"
+            )
+
         # Read and patch config.toml
         with open(os.path.join(local_dir, "config.toml"), "r", encoding="utf-8") as f:
             config_content = f.read()
@@ -179,9 +208,18 @@ class TelemtManager:
         )
 
         if tls_emulation and tls_domain:
-            config_content = re.sub(
-                r'tls_domain\s*=\s*".*?"', f'tls_domain = "{tls_domain}"', config_content
-            )
+            # Use string find/replace instead of re.sub to prevent regex
+            # injection via backreferences ($1, \1, etc.) in tls_domain.
+            # The value is already validated by InstallProtocolRequest.validate_tls_domain.
+            pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+            match = pattern.search(config_content)
+            if match:
+                escaped_replacement = f'tls_domain = "{tls_domain}"'
+                config_content = (
+                    config_content[: match.start()]
+                    + escaped_replacement
+                    + config_content[match.end() :]
+                )
 
         if max_connections is not None and max_connections > 0:
             config_content = re.sub(
@@ -207,7 +245,22 @@ class TelemtManager:
         # Remove default hello user
         config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
 
+        # Log the hash of the patched content for audit trail
+        patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
+        logger.info(f"Patched config.toml SHA256: {patched_hash}")
+
         self.ssh.upload_file_sudo(config_content, f"{remote_dir}/config.toml")
+
+        # Verify remote file integrity after upload
+        remote_hash_output, _, _ = self.ssh.run_command(f"sha256sum {remote_dir}/config.toml")
+        if remote_hash_output:
+            remote_hash = remote_hash_output.split()[0]
+            local_patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
+            if not hmac.compare_digest(remote_hash, local_patched_hash):
+                raise IntegrityError(
+                    f"Remote config.toml integrity check failed after upload. "
+                    f"Expected {local_patched_hash[:16]}..., got {remote_hash[:16]}..."
+                )
 
         # Patch docker-compose.yml with proper port
         with open(os.path.join(local_dir, "docker-compose.yml"), "r", encoding="utf-8") as f:

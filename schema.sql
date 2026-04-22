@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT,
     last_reset_at TEXT,
     expiration_date TEXT,
+    password_change_required INTEGER NOT NULL DEFAULT 0,
     limits TEXT  -- JSON blob for per-user limits override
 );
 
@@ -74,3 +75,10 @@ CREATE TABLE IF NOT EXISTS migration_flags (
 CREATE INDEX IF NOT EXISTS idx_user_connections_user_id ON user_connections(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_connections_server_id ON user_connections(server_id);
 CREATE INDEX IF NOT EXISTS idx_creation_log_user_time ON connection_creation_log(user_id, created_at);
+
+CREATE TABLE IF NOT EXISTS known_hosts (
+    server_id INTEGER PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (server_id) REFERENCES servers(id)
+);

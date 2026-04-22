@@ -8,6 +8,7 @@ import secrets
 import uuid
 import asyncio
 from datetime import datetime
+from pathlib import Path
 import io
 from fastapi.responses import (
     JSONResponse,
@@ -20,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, Request, Query, UploadFile, File
 from starlette.middleware.sessions import SessionMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 import uvicorn
 import httpx
@@ -35,25 +36,17 @@ from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
 from database import Database
+from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
+import credential_crypto
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Amnezia Web Panel")
-app.add_middleware(
-    SessionMiddleware, secret_key=os.environ.get("SECRET_KEY", secrets.token_hex(32))
-)
 
-# Mount static files & templates
-app.mount(
-    "/static",
-    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
-    name="static",
-)
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
-
+# Define DATA_DIR early so it can be used by _get_secret_key()
 if getattr(sys, "frozen", False):
     application_path = os.path.dirname(sys.executable)
 else:
@@ -61,6 +54,145 @@ else:
 
 DATA_DIR = application_path
 DB_PATH = os.path.join(DATA_DIR, "panel.db")
+
+# ======================== SECRET_KEY Initialization ========================
+# SECRET_KEY is used for session encryption. We need a persistent key that survives
+# restarts. Priority: env var > file > generate new (with warning)
+
+
+def _get_secret_key() -> str:
+    """Get or generate a persistent SECRET_KEY.
+
+    Priority:
+    1. SECRET_KEY environment variable (highest priority, for production/Docker)
+    2. .secret_key file in application directory (persistence across restarts)
+    3. Generate new key and save to file (first boot scenario, logs warning)
+
+    The file-based approach ensures the key persists across container restarts
+    when using Docker volumes.
+    """
+    # 1. Check environment variable first
+    env_key = os.environ.get("SECRET_KEY")
+    if env_key:
+        logger.info("Using SECRET_KEY from environment variable")
+        return env_key
+
+    # 2. Check for existing key file
+    key_file = Path(DATA_DIR) / ".secret_key"
+    if key_file.exists():
+        try:
+            stored_key = key_file.read_text().strip()
+            if stored_key:
+                logger.info("Loaded SECRET_KEY from persistent storage")
+                return stored_key
+        except Exception as e:
+            logger.warning(f"Failed to read SECRET_KEY from file: {e}")
+
+    # 3. Generate new key and save to file
+    new_key = secrets.token_hex(32)
+    try:
+        key_file.write_text(new_key)
+        # Ensure file permissions are restrictive (owner read/write only)
+        os.chmod(key_file, 0o600)
+        logger.warning(
+            "Generated new SECRET_KEY on first boot. "
+            "Set SECRET_KEY environment variable for production to prevent this warning. "
+            "Key stored in: %s",
+            key_file,
+        )
+    except Exception as e:
+        logger.error("Failed to save generated SECRET_KEY to file: %s", e)
+
+    return new_key
+
+
+# Password change required middleware
+# Blocks all /api/ requests (except auth endpoints) for users who must change their password
+# MUST be added BEFORE SessionMiddleware so it runs AFTER SessionMiddleware on request path
+# (add_middleware: last added = outermost = runs first on request)
+_PASSWORD_CHANGE_ALLOWED_PATHS = {
+    "/api/auth/login",
+    "/api/auth/change-password",
+    "/api/auth/captcha",
+}
+
+
+class PasswordChangeRequiredMiddleware:
+    """ASGI middleware that blocks API access for users with password_change_required flag.
+
+    Allows through: /api/auth/login, /api/auth/change-password, /api/auth/captcha,
+    all non-API paths (static, pages), and unauthenticated requests.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Peek at the path without constructing a full Request yet
+        path = scope.get("path", "")
+        if not path.startswith("/api/") or path in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            await self.app(scope, receive, send)
+            return
+
+        # We need Request for session access - construct it
+        from starlette.requests import Request as StarletteRequest
+
+        request = StarletteRequest(scope, receive, send)
+        user_id = request.session.get("user_id")
+        if not user_id:
+            await self.app(scope, receive, send)
+            return
+
+        try:
+            db = get_db()
+            user = db.get_user(user_id)
+            if user and user.get("password_change_required", False):
+                response = JSONResponse(
+                    {"error": "Password change required", "password_change_required": True},
+                    status_code=403,
+                )
+                await response(scope, receive, send)
+                return
+        except Exception:
+            # If session or DB access fails, let the request through
+            pass
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(PasswordChangeRequiredMiddleware)
+
+app.add_middleware(SessionMiddleware, secret_key=_get_secret_key())
+
+# Add CSRF protection middleware
+# safe_methods: GET, OPTIONS, HEAD, TRACE are considered safe and don't require CSRF
+# sensitive_cookies={"session"}: CSRF enforcement only applies when the session cookie
+# is present (i.e., the user is authenticated). Unauthenticated requests like login
+# are exempt because CSRF protection is for authenticated state-changing requests.
+app.add_middleware(
+    CSRFMiddleware,
+    secret=_get_secret_key(),
+    safe_methods={"GET", "OPTIONS", "HEAD", "TRACE"},
+    cookie_name="csrftoken",
+    cookie_path="/",
+    cookie_samesite="lax",
+    header_name="x-csrf-token",
+    sensitive_cookies={"session"},
+)
+
+
+# Password change required middleware
+# Mount static files & templates
+app.mount(
+    "/static",
+    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
+    name="static",
+)
+templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
 # ======================== Translations ========================
@@ -99,7 +231,7 @@ def get_db() -> Database:
     """Return the singleton Database instance, creating it if needed."""
     global _db_instance
     if _db_instance is None:
-        _db_instance = Database(DB_PATH)
+        _db_instance = Database(DB_PATH, secret_key=_get_secret_key())
     return _db_instance
 
 
@@ -143,6 +275,17 @@ def get_ssh(server):
         password=server.get("password"),
         private_key=server.get("private_key"),
     )
+
+
+def serialize_protocols(protocols: dict) -> dict:
+    """Strip sensitive fields from protocols before returning via API.
+
+    This is an additional defense-in-depth layer on top of the stripping
+    that already happens in _server_row_to_dict().
+    """
+    if not isinstance(protocols, dict):
+        return protocols
+    return credential_crypto.strip_sensitive_protocol_fields(protocols)
 
 
 def get_protocol_manager(ssh, protocol: str):
@@ -480,6 +623,8 @@ def tpl(request, template, **kwargs):
         "translations_json": json.dumps(TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))),
         "all_translations_json": json.dumps(TRANSLATIONS),
         "format_bytes": _format_bytes,
+        # CSRF token for forms - available from cookie, set by CSRF middleware
+        "csrf_token": request.cookies.get("csrftoken", ""),
     }
     ctx.update(kwargs)
     return templates.TemplateResponse(template, ctx)
@@ -530,96 +675,264 @@ def get_leaderboard_entries(period: str) -> list[dict]:
 
 # ======================== Pydantic Models ========================
 
+VALID_PROTOCOLS = {"awg", "awg2", "awg_legacy", "xray", "telemt", "dns"}
+
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
-    captcha: Optional[str] = None
+    username: str = Field(min_length=1, max_length=255)
+    password: str = Field(min_length=1, max_length=4096)
+    captcha: Optional[str] = Field(default=None, max_length=4096)
 
 
 class AddServerRequest(BaseModel):
-    host: str = ""
-    ssh_port: int = 22
-    username: str = ""
-    password: str = ""
-    private_key: str = ""
-    name: str = ""
+    host: str = Field(default="", min_length=0, max_length=255)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(default="", min_length=0, max_length=255)
+    password: str = Field(default="", min_length=0, max_length=4096)
+    private_key: str = Field(default="", min_length=0, max_length=16384)
+    name: str = Field(default="", min_length=0, max_length=255)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, v: str) -> str:
+        """Validate host: must be a valid IPv4 or hostname if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        # IPv4 pattern
+        ipv4_pattern = _re.compile(
+            r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}" r"(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
+        )
+        # Hostname pattern: alphanumeric, dots, hyphens; labels 1-63 chars
+        hostname_pattern = _re.compile(
+            r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$"
+        )
+        if ipv4_pattern.match(v):
+            return v
+        if hostname_pattern.match(v):
+            return v
+        raise ValueError(
+            "host must be a valid IPv4 address or hostname " "(alphanumeric, dots, hyphens only)"
+        )
 
 
 class InstallProtocolRequest(BaseModel):
-    protocol: str = "awg"
-    port: str = "55424"
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    port: str = Field(default="55424", min_length=1, max_length=10)
     tls_emulation: Optional[bool] = None
-    tls_domain: Optional[str] = None
-    max_connections: Optional[int] = None
+    tls_domain: Optional[str] = Field(default=None, max_length=128)
+    max_connections: Optional[int] = Field(default=None, ge=1, le=100000)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
+
+    @field_validator("tls_domain")
+    @classmethod
+    def validate_tls_domain(cls, v: Optional[str]) -> Optional[str]:
+        """Validate tls_domain to prevent regex/config injection.
+
+        Only allow alphanumeric chars, dots, hyphens, and underscores.
+        Must not contain newlines, shell metacharacters, or regex specials.
+        """
+        if v is None or v == "":
+            return v
+        # Allowlist: letters, digits, dots, hyphens, underscores
+        # Length 1-128, must start/end with alphanumeric
+        import re as _re
+
+        pattern = _re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$")
+        if not pattern.match(v):
+            raise ValueError(
+                "tls_domain must be 1-128 chars, alphanumeric/dots/hyphens/underscores only, "
+                "starting and ending with alphanumeric. No newlines, shell metacharacters, "
+                "or regex specials allowed."
+            )
+        return v
 
 
 class ProtocolRequest(BaseModel):
-    protocol: str = "awg"
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AddConnectionRequest(BaseModel):
-    protocol: str = "awg"
-    name: str = "Connection"
-    user_id: Optional[str] = None
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="Connection", min_length=1, max_length=255)
+    user_id: Optional[str] = Field(default=None, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class EditConnectionRequest(BaseModel):
-    protocol: str = "telemt"
-    client_id: str = ""
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    protocol: str = Field(default="telemt", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ConnectionActionRequest(BaseModel):
-    protocol: str = "awg"
-    client_id: str = ""
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ToggleConnectionRequest(BaseModel):
-    protocol: str = "awg"
-    client_id: str = ""
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    client_id: str = Field(default="", min_length=0, max_length=255)
     enable: bool = True
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AddUserRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "user"
-    telegramId: Optional[str] = None
-    email: Optional[str] = None
-    description: Optional[str] = None
-    traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = "never"
-    server_id: Optional[int] = None
-    protocol: Optional[str] = None
-    connection_name: Optional[str] = None
-    expiration_date: Optional[str] = None
+    username: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=8, max_length=4096)
+    role: str = Field(default="user", min_length=1, max_length=50)
+    telegramId: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    traffic_limit: Optional[float] = Field(default=0, ge=0)
+    traffic_reset_strategy: Optional[str] = Field(default="never", max_length=50)
+    server_id: Optional[int] = Field(default=None, ge=1)
+    protocol: Optional[str] = Field(default=None, max_length=50)
+    connection_name: Optional[str] = Field(default=None, max_length=255)
+    expiration_date: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("username")
+    @classmethod
+    def validate_username(cls, v: str) -> str:
+        """Validate username: alphanumeric, hyphens, underscores. Normalize to lowercase."""
+        import re as _re
+
+        v = v.lower()
+        if not _re.match(r"^[a-z0-9_-]+$", v):
+            raise ValueError(
+                "username must contain only lowercase letters, digits, " "hyphens, and underscores"
+            )
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        """Validate password: at least 8 chars, 1 uppercase, 1 lowercase, 1 digit."""
+        import re as _re
+
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        """Validate role: must be 'admin' or 'user'."""
+        if v not in ("admin", "user"):
+            raise ValueError("role must be 'admin' or 'user'")
+        return v
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: Optional[str]) -> Optional[str]:
+        """Validate protocol against allowlist, if provided."""
+        if v is not None and v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class ServerConfigSaveRequest(BaseModel):
-    protocol: str
-    config: str
+    protocol: str = Field(min_length=1, max_length=50)
+    config: str = Field(min_length=1, max_length=65536)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class AppearanceSettings(BaseModel):
-    title: str = "Amnezia"
-    logo: str = "🛡"
-    subtitle: str = "Web Panel"
+    title: str = Field(default="Amnezia", min_length=1, max_length=100)
+    logo: str = Field(default="🛡", min_length=1, max_length=100)
+    subtitle: str = Field(default="Web Panel", min_length=1, max_length=200)
 
 
 class SyncSettings(BaseModel):
-    remnawave_url: str = ""
-    remnawave_api_key: str = ""
+    remnawave_url: str = Field(default="", max_length=2048)
+    remnawave_api_key: str = Field(default="", max_length=512)
     remnawave_sync: bool = False
     remnawave_sync_users: bool = False
     remnawave_create_conns: bool = False
-    remnawave_server_id: int = 0
-    remnawave_protocol: str = "awg"
+    remnawave_server_id: int = Field(default=0, ge=0)
+    remnawave_protocol: str = Field(default="awg", min_length=1, max_length=50)
+
+    @field_validator("remnawave_url")
+    @classmethod
+    def validate_remnawave_url(cls, v: str) -> str:
+        """Validate remnawave_url: must be valid URL format if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        if not _re.match(r"^https?://[^\s<>\"']+$", v):
+            raise ValueError("remnawave_url must be a valid HTTP(S) URL")
+        return v
+
+    @field_validator("remnawave_protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 class CaptchaSettings(BaseModel):
@@ -628,37 +941,84 @@ class CaptchaSettings(BaseModel):
 
 class SSLSettings(BaseModel):
     enabled: bool = False
-    domain: str = ""
-    cert_path: str = ""
-    key_path: str = ""
-    cert_text: str = ""
-    key_text: str = ""
-    panel_port: int = 5000
+    domain: str = Field(default="", max_length=255)
+    cert_path: str = Field(default="", max_length=4096)
+    key_path: str = Field(default="", max_length=4096)
+    cert_text: str = Field(default="", max_length=65536)
+    key_text: str = Field(default="", max_length=65536)
+    panel_port: int = Field(default=5000, ge=1, le=65535)
+
+    @field_validator("domain")
+    @classmethod
+    def validate_domain(cls, v: str) -> str:
+        """Validate domain: alphanumeric, dots, hyphens if non-empty."""
+        if not v:
+            return v
+        import re as _re
+
+        pattern = _re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$")
+        if not pattern.match(v):
+            raise ValueError("domain must contain only letters, digits, dots, and hyphens")
+        return v
+
+    @field_validator("cert_path", "key_path")
+    @classmethod
+    def validate_path_no_traversal(cls, v: str) -> str:
+        """Validate paths: no directory traversal."""
+        if not v:
+            return v
+        if ".." in v:
+            raise ValueError("path must not contain directory traversal (..)")
+        return v
 
 
 class TelegramSettings(BaseModel):
-    token: str = ""
+    token: str = Field(default="", max_length=256)
     enabled: bool = False
 
 
 class ConnectionLimits(BaseModel):
-    max_connections_per_user: int = 10
-    connection_rate_limit_count: int = 5
-    connection_rate_limit_window: int = 60
+    max_connections_per_user: int = Field(default=10, ge=1, le=1000)
+    connection_rate_limit_count: int = Field(default=5, ge=1, le=1000)
+    connection_rate_limit_window: int = Field(default=60, ge=1, le=86400)
 
 
 class ProtocolPaths(BaseModel):
-    telemt_config_dir: str = "/opt/amnezia/telemt"
+    telemt_config_dir: str = Field(default="/opt/amnezia/telemt", min_length=1, max_length=4096)
+
+    @field_validator("telemt_config_dir")
+    @classmethod
+    def validate_path_no_traversal(cls, v: str) -> str:
+        """Validate path: no directory traversal."""
+        if ".." in v:
+            raise ValueError("path must not contain directory traversal (..)")
+        return v
 
 
 class UpdateUserRequest(BaseModel):
-    telegramId: Optional[str] = None
-    email: Optional[str] = None
-    description: Optional[str] = None
-    traffic_limit: Optional[float] = 0
-    traffic_reset_strategy: Optional[str] = None
-    expiration_date: Optional[str] = None
-    password: Optional[str] = None
+    telegramId: Optional[str] = Field(default=None, max_length=255)
+    email: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=1000)
+    traffic_limit: Optional[float] = Field(default=0, ge=0)
+    traffic_reset_strategy: Optional[str] = Field(default=None, max_length=50)
+    expiration_date: Optional[str] = Field(default=None, max_length=50)
+    password: Optional[str] = Field(default=None, min_length=8, max_length=4096)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: Optional[str]) -> Optional[str]:
+        """Validate password if provided: 8+ chars, 1 uppercase, 1 lowercase, 1 digit."""
+        if v is None:
+            return v
+        import re as _re
+
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
 
 
 class SaveSettingsRequest(BaseModel):
@@ -676,22 +1036,52 @@ class ToggleUserRequest(BaseModel):
 
 
 class AddUserConnectionRequest(BaseModel):
-    server_id: int
-    protocol: str = "awg"
-    name: str = "VPN Connection"
-    client_id: Optional[str] = None
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    server_id: int = Field(ge=1)
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="VPN Connection", min_length=1, max_length=255)
+    client_id: Optional[str] = Field(default=None, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=4096)
+    new_password: str = Field(min_length=8, max_length=4096)
+    confirm_password: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        """Validate new password: 8+ chars, 1 uppercase, 1 lowercase, 1 digit, no null bytes."""
+        import re as _re
+
+        if "\x00" in v:
+            raise ValueError("password must not contain null bytes")
+        if not _re.search(r"[A-Z]", v):
+            raise ValueError("password must contain at least one uppercase letter")
+        if not _re.search(r"[a-z]", v):
+            raise ValueError("password must contain at least one lowercase letter")
+        if not _re.search(r"\d", v):
+            raise ValueError("password must contain at least one digit")
+        return v
 
 
 class ShareSetupRequest(BaseModel):
     enabled: bool
-    password: Optional[str] = None
+    password: Optional[str] = Field(default=None, max_length=4096)
 
 
 class ShareAuthRequest(BaseModel):
-    password: str
+    password: str = Field(min_length=1, max_length=4096)
 
 
 # ======================== Startup ========================
@@ -703,17 +1093,27 @@ async def startup():
     db = get_db()
 
     if not db.get_all_users():
+        temp_password = secrets.token_urlsafe(12)
         db.create_user(
             {
                 "id": str(uuid.uuid4()),
                 "username": "admin",
-                "password_hash": hash_password("admin"),
+                "password_hash": hash_password(temp_password),
                 "role": "admin",
                 "enabled": True,
+                "password_change_required": True,
                 "created_at": datetime.now().isoformat(),
             }
         )
-        logger.info("Default admin created (admin / admin)")
+        print(f"\n{'=' * 60}")
+        print("  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW")
+        print("  Username: admin")
+        print(f"  Password: {temp_password}")
+        print("  You must change this password on first login.")
+        print(f"{'=' * 60}\n")
+        logger.info("Default admin created with random password (password_change_required=True)")
+    else:
+        logger.info("Existing users found, skipping default admin creation")
 
     # Start periodic background tasks
     asyncio.create_task(periodic_background_tasks())
@@ -1106,9 +1506,44 @@ async def api_login(request: Request, req: LoginRequest):
         if not user.get("enabled", True):
             return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
         request.session["user_id"] = user["id"]
-        return {"status": "success", "role": user["role"]}
+        return {
+            "status": "success",
+            "role": user["role"],
+            "password_change_required": user.get("password_change_required", False),
+        }
     lang = request.cookies.get("lang", "ru")
     return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
+
+
+@app.post("/api/auth/change-password")
+async def api_change_password(request: Request, req: ChangePasswordRequest):
+    """Change password for the currently authenticated user.
+
+    Clears password_change_required flag on success.
+    """
+    user = get_current_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    if not verify_password(req.current_password, user["password_hash"]):
+        return JSONResponse({"error": "Current password is incorrect"}, status_code=400)
+
+    if req.new_password != req.confirm_password:
+        return JSONResponse({"error": "New passwords do not match"}, status_code=400)
+
+    if len(req.new_password) < 8:
+        return JSONResponse({"error": "Password must be at least 8 characters"}, status_code=400)
+
+    db = get_db()
+    db.update_user(
+        user["id"],
+        {
+            "password_hash": hash_password(req.new_password),
+            "password_change_required": False,
+        },
+    )
+    logger.info(f"User '{user['username']}' changed their password")
+    return {"status": "success"}
 
 
 @app.get("/api/leaderboard")
@@ -2096,12 +2531,20 @@ async def api_get_user_connections(request: Request, user_id: str):
 
 
 class MyAddConnectionRequest(BaseModel):
-    server_id: int
-    protocol: str = "awg"
-    name: str = "Connection"
-    telemt_quota: Optional[str] = None
-    telemt_max_ips: Optional[int] = None
-    telemt_expiry: Optional[str] = None
+    server_id: int = Field(ge=1)
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    name: str = Field(default="Connection", min_length=1, max_length=255)
+    telemt_quota: Optional[str] = Field(default=None, max_length=50)
+    telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
+    telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
 
 
 @app.get("/api/my/connections")
@@ -2584,6 +3027,14 @@ async def api_backup_download(request: Request):
     try:
         db = get_db()
         backup_data = db.load_data()
+        # Strip credentials from backup — they must not be exported
+        for srv in backup_data.get("servers", []):
+            srv.pop("password", None)
+            srv.pop("private_key", None)
+            # Also strip sensitive protocol fields (defense-in-depth)
+            if isinstance(srv.get("protocols"), dict):
+                srv["protocols"] = serialize_protocols(srv["protocols"])
+        backup_data["credentials_excluded"] = True
         backup_json = json.dumps(backup_data, indent=2, ensure_ascii=False)
         return Response(
             content=backup_json,
@@ -2614,7 +3065,8 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
         missing = [k for k in required_keys if k not in backup_data]
         if missing:
             return JSONResponse(
-                {"error": f'Invalid structure. Missing keys: {", ".join(missing)}'}, status_code=400
+                {"error": f'Invalid structure. Missing keys: {", ".join(missing)}'},
+                status_code=400,
             )
 
         # Ensure types are correct
@@ -2622,8 +3074,20 @@ async def api_backup_restore(request: Request, file: UploadFile = File(...)):
             backup_data["users"], list
         ):
             return JSONResponse(
-                {"error": "Invalid structure: servers and users must be lists"}, status_code=400
+                {"error": "Invalid structure: servers and users must be lists"},
+                status_code=400,
             )
+
+        # If backup has credentials_excluded flag, set empty strings so
+        # restore works without error (credentials must be re-entered)
+        if backup_data.get("credentials_excluded"):
+            logger.warning(
+                "Restoring backup without credentials — "
+                "SSH passwords and keys must be re-entered manually"
+            )
+            for srv in backup_data.get("servers", []):
+                srv["password"] = ""
+                srv["private_key"] = ""
 
         # Save the new data
         db = get_db()
