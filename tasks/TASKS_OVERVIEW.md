@@ -92,8 +92,9 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 
 | Batch | Issue | GitHub # | Status |
 |-------|-------|----------|--------|
-| UX-1 | telemt-qr-wrong-app | #19 | ✅ PR #93 merged, Deploy-verified |
-| REG-1 | VALID_PROTOCOLS missing awg2/awg_legacy/dns (HTTP 422) | #95 | ✅ PR #94 merged, Deploy-verified |
+| UX-1 | telemt-qr-wrong-app | #19 | ✅ DONE |
+| REG-1 | awg2-connection-422 | #95 | ✅ DONE |
+| CI-1 | ci-lint-security-audit-failures | #96 | ✅ DONE |
 
 ### Phase 2 — Critical Bugs & Operational Issues
 
@@ -103,24 +104,21 @@ These cause incorrect behavior, data corruption, or service degradation.
 |---|------|-------|--------|-------|
 | 17 | background-tasks-swallow-errors | PBT Swallows Errors, Leaks SSH | IMP1 §6 | #44 ✅ DONE |
 | 18 | async-ssh-blocks-event-loop | 22 Async Handlers Block Event Loop | IMP3 §12 | #75 ✅ DONE |
-| 19 | get-next-ip-overflow | _get_next_ip Integer Overflow | IMP3 §13 | #79 🔲 TODO |
-| 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 🔲 TODO |
-| 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 🔲 TODO |
-| 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 🔲 TODO |
-| 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 ✅ DONE (PR #97, deployed) |
-| 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 ✅ DONE (PR #97, deployed) |
-| 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 🔲 TODO |
+| 19 | get-next-ip-overflow | _get_next_ip Integer Overflow | IMP3 §13 | #79 |
+| 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 |
+| 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 |
+| 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 |
+| 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 |
 
-### Phase 2 Progress
+**Phase 3 (related):**
 
-**Completed: 4/9 issues (Batches 2A-2B)** — On branch `feat/batch-2a-rate-limiting`
+| # | Slug | Title | Source | Issue |
+|---|------|-------|--------|-------|
+| 26 | fragile-server-reindexing | Fragile Server Re-indexing | IMP1 §R7 | | #60 |
 
-| Batch | Issues | GitHub # | Status |
-|-------|--------|----------|--------|
-| 2A | missing-rate-limiting + share-endpoint-no-rate-limit | #67, #63 | ✅ DONE (PR #97, deployed) |
-| 2B | background-tasks-swallow-errors + async-ssh-blocks-event-loop | #44, #75 | ✅ DONE (deployed) |
+**Combined as:** Batch 2C — `feat/batch-2c-critical-bugs` | 🔲 IN PROGRESS
 
-**Remaining:** #79, #85, #65, #82, #61
+**Phase 2 Complete:** #67, #63, #44, #75
 
 ### Phase 3 — Bugs & Quick Wins
 
@@ -188,3 +186,15 @@ Phase 4 (Architecture Refactor):
 - **ephemeral-secret-key** and **docker-compose-missing-config** are closely related — SECRET_KEY belongs in docker-compose.yml.
 - **fragile-server-reindexing** and **fragile-server-indexing-telegram** share the root cause (improper ID handling) and should be coordinated.
 - **plaintext-credentials-db** and **xray-plaintext-private-key** share the encryption-at-rest requirement and could use the same fernet encryption infrastructure.
+---
+## Issue Status Update (2026-04-23)
+
+| Issue | Status |
+|-------|--------|
+| #79 get-next-ip-overflow | 🔲 IN REVIEW (Batch 2C) |
+| #82 get-clients-side-effect | 🔲 IN REVIEW (Batch 2C) |
+| #85 add-client-toctou-race | 🔲 IN REVIEW (Batch 2C) |
+| #60 fragile-server-reindexing | 🔲 IN REVIEW (Batch 2C) |
+| #65 fragile-server-indexing-telegram | 🔲 IN REVIEW (Batch 2C) |
+| #61 telegram-bot-leaks-exceptions | 🔲 IN REVIEW (Batch 2C) |
+
