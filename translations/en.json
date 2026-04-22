@@ -314,5 +314,6 @@
     "leaderboard_nav": "Leaderboard",
     "protocol_paths": "Protocol Paths",
     "telemt_config_dir": "Telemt Config Directory",
+    "rate_limit_exceeded": "Too many requests. Please try again later.",
     "telemt_config_dir_hint": "Directory on the remote server where Telemt stores its configuration files."
 }
