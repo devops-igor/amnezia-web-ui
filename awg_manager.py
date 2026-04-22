@@ -380,8 +380,52 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             f"(status: {last_status}). Logs:\n{logs_out}"
         )
 
+    @staticmethod
+    def _validate_awg_params(awg_params: dict) -> None:
+        """Validate that AWG parameters are safe integers within expected ranges.
+
+        Prevents shell/config injection by ensuring all values are numeric strings
+        within acceptable bounds. Raises ValueError on invalid input.
+        """
+        # Numeric params that must be positive integers
+        numeric_params = {
+            "junk_packet_count": (1, 100),
+            "junk_packet_min_size": (1, 1000),
+            "junk_packet_max_size": (1, 1000),
+            "init_packet_junk_size": (1, 1000),
+            "response_packet_junk_size": (1, 1000),
+            "cookie_reply_packet_junk_size": (1, 1000),
+            "transport_packet_junk_size": (1, 1000),
+            "init_packet_magic_header": (100000000, 4294967295),
+            "response_packet_magic_header": (100000000, 4294967295),
+            "underload_packet_magic_header": (100000000, 4294967295),
+            "transport_packet_magic_header": (100000000, 4294967295),
+        }
+        for key, (min_val, max_val) in numeric_params.items():
+            if key not in awg_params:
+                continue
+            val = awg_params[key]
+            # Must be a string representation of an integer — no newlines,
+            # shell metacharacters, or floating point
+            if not isinstance(val, str) or not val.isdigit():
+                raise ValueError(f"awg_params['{key}'] must be a numeric string, got: {val!r}")
+            int_val = int(val)
+            if int_val < min_val or int_val > max_val:
+                raise ValueError(
+                    f"awg_params['{key}'] must be between {min_val} and {max_val}, "
+                    f"got: {int_val}"
+                )
+
     def _configure_container(self, protocol_type, port, awg_params):
-        """Configure the AWG container (generate keys and server config)."""
+        """Configure the AWG container (generate keys and server config).
+
+        This method is split into two phases to prevent shell injection:
+        1. Key generation: safe docker exec commands (no user data)
+        2. Config writing: built as Python string, uploaded via SFTP + docker cp
+        """
+        # Validate awg_params to prevent injection
+        self._validate_awg_params(awg_params)
+
         container_name = self._container_name(protocol_type)
         wg_bin = self._wg_binary(protocol_type)
         config_path = self._config_path(protocol_type)
@@ -389,81 +433,77 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         subnet_ip = AWG_DEFAULTS["subnet_ip"]
         subnet_cidr = AWG_DEFAULTS["subnet_cidr"]
 
-        # Build the server config generation script
-        if protocol_type in (self.AWG, self.AWG2):
-            config_script = f"""
-mkdir -p /opt/amnezia/awg
-cd /opt/amnezia/awg
-WIREGUARD_SERVER_PRIVATE_KEY=$({wg_bin} genkey)
-echo $WIREGUARD_SERVER_PRIVATE_KEY > /opt/amnezia/awg/wireguard_server_private_key.key
-
-WIREGUARD_SERVER_PUBLIC_KEY=$(echo $WIREGUARD_SERVER_PRIVATE_KEY | {wg_bin} pubkey)
-echo $WIREGUARD_SERVER_PUBLIC_KEY > /opt/amnezia/awg/wireguard_server_public_key.key
-
-WIREGUARD_PSK=$({wg_bin} genpsk)
-echo $WIREGUARD_PSK > /opt/amnezia/awg/wireguard_psk.key
-
-cat > {config_path} <<EOF
-[Interface]
-PrivateKey = $WIREGUARD_SERVER_PRIVATE_KEY
-Address = {subnet_ip}/{subnet_cidr}
-ListenPort = {port}
-Jc = {awg_params['junk_packet_count']}
-Jmin = {awg_params['junk_packet_min_size']}
-Jmax = {awg_params['junk_packet_max_size']}
-S1 = {awg_params['init_packet_junk_size']}
-S2 = {awg_params['response_packet_junk_size']}
-S3 = {awg_params['cookie_reply_packet_junk_size']}
-S4 = {awg_params['transport_packet_junk_size']}
-H1 = {awg_params['init_packet_magic_header']}
-H2 = {awg_params['response_packet_magic_header']}
-H3 = {awg_params['underload_packet_magic_header']}
-H4 = {awg_params['transport_packet_magic_header']}
-# Signature Chain parameters (AWG 2.0+)
-# I1 = 0
-# I2 = 0
-# I3 = 0
-# I4 = 0
-# I5 = 0
-# CPS = signature
-EOF
-"""
-        else:
-            # AWG Legacy uses wg commands
-            config_script = f"""
-mkdir -p /opt/amnezia/awg
-cd /opt/amnezia/awg
-WIREGUARD_SERVER_PRIVATE_KEY=$({wg_bin} genkey)
-echo $WIREGUARD_SERVER_PRIVATE_KEY > /opt/amnezia/awg/wireguard_server_private_key.key
-
-WIREGUARD_SERVER_PUBLIC_KEY=$(echo $WIREGUARD_SERVER_PRIVATE_KEY | {wg_bin} pubkey)
-echo $WIREGUARD_SERVER_PUBLIC_KEY > /opt/amnezia/awg/wireguard_server_public_key.key
-
-WIREGUARD_PSK=$({wg_bin} genpsk)
-echo $WIREGUARD_PSK > /opt/amnezia/awg/wireguard_psk.key
-
-cat > {config_path} <<EOF
-[Interface]
-PrivateKey = $WIREGUARD_SERVER_PRIVATE_KEY
-Address = {subnet_ip}/{subnet_cidr}
-ListenPort = {port}
-Jc = {awg_params['junk_packet_count']}
-Jmin = {awg_params['junk_packet_min_size']}
-Jmax = {awg_params['junk_packet_max_size']}
-S1 = {awg_params['init_packet_junk_size']}
-S2 = {awg_params['response_packet_junk_size']}
-H1 = {awg_params['init_packet_magic_header']}
-H2 = {awg_params['response_packet_magic_header']}
-H3 = {awg_params['underload_packet_magic_header']}
-H4 = {awg_params['transport_packet_magic_header']}
-EOF
-"""
-
+        # Phase 1: Generate keys inside container (safe — no user data in commands)
+        keygen_script = (
+            f"mkdir -p /opt/amnezia/awg && "
+            f"{wg_bin} genkey > /opt/amnezia/awg/wireguard_server_private_key.key && "
+            f"{wg_bin} pubkey < /opt/amnezia/awg/wireguard_server_private_key.key "
+            f"> /opt/amnezia/awg/wireguard_server_public_key.key && "
+            f"{wg_bin} genpsk > /opt/amnezia/awg/wireguard_psk.key"
+        )
         out, err, code = self.ssh.run_sudo_command(
-            f"docker exec -i {container_name} bash -c '{config_script}'"
+            f"docker exec -i {container_name} bash -c '{keygen_script}'"
         )
         if code != 0:
-            raise RuntimeError(f"Failed to configure container: {err}")
+            raise RuntimeError(f"Failed to generate keys: {err}")
+
+        # Phase 2: Read keys back and build config as Python string (no shell injection)
+        private_key, _, _ = self.ssh.run_sudo_command(
+            f"docker exec -i {container_name} cat "
+            f"/opt/amnezia/awg/wireguard_server_private_key.key"
+        )
+        private_key = private_key.strip()
+
+        # Build config content as plain Python string (NOT shell heredoc)
+        if protocol_type in (self.AWG, self.AWG2):
+            config_content = (
+                "[Interface]\n"
+                f"PrivateKey = {private_key}\n"
+                f"Address = {subnet_ip}/{subnet_cidr}\n"
+                f"ListenPort = {port}\n"
+                f"Jc = {awg_params['junk_packet_count']}\n"
+                f"Jmin = {awg_params['junk_packet_min_size']}\n"
+                f"Jmax = {awg_params['junk_packet_max_size']}\n"
+                f"S1 = {awg_params['init_packet_junk_size']}\n"
+                f"S2 = {awg_params['response_packet_junk_size']}\n"
+                f"S3 = {awg_params['cookie_reply_packet_junk_size']}\n"
+                f"S4 = {awg_params['transport_packet_junk_size']}\n"
+                f"H1 = {awg_params['init_packet_magic_header']}\n"
+                f"H2 = {awg_params['response_packet_magic_header']}\n"
+                f"H3 = {awg_params['underload_packet_magic_header']}\n"
+                f"H4 = {awg_params['transport_packet_magic_header']}\n"
+                "# Signature Chain parameters (AWG 2.0+)\n"
+                "# I1 = 0\n"
+                "# I2 = 0\n"
+                "# I3 = 0\n"
+                "# I4 = 0\n"
+                "# I5 = 0\n"
+                "# CPS = signature\n"
+            )
+        else:
+            # AWG Legacy
+            config_content = (
+                "[Interface]\n"
+                f"PrivateKey = {private_key}\n"
+                f"Address = {subnet_ip}/{subnet_cidr}\n"
+                f"ListenPort = {port}\n"
+                f"Jc = {awg_params['junk_packet_count']}\n"
+                f"Jmin = {awg_params['junk_packet_min_size']}\n"
+                f"Jmax = {awg_params['junk_packet_max_size']}\n"
+                f"S1 = {awg_params['init_packet_junk_size']}\n"
+                f"S2 = {awg_params['response_packet_junk_size']}\n"
+                f"H1 = {awg_params['init_packet_magic_header']}\n"
+                f"H2 = {awg_params['response_packet_magic_header']}\n"
+                f"H3 = {awg_params['underload_packet_magic_header']}\n"
+                f"H4 = {awg_params['transport_packet_magic_header']}\n"
+            )
+
+        # Upload config via SFTP + docker cp (no user data in shell commands)
+        self.ssh.upload_file(config_content, "/tmp/_amnz_wg_config.conf")
+        self.ssh.run_sudo_command(
+            f"docker cp /tmp/_amnz_wg_config.conf {container_name}:{config_path}"
+        )
+        self.ssh.run_command("rm -f /tmp/_amnz_wg_config.conf")
 
     def _upload_start_script(self, protocol_type, port, awg_params):
         """Upload and execute the start script inside the container."""
@@ -852,7 +892,7 @@ tail -f /dev/null
         # Get AWG params from server config
         awg_params = self._get_awg_params_from_config(protocol_type)
 
-        # Add peer to server config
+        # Add peer to server config via SFTP + docker cp (no shell injection)
         peer_section = f"""
 [Peer]
 PublicKey = {client_pub_key}
@@ -860,11 +900,12 @@ PresharedKey = {psk}
 AllowedIPs = {client_ip}/32
 
 """
-        # Append peer to server config
-        escaped_peer = peer_section.replace("'", "'\\''")
-        self.ssh.run_sudo_command(
-            f"docker exec -i {container_name} bash -c 'echo \"{escaped_peer}\" >> {config_path}'"
-        )
+        # Get existing config, append peer, write back via SFTP
+        existing_config = self._get_server_config(protocol_type)
+        new_config = existing_config.rstrip("\n") + "\n" + peer_section
+        self.ssh.upload_file(new_config, "/tmp/_amnz_peer.conf")
+        self.ssh.run_sudo_command(f"docker cp /tmp/_amnz_peer.conf {container_name}:{config_path}")
+        self.ssh.run_command("rm -f /tmp/_amnz_peer.conf")
 
         # Sync config without restart
         self.ssh.run_sudo_command(
@@ -1088,10 +1129,15 @@ PresharedKey = {psk}
 AllowedIPs = {client_ip}/32
 
 """
-            escaped_peer = peer_section.replace("'", "'\\''")
+            # Read existing config, append peer, write back via SFTP + docker cp
+            # (no shell injection — peer data never enters a shell command)
+            existing_config = self._get_server_config(protocol_type)
+            new_config = existing_config.rstrip("\n") + "\n" + peer_section
+            self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
             self.ssh.run_sudo_command(
-                f"docker exec -i {container_name} bash -c 'echo \"{escaped_peer}\" >> {config_path}'"
+                f"docker cp /tmp/_amnz_config.conf {container_name}:{config_path}"
             )
+            self.ssh.run_command("rm -f /tmp/_amnz_config.conf")
         else:
             # Remove peer from server config
             config = self._get_server_config(protocol_type)
