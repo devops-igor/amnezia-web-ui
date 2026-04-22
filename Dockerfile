@@ -19,6 +19,7 @@ COPY schema.sql ./
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY translations/ ./translations/
+COPY protocol_telemt/ ./protocol_telemt/
 
 # Expose the panel port (default 5000)
 EXPOSE 5000
