@@ -370,29 +370,29 @@
             }
 
             grid.innerHTML = data.users.map(u => `
-                <div class="client-item" id="user-${u.id}" style="${u.enabled ? '' : 'opacity:0.5;'}">
+                <div class="client-item" id="user-${escapeHtml(u.id)}" style="${u.enabled ? '' : 'opacity:0.5;'}">
                     <div class="client-info">
-                        <div class="client-avatar">${u.username[0].toUpperCase()}</div>
+                        <div class="client-avatar">${escapeHtml(u.username[0] || '')}</div>
                         <div>
                             <div class="client-name">
-                                ${u.username}
+                                ${escapeHtml(u.username)}
                                 <span class="badge badge-${u.role === 'admin' ? 'success' : (u.role === 'support' ? 'info' : 'warn')}" 
                                       style="font-size:0.65rem; margin-left: var(--space-xs);">
                                     ${u.role.toUpperCase()}
                                 </span>
                                 <span class="badge badge-secondary" style="font-size:0.65rem; opacity: 0.7;">
-                                    ${u.source}
+                                    ${escapeHtml(u.source)}
                                 </span>
                                 ${u.enabled ? '' : `<span class="badge badge-danger" style="font-size:0.65rem;">${_('disabled')}</span>`}
                             </div>
                             <div class="client-meta">
-                                <span style="cursor:pointer; color:var(--primary); text-decoration: underline;" onclick="viewUserConnections('${u.id}', '${u.username.replace(/'/g, "\\'")}')">🔗 ${u.connections_count} ${_('connections')}</span>
+                                <span style="cursor:pointer; color:var(--primary); text-decoration: underline;" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" onclick="viewUserConnections(this.dataset.uid, this.dataset.uname)">🔗 ${u.connections_count} ${_('connections')}</span>
                                 ${u.created_at ? `<span>📅 ${u.created_at.substring(0, 10)}</span>` : ''}
-                                ${u.telegramId ? `<span>💬 ${u.telegramId}</span>` : ''}
-                                ${u.email ? `<span>📧 ${u.email}</span>` : ''}
+                                ${u.telegramId ? `<span>💬 ${escapeHtml(u.telegramId)}</span>` : ''}
+                                ${u.email ? `<span>📧 ${escapeHtml(u.email)}</span>` : ''}
                                 ${u.expiration_date ? `<span style="color: ${new Date(u.expiration_date) < new Date() ? 'var(--danger)' : 'var(--text-muted)'}">⌛ ${_('expiration_date_label')}: ${new Date(u.expiration_date).toLocaleString()}</span>` : ''}
                             </div>
-                            ${u.description ? `<div class="client-meta" style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">📝 ${u.description}</div>` : ''}
+                            ${u.description ? `<div class="client-meta" style="font-size: 0.75rem; opacity: 0.8; margin-top: 2px;">📝 ${escapeHtml(u.description)}</div>` : ''}
                             ${(() => {
                     let limitHtml = '';
                     if (u.traffic_limit && u.traffic_limit > 0) {
@@ -431,23 +431,32 @@
                     <div class="client-actions" style="flex-wrap: wrap; justify-content: flex-end; max-width: 140px;">
                         {% if current_user.role == 'admin' %}
                         <button class="btn btn-secondary btn-sm btn-icon" 
-                                onclick="openAddConnectionForUser('${u.id}', '${u.username}')" 
+                                data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}"
+                                onclick="openAddConnectionForUser(this.dataset.uid, this.dataset.uname)" 
                                 title="${_('add_connection')}">🔗</button>
                         <button class="btn btn-secondary btn-sm btn-icon" 
-                                onclick='openEditUser({"id": "${u.id}", "username": "${u.username}", "tg": "${u.telegramId || ""}", "email": "${u.email || ""}", "desc": "${u.description || ""}", "limit": "${u.traffic_limit ? (u.traffic_limit / Math.pow(1024, 3)).toFixed(2) : 0}", "strategy": "${u.traffic_reset_strategy || 'never'}", "expiration": "${u.expiration_date || ''}"})'
+                                onclick="openEditUser(this.dataset)"
+                                data-id="${escapeHtml(u.id)}"
+                                data-username="${escapeHtml(u.username)}"
+                                data-tg="${escapeHtml(u.telegramId || '')}"
+                                data-email="${escapeHtml(u.email || '')}"
+                                data-desc="${escapeHtml(u.description || '')}"
+                                data-limit="${u.traffic_limit ? (u.traffic_limit / Math.pow(1024, 3)).toFixed(2) : 0}"
+                                data-strategy="${escapeHtml(u.traffic_reset_strategy || 'never')}"
+                                data-expiration="${escapeHtml(u.expiration_date || '')}"
                                 title="${_('edit')}">✏️</button>
                         <button class="btn btn-secondary btn-sm btn-icon" onclick="openShareModal(this.dataset)"
-                                data-id="${u.id}" data-username="${u.username}" data-token="${u.share_token || ''}"
+                                data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" data-token="${escapeHtml(u.share_token || '')}"
                                 data-enabled="${u.share_enabled ? 'true' : 'false'}"
                                 data-haspassword="${u.has_share_password ? 'true' : 'false'}"
                                 title="${_('share_access')}">📤</button>
                         ${u.id !== "{{ current_user.id }}" ? `
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleUser(this.dataset)"
-                                    data-id="${u.id}" data-enable="${u.enabled ? 'false' : 'true'}"
+                                    data-id="${escapeHtml(u.id)}" data-enable="${u.enabled ? 'false' : 'true'}"
                                     title="${u.enabled ? _('stop_btn') : _('start_btn')}">
                                 ${u.enabled ? '🔵' : '⚫'}
                             </button>
-                            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteUser('${u.id}')" title="${_('delete')}">🗑</button>
+                            <button class="btn btn-danger btn-sm btn-icon" onclick="deleteUser(this.dataset.id)" data-id="${escapeHtml(u.id)}" title="${_('delete')}">🗑</button>
                         ` : ''}
                         {% endif %}
                     </div>
@@ -640,10 +649,10 @@
             }
             select.innerHTML = '';
             data.clients.forEach(c => {
-                select.innerHTML += `<option value="${c.id}">${c.name || 'Unnamed'} (${c.id.substring(0, 8)}...)</option>`;
+                select.innerHTML += `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name || 'Unnamed')} (${escapeHtml(c.id.substring(0, 8))}...)</option>`;
             });
         } catch (err) {
-            select.innerHTML = `<option value="">${_('error')}: ${err.message}</option>`;
+            select.innerHTML = `<option value="">${_('error')}: ${escapeHtml(err.message)}</option>`;
         }
     }
 
@@ -714,21 +723,21 @@
                         <div class="client-info">
                             <div class="client-avatar">🔗</div>
                             <div>
-                                <div class="client-name">${c.name || 'Connection'}</div>
+                                <div class="client-name">${escapeHtml(c.name || 'Connection')}</div>
                                 <div class="client-meta">
-                                    <span>🖥 ${c.server_name || ''}</span>
-                                    <span>${c.protocol === 'awg' ? 'AmneziaWG' : (c.protocol === 'awg2' ? 'AmneziaWG 2.0' : (c.protocol === 'awg_legacy' ? 'AWG Legacy' : (c.protocol === 'xray' ? 'Xray' : c.protocol.toUpperCase())))}</span>
+                                    <span>🖥 ${escapeHtml(c.server_name || '')}</span>
+                                    <span>${c.protocol === 'awg' ? 'AmneziaWG' : (c.protocol === 'awg2' ? 'AmneziaWG 2.0' : (c.protocol === 'awg_legacy' ? 'AWG Legacy' : (c.protocol === 'xray' ? 'Xray' : escapeHtml(c.protocol.toUpperCase()))))}</span>
                                 </div>
                             </div>
                         </div>
                         <div class="client-actions">
-                            <button class="btn btn-secondary btn-sm btn-icon" onclick="showUserConnectionConfig(${c.server_id}, '${c.client_id}', '${c.protocol}', '${(c.name || 'VPN').replace(/'/g, "\\'")}')" title="${_('config')}">📄</button>
+                            <button class="btn btn-secondary btn-sm btn-icon" data-sid="${c.server_id}" data-cid="${escapeHtml(c.client_id)}" data-proto="${escapeHtml(c.protocol)}" data-cname="${escapeHtml(c.name || 'VPN')}" onclick="showUserConnectionConfig(Number(this.dataset.sid), this.dataset.cid, this.dataset.proto, this.dataset.cname)" title="${_('config')}">📄</button>
                         </div>
                     </div>
                 `;
             });
         } catch (err) {
-            listEl.innerHTML = `<div style="color:#ef4444;padding:var(--space-md);">${_('error')}: ${err.message}</div>`;
+            listEl.innerHTML = `<div style="color:#ef4444;padding:var(--space-md);">${_('error')}: ${escapeHtml(err.message)}</div>`;
         }
     }
 
@@ -821,8 +830,9 @@
     let currentSharedUser = null;
 
     function openEditUser(data) {
+        // data is now a DOMStringMap (from this.dataset) — all values are strings
         document.getElementById('editUserId').value = data.id;
-        document.getElementById('editUserTitle').textContent = data.username;
+        document.getElementById('editUserTitle').textContent = data.username;  // textContent is safe
         document.getElementById('editUserTG').value = data.tg || '';
         document.getElementById('editUserEmail').value = data.email || '';
         document.getElementById('editUserDesc').value = data.desc || '';
