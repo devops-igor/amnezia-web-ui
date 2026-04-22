@@ -261,3 +261,4 @@
 
 [2026-04-23 01:15] | qa_bot | REVIEW_APPROVED | Batch 2C: All 6 issues approved. 571 tests pass. No MEDIUM+ findings.
 [2026-04-23 01:16] | pm_bot | PROJECT_COMPLETED | Batch 2C implementation ready. Spawning git_bot for commit.
+[2026-04-23 01:20] | git_bot | GIT_PUSH | Committed Batch 2C as a4452cd on feat/batch-2c-critical-bugs. 11 files (+855/-261): awg_manager.py, telemt_manager.py, app.py, database.py, telegram_bot.py, tests/test_awg_manager.py, tests/test_telemt_manager.py, tests/test_database.py (NEW), tests/test_telegram_bot.py (NEW), WORKLOG.md, tasks/TASKS_OVERVIEW.md. Pushed to origin. PR #99 opened targeting main. All 5 CI checks pass (Lint, Security Audit, Build, Docker Scan).
