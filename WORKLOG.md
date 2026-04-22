@@ -227,5 +227,27 @@
 | [2026-04-22 20:36] | pm_bot | QA_ASSIGNED | Spawned qa_bot for Batch 2B review. Session: proc_bbc27aa9a1e3. |
 | [2026-04-22 20:40] | qa_bot | REVIEW_APPROVED | Batch 2B (#44, #75): All acceptance criteria verified. 551/551 tests pass. Zero bare ssh.*() calls in async handlers. SSH cleanup in try/finally. CancelledError re-raised. Structured logging with server_id. 3 LOW pre-existing findings (not from this batch). See tasks/batch-2b-async-error-handling/QA_REVIEW.md. |
 | [2026-04-22 20:42] | pm_bot | SPAWN | Spawned git_bot for Batch 2B commit and push. Session: proc_b0f8e3e3fbc2. |
-|| [2026-04-22 20:33] | qa_bot | REVIEW_APPROVED | Batch 2B QA: Issues #44 and #75 APPROVED. All acceptance criteria met. 551/551 tests pass. Zero bare SSH calls in async handlers. Background task has try/finally SSH cleanup, CancelledError re-raise, server_id logging with exc_info=True. api_check_server converted from ThreadPoolExecutor to asyncio.gather. 8/8 new tests pass. 3 LOW pre-existing findings (SSH leak without try/finally in ~20 handlers, ssh=None scoping outside loop, bare except: clauses in date parsing). |
-|| [2026-04-22 20:45] | git_bot | GIT_PUSH | Committed Batch 2B as c787945 on feat/batch-2a-rate-limiting. 6 files (+447/-125): app.py, pyproject.toml, requirements-dev.txt, tests/test_async_ssh.py (NEW), WORKLOG.md, tasks/TASKS_OVERVIEW.md. Pushed to origin. All CI checks pass. Commented on GitHub issues #44 and #75 (not closed — pending deploy verification). |
+| [2026-04-22 21:00] | git_bot | GIT_PUSH | Committed Batch 2B as c787945 on feat/batch-2a-rate-limiting. Pushed to origin. CI all 4 checks pass. |
+| [2026-04-22 21:05] | pm_bot | DEPLOY | Deployed new image to dev server. Tagged feat-batch-2a-rate-limiting as :main, recreated container. |
+| [2026-04-22 21:10] | pm_bot | VERIFY | Live verification: 98 asyncio.to_thread calls confirmed in container. PBT has try/finally, CancelledError, exc_info logging. Login 200. No errors in logs. Concurrent requests unblocked. |
+| [2026-04-22 21:15] | pm_bot | PROJECT_COMPLETED | Batch 2B — DONE-DONE. Issues #44 and #75 closed. Pushed to feat/batch-2a-rate-limiting. Deployed and verified on dev server. |
+| [2026-04-22 21:25] | pm_bot | WRAP_UP | Session wrap-up. Archived 12 spec-only DONE folders to tasks/_archive/. Cleaned TASKS_OVERVIEW.md: removed duplicate CI-1 row, added Phase 2 progress section. All GitHub issues current. |
+
+---
+
+## Session Summary — April 22, 2026 (Batch 2B)
+
+### Batch 2A — Rate Limiting (completed earlier today)
+- **#67** — Login rate limiting (5/min)
+- **#63** — Share endpoint rate limiting (10/min)
+- PR #97 open, deployed to dev server
+
+### Batch 2B — Async Error Handling & Event Loop Blocking
+- **#75** — 22 async handlers blocking event loop with sync SSH → all wrapped in `asyncio.to_thread()`
+- **#44** — Background task swallowing errors and leaking SSH → per-server try/finally, CancelledError re-raise, structured logging
+- Commit c787945, pushed to feat/batch-2a-rate-limiting, CI green
+- Deployed and verified on dev server
+
+### Phase 1: COMPLETE (16/16 + 3 post-fixes)
+### Phase 2: 4/9 issues done (Batches 2A-2B)
+### Remaining Phase 2: #79, #85, #65, #82, #61
