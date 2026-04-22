@@ -388,7 +388,10 @@
         spinner.classList.remove('hidden');
 
         try {
-            const res = await fetch('/api/settings/sync_now', { method: 'POST' });
+            const res = await fetch('/api/settings/sync_now', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': getCsrfToken() },
+            });
             const data = await res.json();
             if (data.status === 'success') {
                 showToast(_('sync_success').replace('{}', data.count), 'success');
@@ -417,7 +420,10 @@
         spinner.classList.remove('hidden');
 
         try {
-            const res = await fetch('/api/settings/sync_delete', { method: 'POST' });
+            const res = await fetch('/api/settings/sync_delete', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': getCsrfToken() },
+            });
             const data = await res.json();
             if (data.status === 'success') {
                 showToast(_('sync_deleted').replace('{}', data.count), 'success');
@@ -492,7 +498,10 @@
         try {
             const res = await fetch('/api/settings/save', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken(),
+                },
                 body: JSON.stringify({ appearance, sync, captcha, telegram, ssl, limits, protocol_paths })
             });
             if (!res.ok) throw new Error(_('error'));
@@ -513,7 +522,10 @@
         btn.disabled = true;
         spinner.classList.remove('hidden');
         try {
-            const res = await fetch('/api/settings/telegram/toggle', { method: 'POST' });
+            const res = await fetch('/api/settings/telegram/toggle', {
+                method: 'POST',
+                headers: { 'X-CSRF-Token': getCsrfToken() },
+            });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || _('error'));
             const running = data.bot_running;
@@ -549,6 +561,7 @@
         try {
             const res = await fetch('/api/settings/backup/restore', {
                 method: 'POST',
+                headers: { 'X-CSRF-Token': getCsrfToken() },
                 body: formData
             });
             const data = await res.json();

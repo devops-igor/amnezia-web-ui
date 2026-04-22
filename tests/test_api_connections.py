@@ -5,11 +5,11 @@ Tests for API connection endpoints
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
 from database import Database
-from app import app
 import tempfile
 import os
+
+from tests.conftest import create_csrf_client
 
 
 class TestApiMyAddConnection:
@@ -83,9 +83,7 @@ class TestApiMyAddConnection:
         mock_manager.add_client.return_value = {"client_id": "test-client-1"}
         mock_get_protocol_manager.return_value = mock_manager
 
-        from app import app
-
-        client = TestClient(app)
+        client = create_csrf_client()
 
         # First connection should succeed
         # server_id must match the actual DB primary key (auto-increment starts at 1)
@@ -152,9 +150,7 @@ class TestApiMyAddConnection:
             }
         )
 
-        from app import app
-
-        client = TestClient(app)
+        client = create_csrf_client()
 
         # Try to create a connection with duplicate name
         response = client.post(
@@ -190,9 +186,7 @@ class TestApiMyAddConnection:
         for i in range(5):  # Same as rate_limit_count
             self.db.log_connection_creation("test-user-1")
 
-        from app import app
-
-        client = TestClient(app)
+        client = create_csrf_client()
 
         # Try to create a connection (should be rate limited)
         response = client.post(
@@ -225,7 +219,7 @@ class TestApiAddConnectionTelemtFailure:
     """Tests for telemt API failure handling in /api/servers/{server_id}/connections/add"""
 
     def setup_method(self):
-        self.client = TestClient(app)
+        self.client = create_csrf_client()
         self.mock_data = {
             "users": [
                 {

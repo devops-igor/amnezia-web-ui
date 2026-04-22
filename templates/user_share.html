@@ -108,7 +108,10 @@
         try {
             const res = await fetch(`/api/share/${TOKEN}/auth`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': window.getCsrfToken ? window.getCsrfToken() : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''),
+                },
                 body: JSON.stringify({ password })
             });
             const data = await res.json();
@@ -179,7 +182,12 @@
 
     async function showConfig(connId, name) {
         try {
-            const res = await fetch(`/api/share/${TOKEN}/config/${connId}`, { method: 'POST' });
+            const res = await fetch(`/api/share/${TOKEN}/config/${connId}`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': window.getCsrfToken ? window.getCsrfToken() : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''),
+                },
+            });
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 

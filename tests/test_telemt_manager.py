@@ -5,9 +5,16 @@ Tests cover the refactored TelemtManager that uses direct HTTP API
 calls for user management instead of SSH-tunneled curl and config parsing.
 """
 
+import hashlib
+import os
+import re
+
+import pytest
 from unittest.mock import MagicMock, patch
 
+from integrity import IntegrityError
 from telemt_manager import TelemtManager
+from app import InstallProtocolRequest
 
 
 class TestTelemtManagerInit:
@@ -710,3 +717,268 @@ class TestGetTelemtParamsFromApi:
 
         params = self.manager._get_telemt_params_from_api()
         assert params == {}
+
+
+class TestTlsDomainValidation:
+    """Tests for tls_domain injection prevention in install_protocol."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.mock_ssh.host = "1.2.3.4"
+        # Default SSH command returns (stdout, stderr, exit_code)
+        self.mock_ssh.run_command.return_value = ("", "", 0)
+        self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+        self.manager = TelemtManager(self.mock_ssh)
+
+    def _make_config(self, tls_domain_value='""'):
+        """Helper: create a config.toml with a tls_domain line."""
+        return f"tls_emulation = true\ntls_domain = {tls_domain_value}\n"
+
+    def test_valid_tls_domain_applied(self):
+        """Valid domain names should be correctly substituted into config via
+        the safe match-and-slice replacement pattern."""
+        config = self._make_config()
+        # Simulate the safe replacement used in telemt_manager.py
+        pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+        match = pattern.search(config)
+        assert match is not None
+        tls_domain = "example.com"
+        replacement = f'tls_domain = "{tls_domain}"'
+        result = config[: match.start()] + replacement + config[match.end() :]
+        assert 'tls_domain = "example.com"' in result
+        # No regex backreference injection possible with slice-based replacement
+        assert "${1}" not in result
+
+    def test_tls_domain_with_newlines_rejected(self):
+        """tls_domain containing newlines should be rejected by Pydantic validator."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt",
+                tls_emulation=True,
+                tls_domain="evil.com\nMALICIOUS_LINE",
+            )
+
+    def test_tls_domain_with_regex_special_chars_rejected(self):
+        """tls_domain with regex specials ($, {, }) should be rejected."""
+        from pydantic import ValidationError
+
+        # $ character
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="$1.evil.com")
+
+        # curly braces
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt", tls_emulation=True, tls_domain="${1}.evil.com"
+            )
+
+        # backslash
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="evil\\.com")
+
+    def test_tls_domain_with_whitespace_rejected(self):
+        """tls_domain with whitespace should be rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="evil .com")
+
+    def test_tls_domain_valid_subdomain(self):
+        """Valid subdomain should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="sub.domain.org"
+        )
+        assert req.tls_domain == "sub.domain.org"
+
+    def test_tls_domain_simple_domain(self):
+        """Simple domain should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="example.com"
+        )
+        assert req.tls_domain == "example.com"
+
+    def test_tls_domain_single_char_accepted(self):
+        """Single alphanumeric char is allowed by the second regex alternative."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="a")
+        assert req.tls_domain == "a"
+
+    def test_tls_domain_dash_hyphen_domain(self):
+        """Domain with hyphens should pass validation."""
+        req = InstallProtocolRequest(
+            protocol="telemt", tls_emulation=True, tls_domain="my-site.example.com"
+        )
+        assert req.tls_domain == "my-site.example.com"
+
+    def test_tls_domain_empty_string_allowed(self):
+        """Empty string tls_domain should be allowed (optional field)."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain="")
+        assert req.tls_domain == ""
+
+    def test_tls_domain_none_allowed(self):
+        """None tls_domain should be allowed (optional field)."""
+        req = InstallProtocolRequest(protocol="telemt", tls_emulation=True, tls_domain=None)
+        assert req.tls_domain is None
+
+    def test_tls_domain_too_long_rejected(self):
+        """tls_domain longer than 128 chars should be rejected."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            InstallProtocolRequest(
+                protocol="telemt",
+                tls_emulation=True,
+                tls_domain="a" * 130 + ".com",
+            )
+
+    def test_install_protocol_safe_re_sub(self):
+        """Verify that the safe match-and-slice replacement prevents regex injection
+        even with malicious-looking domain values (defense-in-depth)."""
+        config = self._make_config()
+        # If a malicious value somehow passed validation, the slice-based
+        # replacement still prevents regex backreference injection.
+        # (re.sub with f-string would interpret \1, $1, etc.)
+        pattern = re.compile(r'tls_domain\s*=\s*".*?"')
+        match = pattern.search(config)
+        assert match is not None
+        # Simulate a value with regex backreference patterns
+        malicious = "${1}\\nMALICIOUS"
+        replacement = f'tls_domain = "{malicious}"'
+        result = config[: match.start()] + replacement + config[match.end() :]
+        # The literal text appears — it's NOT interpreted as a backreference
+        assert 'tls_domain = "${1}\\nMALICIOUS"' in result
+        # No actual backreference expansion happens with slice replacement
+
+
+class TestInstallProtocolIntegrityChecks:
+    """Tests for integrity verification in install_protocol()."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.mock_ssh.host = "10.0.0.1"
+        self.mock_ssh.run_command.return_value = ("", "", 0)
+        self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+        self.manager = TelemtManager(self.mock_ssh)
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_integrity_checks_pass(self, mock_load_hash, mock_verify_file):
+        """install_protocol succeeds when all integrity checks pass."""
+        result = self.manager.install_protocol("telemt", port="443")
+        assert result["status"] == "success"
+        # Should have called load_expected_hash for 3 template files
+        assert mock_load_hash.call_count == 3
+        # Should have called verify_integrity for 3 template files
+        assert mock_verify_file.call_count == 3
+
+    @patch("telemt_manager.verify_integrity", return_value=False)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_config_tampered_raises(self, mock_load_hash, mock_verify):
+        """IntegrityError raised when config.toml template is tampered."""
+        with pytest.raises(IntegrityError, match="Config template integrity check failed"):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity")
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_compose_tampered_raises(self, mock_load_hash, mock_verify):
+        """IntegrityError raised when docker-compose.yml template is tampered."""
+        # config.toml passes, docker-compose.yml fails
+        mock_verify.side_effect = [True, False]
+        with pytest.raises(IntegrityError, match="Docker Compose template integrity check failed"):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity")
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_dockerfile_tampered_raises(self, mock_load_hash, mock_verify):
+        """IntegrityError raised when Dockerfile template is tampered."""
+        # config.toml and docker-compose.yml pass, Dockerfile fails
+        mock_verify.side_effect = [True, True, False]
+        with pytest.raises(IntegrityError, match="Dockerfile template integrity check failed"):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash")
+    def test_install_protocol_missing_hash_file_raises(self, mock_load_hash, mock_verify):
+        """FileNotFoundError raised when .sha256 file is missing."""
+        mock_load_hash.side_effect = FileNotFoundError("config.toml.sha256 not found")
+        with pytest.raises(FileNotFoundError):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash")
+    def test_install_protocol_empty_hash_file_raises(self, mock_load_hash, mock_verify):
+        """IntegrityError raised when .sha256 file is empty."""
+        mock_load_hash.side_effect = IntegrityError("Hash file is empty")
+        with pytest.raises(IntegrityError, match="empty"):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_remote_config_verification(self, mock_load_hash, mock_verify):
+        """Verify remote hash check after config.toml upload passes when hashes match."""
+        # Read the actual template and compute what the patched hash will be
+        local_dir = os.path.join(os.path.dirname(__file__), "..", "protocol_telemt")
+        config_path = os.path.join(local_dir, "config.toml")
+        with open(config_path, "r", encoding="utf-8") as f:
+            config_content = f.read()
+
+        # Apply the same patches install_protocol does (default params)
+        config_content = re.sub(
+            r"tls_emulation\s*=\s*(true|false|True|False)",
+            "tls_emulation = true",
+            config_content,
+        )
+        config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
+        config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
+        config_content = re.sub(
+            r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
+        )
+
+        patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
+
+        def run_command_side_effect(cmd):
+            if "sha256sum" in cmd:
+                return (f"{patched_hash}  /opt/amnezia/telemt/config.toml", "", 0)
+            return ("", "", 0)
+
+        self.mock_ssh.run_command.side_effect = run_command_side_effect
+        result = self.manager.install_protocol("telemt", port="443")
+        assert result["status"] == "success"
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_remote_config_mismatch_raises(self, mock_load_hash, mock_verify):
+        """IntegrityError raised when remote config.toml hash doesn't match after upload."""
+        # Set up mock to return different hash for remote config check
+        call_count = [0]
+
+        def run_command_side_effect(cmd):
+            call_count[0] += 1
+            # Return a mismatched hash for sha256sum command
+            if "sha256sum" in cmd:
+                return ("0" * 64 + "  /opt/amnezia/telemt/config.toml", "", 0)
+            return ("", "", 0)
+
+        self.mock_ssh.run_command.side_effect = run_command_side_effect
+
+        with pytest.raises(IntegrityError, match="Remote config.toml integrity check failed"):
+            self.manager.install_protocol("telemt", port="443")
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_remote_hash_check_skipped_if_empty(self, mock_load_hash, mock_verify):
+        """Remote hash check is skipped gracefully if sha256sum returns empty."""
+        # Default mock returns empty string for run_command
+        result = self.manager.install_protocol("telemt", port="443")
+        assert result["status"] == "success"
+
+    @patch("telemt_manager.verify_integrity", return_value=True)
+    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_patched_hash_logged(self, mock_load_hash, mock_verify):
+        """Patched config.toml SHA256 hash is logged for audit trail."""
+        with patch("telemt_manager.logger") as mock_logger:
+            self.manager.install_protocol("telemt", port="443")
+            # Check that logger.info was called with patched hash
+            logged_messages = [call.args[0] for call in mock_logger.info.call_args_list]
+            assert any("Patched config.toml SHA256:" in msg for msg in logged_messages)
