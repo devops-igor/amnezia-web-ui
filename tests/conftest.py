@@ -5,6 +5,20 @@ Pytest configuration and fixtures for Amnezia Web Panel tests.
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Reset slowapi rate limiter storage before each test to avoid cross-test pollution."""
+    yield
+    try:
+        from app import app
+
+        limiter = getattr(app.state, "limiter", None)
+        if limiter is not None:
+            limiter.reset()
+    except Exception:
+        pass
+
+
 @pytest.fixture
 def csrf_client():
     """Provides a TestClient that handles CSRF tokens.
