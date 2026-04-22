@@ -266,14 +266,14 @@ class TestGetClients:
         assert clients[0]["enabled"] is False
 
     @patch.object(TelemtManager, "_api_request")
-    def test_get_clients_quota_reached_auto_disable(self, mock_api):
-        """Users who exceed quota should be auto-disabled."""
+    def test_get_clients_quota_reached_no_side_effect(self, mock_api):
+        """get_clients is a pure read - over-quota users returned as-enabled without side effect."""
         mock_api.return_value = {
             "ok": True,
             "data": [
                 {
                     "username": "carol",
-                    "secret": "abc123",
+                    "secret": "***",
                     "links": {"tls": ["tg://proxy?..."]},
                     "total_octets": 10000,
                     "data_quota_bytes": 5000,  # Quota exceeded
@@ -283,10 +283,10 @@ class TestGetClients:
 
         clients = self.manager.get_clients("telemt")
         assert len(clients) == 1
-        assert clients[0]["enabled"] is False
-        # toggle_client should have been called via API (not SSH)
-        # The toggle_client now uses _api_request, not SSH
-        mock_api.assert_called_with("PATCH", "/v1/users/carol", {"secret": ""})
+        # get_clients is a pure read - returns actual state, does NOT auto-disable
+        assert clients[0]["enabled"] is True
+        # No PATCH call since we removed the side effect
+        # (toggle_client should NOT be called by get_clients)
 
     @patch.object(TelemtManager, "_api_request")
     def test_get_clients_links_priority_tls_over_secure_over_classic(self, mock_api):
@@ -521,6 +521,136 @@ class TestRemoveClient:
         call_args = mock_api.call_args[0]
         assert call_args[0] == "DELETE"
         assert call_args[1] == "/v1/users/bob"
+
+
+class TestDisableOverquotaUsers:
+    """Tests for disable_overquota_users() - explicit quota enforcement."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.manager = TelemtManager(self.mock_ssh)
+
+    @patch.object(TelemtManager, "get_clients")
+    @patch.object(TelemtManager, "toggle_client")
+    def test_disable_overquota_users_disables_overquota(self, mock_toggle, mock_get_clients):
+        """Should disable users who are over quota."""
+        mock_get_clients.return_value = [
+            {
+                "clientId": "alice",
+                "clientName": "alice",
+                "enabled": True,
+                "userData": {"total_octets": 10000, "quota": 5000},
+            },
+            {
+                "clientId": "bob",
+                "clientName": "bob",
+                "enabled": True,
+                "userData": {"total_octets": 3000, "quota": 5000},
+            },
+        ]
+
+        disabled = self.manager.disable_overquota_users("telemt")
+
+        assert disabled == ["alice"]
+        mock_toggle.assert_called_once_with("telemt", "alice", False, restart=False)
+
+    @patch.object(TelemtManager, "get_clients")
+    @patch.object(TelemtManager, "toggle_client")
+    def test_disable_overquota_users_none_overquota(self, mock_toggle, mock_get_clients):
+        """Should return empty list when no users are over quota."""
+        mock_get_clients.return_value = [
+            {
+                "clientId": "bob",
+                "clientName": "bob",
+                "enabled": True,
+                "userData": {"total_octets": 3000, "quota": 5000},
+            },
+        ]
+
+        disabled = self.manager.disable_overquota_users("telemt")
+
+        assert disabled == []
+        mock_toggle.assert_not_called()
+
+    @patch.object(TelemtManager, "get_clients")
+    @patch.object(TelemtManager, "toggle_client")
+    def test_disable_overquota_users_already_disabled(self, mock_toggle, mock_get_clients):
+        """Should not toggle already-disabled users."""
+        mock_get_clients.return_value = [
+            {
+                "clientId": "carol",
+                "clientName": "carol",
+                "enabled": False,  # Already disabled
+                "userData": {"total_octets": 10000, "quota": 5000},
+            },
+        ]
+
+        disabled = self.manager.disable_overquota_users("telemt")
+
+        assert disabled == []
+        mock_toggle.assert_not_called()
+
+    @patch.object(TelemtManager, "get_clients")
+    @patch.object(TelemtManager, "toggle_client")
+    def test_disable_overquota_users_multiple(self, mock_toggle, mock_get_clients):
+        """Should disable multiple over-quota users."""
+        mock_get_clients.return_value = [
+            {
+                "clientId": "alice",
+                "clientName": "alice",
+                "enabled": True,
+                "userData": {"total_octets": 10000, "quota": 5000},
+            },
+            {
+                "clientId": "bob",
+                "clientName": "bob",
+                "enabled": True,
+                "userData": {"total_octets": 6000, "quota": 5000},
+            },
+            {
+                "clientId": "carol",
+                "clientName": "carol",
+                "enabled": True,
+                "userData": {"total_octets": 4000, "quota": 5000},
+            },
+        ]
+
+        disabled = self.manager.disable_overquota_users("telemt")
+
+        assert set(disabled) == {"alice", "bob"}
+        assert mock_toggle.call_count == 2
+
+    def test_is_overquota_true(self):
+        """_is_overquota returns True when traffic >= quota."""
+        client = {
+            "enabled": True,
+            "userData": {"total_octets": 10000, "quota": 5000},
+        }
+        assert self.manager._is_overquota(client) is True
+
+    def test_is_overquota_false_under_limit(self):
+        """_is_overquota returns False when traffic < quota."""
+        client = {
+            "enabled": True,
+            "userData": {"total_octets": 3000, "quota": 5000},
+        }
+        assert self.manager._is_overquota(client) is False
+
+    def test_is_overquota_false_disabled(self):
+        """_is_overquota returns False for disabled users."""
+        client = {
+            "enabled": False,
+            "userData": {"total_octets": 10000, "quota": 5000},
+        }
+        assert self.manager._is_overquota(client) is False
+
+    def test_is_overquota_false_no_quota(self):
+        """_is_overquota returns False when no quota set."""
+        client = {
+            "enabled": True,
+            "userData": {"total_octets": 10000, "quota": None},
+        }
+        assert self.manager._is_overquota(client) is False
 
 
 class TestToggleClient:
