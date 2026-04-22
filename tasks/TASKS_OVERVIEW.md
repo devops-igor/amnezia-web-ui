@@ -52,6 +52,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 | UX-1 | telemt-qr-wrong-app | Telemt QR Code Instructions Say Wrong App | GitHub #19 | ✅ DONE (PR #93, deployed) |
 | REG-1 | awg2-connection-422 | VALID_PROTOCOLS Missing awg2/awg_legacy/dns | GitHub #95 | ✅ DONE (PR #94, deployed) |
 | CI-1 | ci-lint-security-audit-failures | Lint (black) + Security Audit (pip-audit CVE) failing on PR #92 | GitHub #96 | ✅ DONE (merged to main) |
+| CI-1 | ci-lint-security-audit-failures | Lint (black) + Security Audit (pip-audit CVE) failing on PR #92 | GitHub #96 | ✅ DONE (merged to main) |
 
 ### Phase 1 Progress
 
@@ -101,14 +102,14 @@ These cause incorrect behavior, data corruption, or service degradation.
 
 | # | Slug | Title | Source | Issue |
 |---|------|-------|--------|-------|
-| 17 | background-tasks-swallow-errors | PBT Swallows Errors, Leaks SSH | IMP1 §6 | #44 🔲 TODO |
-| 18 | async-ssh-blocks-event-loop | 22 Async Handlers Block Event Loop | IMP3 §12 | #75 🔲 TODO |
+| 17 | background-tasks-swallow-errors | PBT Swallows Errors, Leaks SSH | IMP1 §6 | #44 🔵 IN PROGRESS |
+| 18 | async-ssh-blocks-event-loop | 22 Async Handlers Block Event Loop | IMP3 §12 | #75 🔵 IN PROGRESS |
 | 19 | get-next-ip-overflow | _get_next_ip Integer Overflow | IMP3 §13 | #79 🔲 TODO |
 | 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 🔲 TODO |
 | 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 🔲 TODO |
 | 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 🔲 TODO |
-| 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 🔲 IN PROGRESS (Batch 2A) |
-| 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 🔲 IN PROGRESS (Batch 2A) |
+| 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 ✅ DONE (PR #97, deployed) |
+| 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 ✅ DONE (PR #97, deployed) |
 | 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 🔲 TODO |
 
 ### Phase 3 — Bugs & Quick Wins
