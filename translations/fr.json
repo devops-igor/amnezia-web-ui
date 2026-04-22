@@ -290,5 +290,6 @@
     "leaderboard_nav": "Classement",
     "protocol_paths": "Chemins des protocoles",
     "telemt_config_dir": "Répertoire de configuration Telemt",
-    "telemt_config_dir_hint": "Répertoire sur le serveur distant où Telemt stocke ses fichiers de configuration."
+    "rate_limit_exceeded": "Trop de requ\u00eates. Veuillez r\u00e9essayer plus tard.",
+    "telemt_config_dir_hint": "R\u00e9pertoire sur le serveur distant o\u00f9 Telemt stocke ses fichiers de configuration."
 }
