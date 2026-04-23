@@ -100,15 +100,15 @@ These cause incorrect behavior, data corruption, or service degradation.
 
 | # | Slug | Title | Source | Issue |
 |---|------|-------|--------|-------|
-| 17 | background-tasks-swallow-errors | PBT Swallows Errors, Leaks SSH | IMP1 §6 | #44 |
-| 18 | async-ssh-blocks-event-loop | 22 Async Handlers Block Event Loop | IMP3 §12 | #75 |
-| 19 | get-next-ip-overflow | _get_next_ip Integer Overflow | IMP3 §13 | #79 |
-| 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 |
-| 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 |
-| 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 |
+| 17 | background-tasks-swallow-errors | PBT Swallows Errors, Leaks SSH | IMP1 §6 | #44 ✅ DONE |
+| 18 | async-ssh-blocks-event-loop | 22 Async Handlers Block Event Loop | IMP3 §12 | #75 ✅ DONE |
+| 19 | get-next-ip-overflow | _get_next_ip Integer Overflow | IMP3 §13 | #79 ✅ DONE |
+| 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 ✅ DONE |
+| 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 ✅ DONE |
+| 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 ✅ DONE |
 | 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 |
 | 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 |
-| 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 |
+| 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 ✅ DONE |
 
 ### Phase 3 — Bugs & Quick Wins
 
@@ -123,7 +123,7 @@ Smaller bugs and configuration fixes that are quick to implement.
 | 30 | format-bytes-zero-bug | format_bytes Zero/Negative Bug | IMP3 §20 | #77 |
 | 31 | dockerfile-runs-as-root | Dockerfile Runs as Root | IMP4 §20 | #81 |
 | 32 | docker-compose-missing-config | docker-compose Missing Config | IMP4 §21 | #89 |
-| 33 | fragile-server-reindexing | Fragile Server Re-indexing | IMP1 §R7 | #60 |
+| 33 | fragile-server-reindexing | Fragile Server Re-indexing | IMP1 §R7 | #60 ✅ DONE |
 | 34 | ghost-dependencies | Ghost Dependencies in requirements.txt | IMP2 §C5 | #70 |
 | 35 | pydantic-v2-dict-deprecated | .dict() → .model_dump() | IMP2 §R13 | #59 |
 

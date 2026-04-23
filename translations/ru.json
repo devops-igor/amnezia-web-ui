@@ -314,5 +314,6 @@
     "leaderboard_nav": "Таблица лидеров",
     "protocol_paths": "Пути протоколов",
     "telemt_config_dir": "Директория конфигурации Telemt",
-    "telemt_config_dir_hint": "Директория на удалённом сервере, где Telemt хранит файлы конфигурации."
+    "telemt_config_dir_hint": "Директория на удалённом сервере, где Telemt хранит файлы конфигурации.",
+    "language_label": "Язык по умолчанию"
 }
