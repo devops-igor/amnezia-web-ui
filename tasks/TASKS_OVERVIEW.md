@@ -106,8 +106,8 @@ These cause incorrect behavior, data corruption, or service degradation.
 | 20 | add-client-toctou-race | add_client TOCTOU Race Condition | IMP3 §17 | #85 ✅ DONE |
 | 21 | fragile-server-indexing-telegram | Fragile Server Indexing (Telegram) | IMP2 §R11 | #65 ✅ DONE |
 | 22 | get-clients-side-effect | get_clients() Side Effect | IMP4 §22 | #82 ✅ DONE |
-| 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 |
-| 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 |
+| 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 ✅ DONE |
+| 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 ✅ DONE |
 | 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 ✅ DONE |
 
 ### Phase 3 — Bugs & Quick Wins
@@ -116,16 +116,16 @@ Smaller bugs and configuration fixes that are quick to implement.
 
 | # | Slug | Title | Source | Issue |
 |---|------|-------|--------|-------|
-| 26 | debian-only-docker-install | Debian-Only Docker Install (Telemt) | IMP2 §R14 | #73 |
-| 27 | hardcoded-xray-version | Hardcoded Xray v1.8.4 | IMP2 §R15 | #72 |
-| 28 | language-default-inconsistency | Language Default Inconsistency | IMP2 §C6 | #69 |
-| 29 | format-bytes-duplication | format_bytes Duplication (incl. zero bug) | IMP2 §C7 | #68 |
-| 30 | format-bytes-zero-bug | format_bytes Zero/Negative Bug | IMP3 §20 | #77 |
-| 31 | dockerfile-runs-as-root | Dockerfile Runs as Root | IMP4 §20 | #81 |
-| 32 | docker-compose-missing-config | docker-compose Missing Config | IMP4 §21 | #89 |
+| 26 | debian-only-docker-install | Debian-Only Docker Install (Telemt) | IMP2 §R14 | #73 ✅ DONE |
+| 27 | hardcoded-xray-version | Hardcoded Xray v1.8.4 | IMP2 §R15 | #72 ✅ DONE |
+| 28 | language-default-inconsistency | Language Default Inconsistency | IMP2 §C6 | #69 ✅ DONE |
+| 29 | format-bytes-duplication | format_bytes Duplication (incl. zero bug) | IMP2 §C7 | #68 ✅ DONE |
+| 30 | format-bytes-zero-bug | format_bytes Zero/Negative Bug | IMP3 §20 | #77 ✅ DONE |
+| 31 | dockerfile-runs-as-root | Dockerfile Runs as Root | IMP4 §20 | #81 ✅ DONE |
+| 32 | docker-compose-missing-config | docker-compose Missing Config | IMP4 §21 | #89 ✅ DONE |
 | 33 | fragile-server-reindexing | Fragile Server Re-indexing | IMP1 §R7 | #60 ✅ DONE |
-| 34 | ghost-dependencies | Ghost Dependencies in requirements.txt | IMP2 §C5 | #70 |
-| 35 | pydantic-v2-dict-deprecated | .dict() → .model_dump() | IMP2 §R13 | #59 |
+| 34 | ghost-dependencies | Ghost Dependencies in requirements.txt | IMP2 §C5 | #70 ✅ DONE |
+| 35 | pydantic-v2-dict-deprecated | .dict() → .model_dump() | IMP2 §R13 | #59 ✅ DONE |
 
 ### Phase 4 — Refactoring & Architecture
 
@@ -176,3 +176,23 @@ Phase 4 (Architecture Refactor):
 - **ephemeral-secret-key** and **docker-compose-missing-config** are closely related — SECRET_KEY belongs in docker-compose.yml.
 - **fragile-server-reindexing** and **fragile-server-indexing-telegram** share the root cause (improper ID handling) and should be coordinated.
 - **plaintext-credentials-db** and **xray-plaintext-private-key** share the encryption-at-rest requirement and could use the same fernet encryption infrastructure.
+
+---
+
+## Phase 3 Status (2026-04-23)
+
+| Issue | Status |
+|-------|--------|
+| #68 format-bytes-duplication | ✅ DONE (Batch 3A) |
+| #77 format-bytes-zero-bug | ✅ DONE (Batch 3A) |
+| #81 dockerfile-runs-as-root | ✅ DONE (Batch 3B) |
+| #89 docker-compose-missing-config | ✅ DONE (Batch 3B) |
+| #72 hardcoded-xray-version | ✅ DONE (Batch 3C) |
+| #73 debian-only-docker-install | ✅ DONE (Batch 3C) |
+| #59 pydantic-v2-dict-deprecated | ✅ DONE (Batch 3D) |
+| #70 ghost-dependencies | ✅ DONE (Batch 3D) |
+| #69 language-default-inconsistency | ✅ DONE (Batch 3E) |
+
+**Phase 3 Complete:** 9/9 issues done (Batches 3A-3E). Deployed to dev server. PR #100 open.
+
+**Overall Progress:** Phase 1 ✅ (16/16) + Phase 2 ✅ (9/9) + Phase 3 ✅ (9/9) = 34/47 issues done. Phase 4 (12 remaining).
