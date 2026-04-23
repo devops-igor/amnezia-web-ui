@@ -4,7 +4,11 @@ import logging
 from datetime import datetime
 import urllib.parse
 
+from utils import format_bytes
+
 logger = logging.getLogger(__name__)
+
+XRAY_VERSION = "1.8.24"
 
 
 class XrayManager:
@@ -79,11 +83,11 @@ class XrayManager:
 
         results.append("Building Docker image...")
         dockerfile_folder = f"/opt/amnezia/{self.CONTAINER_NAME}"
-        dockerfile_content = """FROM alpine:3.15
+        dockerfile_content = f"""FROM alpine:3.15
 RUN apk add --no-cache curl unzip bash openssl netcat-openbsd dumb-init rng-tools xz iptables ip6tables
 RUN apk --update upgrade --no-cache
 RUN mkdir -p /opt/amnezia/xray
-RUN curl -L -H "Cache-Control: no-cache" -o /root/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v1.8.4/Xray-linux-64.zip" && \\
+RUN curl -L -H "Cache-Control: no-cache" -o /root/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v{XRAY_VERSION}/Xray-linux-64.zip" && \\
     unzip /root/xray.zip -d /usr/bin/ && \\
     chmod a+x /usr/bin/xray && \\
     rm /root/xray.zip
@@ -353,19 +357,6 @@ ENTRYPOINT [ "dumb-init", "/opt/amnezia/start.sh" ]
 
         return results
 
-    def _format_bytes(self, size):
-        # Format bytes to string like AWG (e.g., 1.50 MiB)
-        power = 2**10
-        n = 0
-        powers = {0: "B", 1: "KiB", 2: "MiB", 3: "GiB", 4: "TiB"}
-        while size > power:
-            size /= power
-            n += 1
-        v = round(size, 2)
-        if v == int(v):
-            v = int(v)
-        return f"{v} {powers.get(n, 'B')}"
-
     def get_clients(self, protocol=None):
         config = self._get_server_json()
         if config:
@@ -383,8 +374,8 @@ ENTRYPOINT [ "dumb-init", "/opt/amnezia/start.sh" ]
                 # Xray doesn't natively expose latest handshake easily in this format,
                 # but we can map the traffic accurately
                 if rx > 0 or tx > 0:
-                    user_data["dataReceived"] = self._format_bytes(rx)
-                    user_data["dataSent"] = self._format_bytes(tx)
+                    user_data["dataReceived"] = format_bytes(rx)
+                    user_data["dataSent"] = format_bytes(tx)
                     user_data["dataReceivedBytes"] = rx
                     user_data["dataSentBytes"] = tx
 

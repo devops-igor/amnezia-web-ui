@@ -74,6 +74,13 @@ class TelemtManager:
         out, _, _ = self.ssh.run_command("docker --version 2>/dev/null")
         return bool(out.strip())
 
+    def _detect_package_manager(self) -> str:
+        """Detect the remote server's package manager. Returns 'apt' or 'yum'."""
+        _, _, code = self.ssh.run_command("which apt-get")
+        if code == 0:
+            return "apt"
+        return "yum"
+
     def check_protocol_installed(self) -> bool:
         """Check if the Telemt container exists on the remote server."""
         out, _, _ = self.ssh.run_command(
@@ -153,16 +160,26 @@ class TelemtManager:
         if not self.check_docker_installed():
             results.append("Installing Docker...")
             self.ssh.run_sudo_command("curl -fsSL https://get.docker.com | sh")
-            self.ssh.run_sudo_command(
-                "apt-get install -y docker-buildx-plugin docker-compose-plugin"
-            )
+            pkg_mgr = self._detect_package_manager()
+            if pkg_mgr == "apt":
+                self.ssh.run_sudo_command(
+                    "apt-get install -y docker-buildx-plugin docker-compose-plugin"
+                )
+            else:
+                self.ssh.run_sudo_command(
+                    "yum install -y docker-buildx-plugin docker-compose-plugin"
+                )
 
         if self.check_protocol_installed():
             self.ssh.run_sudo_command(f"docker rm -f {self.CONTAINER_NAME}")
 
-        self.ssh.run_sudo_command(
-            "apt-get install -y docker-buildx-plugin docker-compose-plugin || yum install -y docker-buildx-plugin docker-compose-plugin"
-        )
+        pkg_mgr = self._detect_package_manager()
+        if pkg_mgr == "apt":
+            self.ssh.run_sudo_command(
+                "apt-get install -y docker-buildx-plugin docker-compose-plugin"
+            )
+        else:
+            self.ssh.run_sudo_command("yum install -y docker-buildx-plugin docker-compose-plugin")
 
         results.append("Uploading Telemt files...")
         local_dir = os.path.join(os.path.dirname(__file__), "protocol_telemt")
