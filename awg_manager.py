@@ -1000,10 +1000,7 @@ AllowedIPs = {client_ip}/32
                         continue
                     config_lines.append(f"{config_key} = {val}")
 
-            client_config = (
-                "[Interface]\n"
-                + "\n".join(config_lines)
-                + f"""
+            client_config = "[Interface]\n" + "\n".join(config_lines) + f"""
 
 [Peer]
 PublicKey = {server_pub_key}
@@ -1012,7 +1009,6 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = {server_host}:{port}
 PersistentKeepalive = 25
 """
-            )
 
             return {
                 "client_name": client_name,
@@ -1099,10 +1095,7 @@ PersistentKeepalive = 25
                     continue
                 config_lines.append(f"{config_key} = {val}")
 
-        config = (
-            "[Interface]\n"
-            + "\n".join(config_lines)
-            + f"""
+        config = "[Interface]\n" + "\n".join(config_lines) + f"""
 
 [Peer]
 PublicKey = {server_pub_key}
@@ -1111,7 +1104,6 @@ AllowedIPs = 0.0.0.0/0, ::/0
 Endpoint = {server_host}:{port}
 PersistentKeepalive = 25
 """
-        )
         return config
 
     def toggle_client(self, protocol_type, client_id, enable):
