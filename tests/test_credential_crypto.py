@@ -176,8 +176,7 @@ class TestEncryptExistingPlaintext:
     def _create_test_db(self, db_path: str):
         """Create a minimal test DB with servers table."""
         conn = sqlite3.connect(db_path)
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS servers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -189,16 +188,13 @@ class TestEncryptExistingPlaintext:
                 protocols TEXT,
                 created_at TEXT
             )
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS migration_flags (
                 key TEXT PRIMARY KEY,
                 value TEXT
             )
-        """
-        )
+        """)
         conn.commit()
         conn.close()
 
