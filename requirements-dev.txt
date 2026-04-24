@@ -1,7 +1,7 @@
 # Development dependencies for CI
-black==25.1.0
+black==26.3.1
 flake8==7.1.1
 pip-audit==2.10.0
-pytest==8.3.5
+pytest==9.0.3
 pytest-asyncio==0.23.8
 pytest-cov==6.1.1
