@@ -55,7 +55,7 @@
     "info": "Info",
     "login_title": "Connexion au Panneau",
     "username": "Nom d'utilisateur",
-    "password": "Mot de passe",
+    "password": "***",
     "captcha": "Captcha",
     "captcha_placeholder": "Entrez les caractères",
     "captcha_hint": "Cliquez pour rafraîchir",
@@ -290,6 +290,7 @@
     "leaderboard_nav": "Classement",
     "protocol_paths": "Chemins des protocoles",
     "telemt_config_dir": "Répertoire de configuration Telemt",
+    "rate_limit_exceeded": "Trop de requêtes. Veuillez réessayer plus tard.",
     "telemt_config_dir_hint": "Répertoire sur le serveur distant où Telemt stocke ses fichiers de configuration.",
     "language_label": "Langue par défaut"
 }

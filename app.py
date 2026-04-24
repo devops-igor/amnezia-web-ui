@@ -34,6 +34,10 @@ try:
 except ImportError:
     CaptchaGenerator = None
 
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
 from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
@@ -47,6 +51,36 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Amnezia Web Panel")
+
+
+def _get_client_ip(request: Request) -> str:
+    """Get client IP, respecting X-Forwarded-For from reverse proxy."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_get_client_ip)
+app.state.limiter = limiter
+
+
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Custom rate limit exceeded handler with i18n and logging."""
+    lang = request.cookies.get("lang", "ru")
+    logger.warning(
+        "Rate limit exceeded: %s %s from %s",
+        request.method,
+        request.url.path,
+        _get_client_ip(request),
+    )
+    return JSONResponse(
+        {"error": _t("rate_limit_exceeded", lang)},
+        status_code=429,
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Define DATA_DIR early so it can be used by _get_secret_key()
 if getattr(sys, "frozen", False):
@@ -358,10 +392,10 @@ async def perform_delete_user(user_id: str):
             server = db.get_server_by_id(sid)
             if server:
                 ssh = get_ssh(server)
-                ssh.connect()
+                await asyncio.to_thread(ssh.connect)
                 manager = get_protocol_manager(ssh, uc["protocol"])
-                manager.remove_client(uc["protocol"], uc["client_id"])
-                ssh.disconnect()
+                await asyncio.to_thread(manager.remove_client, uc["protocol"], uc["client_id"])
+                await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
             logger.warning(f"Failed to remove connection {uc['client_id']} during user delete: {e}")
     db.delete_user(user_id)
@@ -1160,18 +1194,19 @@ async def periodic_background_tasks():
 
             updates = []
 
+            ssh = None
             for server in servers:
                 sid = server["id"]
                 if sid not in conns_by_server:
                     continue
                 try:
                     ssh = get_ssh(server)
-                    ssh.connect()
+                    await asyncio.to_thread(ssh.connect)
                     for proto in ["awg", "awg2", "awg_legacy", "xray", "telemt"]:
                         if proto in server.get("protocols", {}):
                             try:
                                 manager = get_protocol_manager(ssh, proto)
-                                clients = manager.get_clients(proto)
+                                clients = await asyncio.to_thread(manager.get_clients, proto)
                             except Exception as e:
                                 logger.error(
                                     f"get_clients failed for server {sid} proto {proto}: {e}"
@@ -1199,12 +1234,14 @@ async def periodic_background_tasks():
                                     rx_delta = curr_rx - last_rx if curr_rx >= last_rx else curr_rx
                                     tx_delta = curr_tx - last_tx if curr_tx >= last_tx else curr_tx
                                     updates.append((uc["id"], rx_delta, tx_delta, curr_rx, curr_tx))
+                except asyncio.CancelledError:
+                    raise
                 except Exception as e:
                     sid = server["id"]
-                    logger.error(f"Traffic sync err server {sid}: {e}")
-                    ssh.disconnect()
-                    continue
-                ssh.disconnect()
+                    logger.error(f"Traffic sync error for server {sid}: {e}", exc_info=True)
+                finally:
+                    if ssh:
+                        await asyncio.to_thread(ssh.disconnect)
             to_disable_uids = []
             if updates:
                 now = datetime.now()
@@ -1354,6 +1391,25 @@ async def periodic_background_tasks():
                 logger.info(f"Traffic limit reached, disabling users: {to_disable_uids}")
                 await perform_mass_operations(toggle_uids=[(uid, False) for uid in to_disable_uids])
 
+            # --- 1b. TELEM QUOTA ENFORCEMENT ---
+            # Explicitly disable over-quota telemt users (side effect removed from get_clients)
+            for server in servers:
+                sid = server["id"]
+                if "telemt" not in server.get("protocols", {}):
+                    continue
+                try:
+                    ssh = get_ssh(server)
+                    await asyncio.to_thread(ssh.connect)
+                    manager = get_protocol_manager(ssh, "telemt")
+                    disabled = await asyncio.to_thread(manager.disable_overquota_users, "telemt")
+                    if disabled:
+                        logger.info(
+                            f"Disabled {len(disabled)} over-quota users on telemt server {sid}"
+                        )
+                    await asyncio.to_thread(ssh.disconnect)
+                except Exception as e:
+                    logger.error(f"Error disabling over-quota users on server {sid}: {e}")
+
             # --- 2. REMNAWAVE SYNC ---
             logger.info("Starting background Remnawave sync...")
             if db.get_setting("sync", {}).get("remnawave_sync_users"):
@@ -1362,8 +1418,11 @@ async def periodic_background_tasks():
             else:
                 logger.info("Background Remnawave sync skipped (disabled in settings)")
 
+        except asyncio.CancelledError:
+            logger.info("Background task cancelled")
+            raise
         except Exception as e:
-            logger.error(f"Error in periodic_background_tasks: {e}")
+            logger.error(f"Error in periodic_background_tasks: {e}", exc_info=True)
 
         # Wait 10 minutes before next sync
         await asyncio.sleep(600)
@@ -1503,6 +1562,7 @@ async def api_captcha(request: Request):
 
 
 @app.post("/api/auth/login")
+@limiter.limit("5/minute")
 async def api_login(request: Request, req: LoginRequest):
     db = get_db()
     captcha_settings = db.get_setting("captcha", {})
@@ -1610,9 +1670,9 @@ async def api_add_server(request: Request, req: AddServerRequest):
 
         ssh = SSHManager(host, req.ssh_port, username, req.password, req.private_key)
         try:
-            ssh.connect()
-            server_info = ssh.test_connection()
-            ssh.disconnect()
+            await asyncio.to_thread(ssh.connect)
+            server_info = await asyncio.to_thread(ssh.test_connection)
+            await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
             return JSONResponse(
                 {"error": f"Connection failed: {_sanitize_error(str(e))}"}, status_code=400
@@ -1649,7 +1709,7 @@ async def api_delete_server(request: Request, server_id: int):
         db = get_db()
         if db.get_server_by_id(server_id) is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        db.delete_server_by_index(server_id)
+        db.delete_server(server_id)
         return {"status": "success"}
     except Exception as e:
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
@@ -1665,13 +1725,13 @@ async def api_reboot_server(request: Request, server_id: int):
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         try:
-            ssh.run_sudo_command("nohup reboot > /dev/null 2>&1 &")
+            await asyncio.to_thread(ssh.run_sudo_command, "nohup reboot > /dev/null 2>&1 &")
         except Exception:
             pass
         try:
-            ssh.disconnect()
+            await asyncio.to_thread(ssh.disconnect)
         except:
             pass
         return {"status": "success"}
@@ -1690,7 +1750,7 @@ async def api_clear_server(request: Request, server_id: int):
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         containers = [
             "amnezia-awg",
             "amnezia-awg2",
@@ -1700,13 +1760,13 @@ async def api_clear_server(request: Request, server_id: int):
             "amnezia-dns",
         ]
         for c in containers:
-            ssh.run_sudo_command(f"docker stop {c} || true")
-            ssh.run_sudo_command(f"docker rm {c} || true")
-        ssh.run_sudo_command("docker network rm amnezia-dns-net || true")
-        ssh.run_sudo_command("rm -rf /opt/amnezia")
+            await asyncio.to_thread(ssh.run_sudo_command, f"docker stop {c} || true")
+            await asyncio.to_thread(ssh.run_sudo_command, f"docker rm {c} || true")
+        await asyncio.to_thread(ssh.run_sudo_command, "docker network rm amnezia-dns-net || true")
+        await asyncio.to_thread(ssh.run_sudo_command, "rm -rf /opt/amnezia")
 
         db.update_server(server["id"], {"protocols": {}})
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error clearing server")
@@ -1723,18 +1783,22 @@ async def api_server_stats(request: Request, server_id: int):
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         stats = {}
-        out, _, _ = ssh.run_command(
+        out, _, _ = await asyncio.to_thread(
+            ssh.run_command,
             "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || "
-            "awk '{u=$2+$4; t=$2+$4+$5; if(NR==1){pu=u;pt=t} else printf \"%.1f\", (u-pu)/(t-pt)*100}' "
-            "<(grep 'cpu ' /proc/stat) <(sleep 0.5 && grep 'cpu ' /proc/stat) 2>/dev/null"
+            'awk \'{u=$2+$4; t=$2+$4+$5; if(NR==1){pu=u;pt=t} else printf "%.1f", '
+            "(u-pu)/(t-pt)*100}' "
+            "<(grep 'cpu ' /proc/stat) <(sleep 0.5 && grep 'cpu ' /proc/stat) 2>/dev/null",
         )
         try:
             stats["cpu"] = round(float(out.strip().split("\n")[0]), 1)
         except (ValueError, IndexError):
             stats["cpu"] = 0
-        out, _, _ = ssh.run_command("free -b | awk 'NR==2{printf \"%d %d\", $3, $2}'")
+        out, _, _ = await asyncio.to_thread(
+            ssh.run_command, "free -b | awk 'NR==2{printf \"%d %d\", $3, $2}'"
+        )
         try:
             parts = out.strip().split()
             used, total = int(parts[0]), int(parts[1])
@@ -1745,7 +1809,9 @@ async def api_server_stats(request: Request, server_id: int):
             )
         except (ValueError, IndexError):
             stats.update(ram_used=0, ram_total=0, ram_percent=0)
-        out, _, _ = ssh.run_command("df -B1 / | awk 'NR==2{printf \"%d %d\", $3, $2}'")
+        out, _, _ = await asyncio.to_thread(
+            ssh.run_command, "df -B1 / | awk 'NR==2{printf \"%d %d\", $3, $2}'"
+        )
         try:
             parts = out.strip().split()
             used, total = int(parts[0]), int(parts[1])
@@ -1756,18 +1822,19 @@ async def api_server_stats(request: Request, server_id: int):
             )
         except (ValueError, IndexError):
             stats.update(disk_used=0, disk_total=0, disk_percent=0)
-        out, _, _ = ssh.run_command(
+        out, _, _ = await asyncio.to_thread(
+            ssh.run_command,
             "DEV=$(ip route | awk '/default/ {print $5}' | head -1); "
-            'cat /proc/net/dev | awk -v dev="$DEV:" \'$1==dev{printf "%d %d", $2, $10}\''
+            'cat /proc/net/dev | awk -v dev="$DEV:" \'$1==dev{printf "%d %d", $2, $10}\'',
         )
         try:
             parts = out.strip().split()
             stats["net_rx"], stats["net_tx"] = int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
             stats["net_rx"] = stats["net_tx"] = 0
-        out, _, _ = ssh.run_command("uptime -p 2>/dev/null || uptime")
+        out, _, _ = await asyncio.to_thread(ssh.run_command, "uptime -p 2>/dev/null || uptime")
         stats["uptime"] = out.strip()
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return stats
     except Exception as e:
         logger.exception("Error getting server stats")
@@ -1784,12 +1851,12 @@ async def api_check_server(request: Request, server_id: int):
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         # Just use awg's docker checker since it uses the same command
         manager = get_protocol_manager(ssh, "awg")
         status = {
             "connection": "ok",
-            "docker_installed": manager.check_docker_installed(),
+            "docker_installed": await asyncio.to_thread(manager.check_docker_installed),
             "protocols": {},
         }
 
@@ -1797,12 +1864,10 @@ async def api_check_server(request: Request, server_id: int):
         if "protocols" not in server:
             server["protocols"] = {}
 
-        import concurrent.futures
-
-        def check_proto(proto):
+        async def check_proto(proto: str):
             try:
                 p_manager = get_protocol_manager(ssh, proto)
-                result = p_manager.get_server_status(proto)
+                result = await asyncio.to_thread(p_manager.get_server_status, proto)
                 db_proto = server.get("protocols", {}).get(proto, {})
                 if not result.get("port") and db_proto.get("port"):
                     result["port"] = db_proto["port"]
@@ -1810,34 +1875,31 @@ async def api_check_server(request: Request, server_id: int):
             except Exception as e:
                 return proto, None, str(e)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
-            futures = [
-                executor.submit(check_proto, p)
-                for p in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]
-            ]
-            for future in concurrent.futures.as_completed(futures):
-                proto, result, err = future.result()
-                if err:
-                    status["protocols"][proto] = {"error": err}
+        check_results = await asyncio.gather(
+            *[check_proto(p) for p in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]]
+        )
+        for proto, result, err in check_results:
+            if err:
+                status["protocols"][proto] = {"error": err}
+            else:
+                status["protocols"][proto] = result
+                if result.get("container_exists"):
+                    if proto not in server["protocols"]:
+                        server["protocols"][proto] = {
+                            "installed": True,
+                            "port": result.get("port", "55424"),
+                            "awg_params": result.get("awg_params", {}),
+                        }
+                        changed = True
                 else:
-                    status["protocols"][proto] = result
-                    if result.get("container_exists"):
-                        if proto not in server["protocols"]:
-                            server["protocols"][proto] = {
-                                "installed": True,
-                                "port": result.get("port", "55424"),
-                                "awg_params": result.get("awg_params", {}),
-                            }
-                            changed = True
-                    else:
-                        if proto in server["protocols"]:
-                            del server["protocols"][proto]
-                            changed = True
+                    if proto in server["protocols"]:
+                        del server["protocols"][proto]
+                        changed = True
 
         if changed:
             db.update_server(server["id"], {"protocols": server["protocols"]})
 
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return status
     except Exception as e:
         logger.exception("Error checking server")
@@ -1859,12 +1921,13 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
             return JSONResponse({"error": "Invalid protocol type"}, status_code=400)
 
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
 
         # Pass parameters to installer
         if req.protocol == "telemt":
-            result = manager.install_protocol(
+            result = await asyncio.to_thread(
+                manager.install_protocol,
                 protocol_type=req.protocol,
                 port=req.port,
                 tls_emulation=req.tls_emulation if req.tls_emulation is not None else True,
@@ -1872,9 +1935,9 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
                 max_connections=req.max_connections if req.max_connections is not None else 0,
             )
         elif req.protocol == "xray":
-            result = manager.install_protocol(port=req.port)
+            result = await asyncio.to_thread(manager.install_protocol, port=req.port)
         else:
-            result = manager.install_protocol(req.protocol, port=req.port)
+            result = await asyncio.to_thread(manager.install_protocol, req.protocol, port=req.port)
 
         new_protocols = dict(server.get("protocols", {}))
         new_protocols[req.protocol] = {
@@ -1883,7 +1946,7 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
             "awg_params": result.get("awg_params", {}),
         }
         db.update_server(server["id"], {"protocols": new_protocols})
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return result
     except Exception as e:
         logger.exception("Error installing protocol")
@@ -1900,17 +1963,17 @@ async def api_uninstall_protocol(request: Request, server_id: int, req: Protocol
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
         if req.protocol == "xray":
-            manager.remove_container()
+            await asyncio.to_thread(manager.remove_container)
         else:
-            manager.remove_container(req.protocol)
+            await asyncio.to_thread(manager.remove_container, req.protocol)
         new_protocols = dict(server.get("protocols", {}))
         if req.protocol in new_protocols:
             del new_protocols[req.protocol]
             db.update_server(server["id"], {"protocols": new_protocols})
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error uninstalling protocol")
@@ -1941,19 +2004,20 @@ async def api_container_toggle(request: Request, server_id: int, req: ProtocolRe
         if not container:
             return JSONResponse({"error": "Unknown protocol"}, status_code=400)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         # Check current state
-        out, _, _ = ssh.run_sudo_command(
-            f"docker inspect -f '{{{{.State.Running}}}}' {container} 2>/dev/null"
+        out, _, _ = await asyncio.to_thread(
+            ssh.run_sudo_command,
+            f"docker inspect -f '{{{{.State.Running}}}}' {container} 2>/dev/null",
         )
         is_running = out.strip().lower() == "true"
         if is_running:
-            ssh.run_sudo_command(f"docker stop {container}")
+            await asyncio.to_thread(ssh.run_sudo_command, f"docker stop {container}")
             action = "stopped"
         else:
-            ssh.run_sudo_command(f"docker start {container}")
+            await asyncio.to_thread(ssh.run_sudo_command, f"docker start {container}")
             action = "started"
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         return {"status": "success", "action": action, "container": container}
     except Exception as e:
         logger.exception("Error toggling container")
@@ -1971,10 +2035,10 @@ async def api_server_config(request: Request, server_id: int, req: ProtocolReque
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         if req.protocol == "xray":
             mgr = XrayManager(ssh)
-            data_json = mgr._get_server_json()
+            data_json = await asyncio.to_thread(mgr._get_server_json)
             import json as _json
 
             config = _json.dumps(data_json, indent=2, ensure_ascii=False) if data_json else ""
@@ -1982,11 +2046,11 @@ async def api_server_config(request: Request, server_id: int, req: ProtocolReque
             from telemt_manager import TelemtManager
 
             mgr = TelemtManager(ssh)
-            config = mgr._get_server_config()
+            config = await asyncio.to_thread(mgr._get_server_config)
         else:
             mgr = AWGManager(ssh)
-            config = mgr._get_server_config(req.protocol)
-        ssh.disconnect()
+            config = await asyncio.to_thread(mgr._get_server_config, req.protocol)
+        await asyncio.to_thread(ssh.disconnect)
         return {"config": config}
     except Exception as e:
         logger.exception("Error getting server config")
@@ -2004,7 +2068,7 @@ async def api_server_config_save(request: Request, server_id: int, req: ServerCo
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         if req.protocol == "xray":
             mgr = XrayManager(ssh)
             import json as _json
@@ -2012,18 +2076,18 @@ async def api_server_config_save(request: Request, server_id: int, req: ServerCo
             try:
                 data_json = _json.loads(req.config)
             except Exception:
-                ssh.disconnect()
+                await asyncio.to_thread(ssh.disconnect)
                 return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
-            mgr._save_server_json(data_json)
+            await asyncio.to_thread(mgr._save_server_json, data_json)
         elif req.protocol == "telemt":
             from telemt_manager import TelemtManager
 
             mgr = TelemtManager(ssh)
-            mgr.save_server_config(req.protocol, req.config)
+            await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
         else:
             mgr = AWGManager(ssh)
-            mgr.save_server_config(req.protocol, req.config)
-        ssh.disconnect()
+            await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
+        await asyncio.to_thread(ssh.disconnect)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error saving server config")
@@ -2044,10 +2108,10 @@ async def api_get_connections(
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, protocol)
-        clients = manager.get_clients(protocol)
-        ssh.disconnect()
+        clients = await asyncio.to_thread(manager.get_clients, protocol)
+        await asyncio.to_thread(ssh.disconnect)
 
         # Enrich with user info from user_connections
         user_conns = db.get_connections_by_server_and_protocol(server_id, protocol)
@@ -2081,11 +2145,12 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
         proto_info = server.get("protocols", {}).get(req.protocol, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
 
         if req.protocol == "telemt":
-            result = manager.add_client(
+            result = await asyncio.to_thread(
+                manager.add_client,
                 req.protocol,
                 req.name,
                 server["host"],
@@ -2095,8 +2160,10 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
                 telemt_expiry=req.telemt_expiry,
             )
         else:
-            result = manager.add_client(req.protocol, req.name, server["host"], port)
-        ssh.disconnect()
+            result = await asyncio.to_thread(
+                manager.add_client, req.protocol, req.name, server["host"], port
+            )
+        await asyncio.to_thread(ssh.disconnect)
 
         if result.get("config"):
             result["vpn_link"] = generate_vpn_link(result["config"])
@@ -2137,10 +2204,10 @@ async def api_remove_connection(request: Request, server_id: int, req: Connectio
         if not req.client_id:
             return JSONResponse({"error": "Client ID is required"}, status_code=400)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
-        manager.remove_client(req.protocol, req.client_id)
-        ssh.disconnect()
+        await asyncio.to_thread(manager.remove_client, req.protocol, req.client_id)
+        await asyncio.to_thread(ssh.disconnect)
         # Remove from user_connections
         db.delete_connection_by_client_id(req.client_id, server_id)
         return {"status": "success"}
@@ -2160,7 +2227,7 @@ async def api_edit_connection(request: Request, server_id: int, req: EditConnect
             return JSONResponse({"error": "Server not found"}, status_code=404)
 
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
 
         edit_params = {}
@@ -2169,8 +2236,10 @@ async def api_edit_connection(request: Request, server_id: int, req: EditConnect
             edit_params["telemt_max_ips"] = req.telemt_max_ips
             edit_params["telemt_expiry"] = req.telemt_expiry
 
-        result = manager.edit_client(req.protocol, req.client_id, edit_params)
-        ssh.disconnect()
+        result = await asyncio.to_thread(
+            manager.edit_client, req.protocol, req.client_id, edit_params
+        )
+        await asyncio.to_thread(ssh.disconnect)
         return result
     except Exception as e:
         logger.exception("Error editing connection")
@@ -2202,10 +2271,12 @@ async def api_get_connection_config(request: Request, server_id: int, req: Conne
         proto_info = server.get("protocols", {}).get(req.protocol, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
-        config = manager.get_client_config(req.protocol, req.client_id, server["host"], port)
-        ssh.disconnect()
+        config = await asyncio.to_thread(
+            manager.get_client_config, req.protocol, req.client_id, server["host"], port
+        )
+        await asyncio.to_thread(ssh.disconnect)
         vpn_link = generate_vpn_link(config) if config else ""
         return {"config": config, "vpn_link": vpn_link}
     except Exception as e:
@@ -2225,10 +2296,10 @@ async def api_toggle_connection(request: Request, server_id: int, req: ToggleCon
         if not req.client_id:
             return JSONResponse({"error": "Client ID is required"}, status_code=400)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
-        manager.toggle_client(req.protocol, req.client_id, req.enable)
-        ssh.disconnect()
+        await asyncio.to_thread(manager.toggle_client, req.protocol, req.client_id, req.enable)
+        await asyncio.to_thread(ssh.disconnect)
         status = "enabled" if req.enable else "disabled"
         return {"status": "success", "enabled": req.enable, "message": f"Connection {status}"}
     except Exception as e:
@@ -2346,10 +2417,12 @@ async def api_add_user(request: Request, req: AddUserRequest):
                 port = proto_info.get("port", "55424")
                 conn_name = req.connection_name or f"{req.username}_vpn"
                 ssh = get_ssh(server)
-                ssh.connect()
+                await asyncio.to_thread(ssh.connect)
                 manager = get_protocol_manager(ssh, req.protocol)
-                conn_result = manager.add_client(req.protocol, conn_name, server["host"], port)
-                ssh.disconnect()
+                conn_result = await asyncio.to_thread(
+                    manager.add_client, req.protocol, conn_name, server["host"], port
+                )
+                await asyncio.to_thread(ssh.disconnect)
 
                 if conn_result.get("config"):
                     conn = {
@@ -2785,6 +2858,7 @@ async def api_user_share_setup(user_id: str, req: ShareSetupRequest, request: Re
 
 
 @app.get("/share/{token}", response_class=HTMLResponse)
+@limiter.limit("10/minute")
 async def share_page(token: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2806,6 +2880,7 @@ async def share_page(token: str, request: Request):
 
 
 @app.post("/api/share/{token}/auth")
+@limiter.limit("10/minute")
 async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2821,6 +2896,7 @@ async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
 
 
 @app.get("/api/share/{token}/connections")
+@limiter.limit("20/minute")
 async def api_share_connections(token: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2844,6 +2920,7 @@ async def api_share_connections(token: str, request: Request):
 
 
 @app.post("/api/share/{token}/config/{connection_id}")
+@limiter.limit("10/minute")
 async def api_share_config(token: str, connection_id: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
@@ -2866,13 +2943,17 @@ async def api_share_config(token: str, connection_id: str, request: Request):
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         # Use appropriate manager for the protocol
         manager = get_protocol_manager(ssh, conn["protocol"])
-        config = manager.get_client_config(
-            conn["protocol"], conn["client_id"], server["host"], port
+        config = await asyncio.to_thread(
+            manager.get_client_config,
+            conn["protocol"],
+            conn["client_id"],
+            server["host"],
+            port,
         )
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         vpn_link = generate_vpn_link(config) if config else ""
         return {"config": config, "vpn_link": vpn_link}
     except Exception as e:
@@ -2897,13 +2978,17 @@ async def api_my_connection_config(request: Request, connection_id: str):
         proto_info = server.get("protocols", {}).get(conn["protocol"], {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         # Use appropriate manager for the protocol
         manager = get_protocol_manager(ssh, conn["protocol"])
-        config = manager.get_client_config(
-            conn["protocol"], conn["client_id"], server["host"], port
+        config = await asyncio.to_thread(
+            manager.get_client_config,
+            conn["protocol"],
+            conn["client_id"],
+            server["host"],
+            port,
         )
-        ssh.disconnect()
+        await asyncio.to_thread(ssh.disconnect)
         vpn_link = generate_vpn_link(config) if config else ""
         return {"config": config, "vpn_link": vpn_link}
     except Exception as e:
@@ -3009,10 +3094,10 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
-        ssh.connect()
+        await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, protocol)
-        clients = manager.get_clients(protocol)
-        ssh.disconnect()
+        clients = await asyncio.to_thread(manager.get_clients, protocol)
+        await asyncio.to_thread(ssh.disconnect)
 
         # Filter: only show clients that are not assigned to anyone in the panel
         assigned_conns = db.get_connections_by_server_and_protocol(server_id, protocol)

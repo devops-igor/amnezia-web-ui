@@ -55,7 +55,7 @@
     "info": "Информация",
     "login_title": "Вход в панель",
     "username": "Логин",
-    "password": "Пароль",
+    "password": "***",
     "captcha": "Капча",
     "captcha_placeholder": "Введите символы с картинки",
     "captcha_hint": "Нажмите для обновления картинки",
@@ -314,6 +314,7 @@
     "leaderboard_nav": "Таблица лидеров",
     "protocol_paths": "Пути протоколов",
     "telemt_config_dir": "Директория конфигурации Telemt",
+    "rate_limit_exceeded": "Слишком много запросов. Попробуйте позже.",
     "telemt_config_dir_hint": "Директория на удалённом сервере, где Telemt хранит файлы конфигурации.",
     "language_label": "Язык по умолчанию"
 }

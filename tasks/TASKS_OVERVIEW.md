@@ -51,6 +51,7 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 |---|------|-------|--------|--------|
 | UX-1 | telemt-qr-wrong-app | Telemt QR Code Instructions Say Wrong App | GitHub #19 | ✅ DONE (PR #93, deployed) |
 | REG-1 | awg2-connection-422 | VALID_PROTOCOLS Missing awg2/awg_legacy/dns | GitHub #95 | ✅ DONE (PR #94, deployed) |
+| CI-1 | ci-lint-security-audit-failures | Lint (black) + Security Audit (pip-audit CVE) failing on PR #92 | GitHub #96 | ✅ DONE (merged to main) |
 
 ### Phase 1 Progress
 
@@ -91,8 +92,9 @@ These are directly exploitable vulnerabilities. No other work should proceed unt
 
 | Batch | Issue | GitHub # | Status |
 |-------|-------|----------|--------|
-| UX-1 | telemt-qr-wrong-app | #19 | ✅ PR #93 merged, Deploy-verified |
-| REG-1 | VALID_PROTOCOLS missing awg2/awg_legacy/dns (HTTP 422) | #95 | ✅ PR #94 merged, Deploy-verified |
+| UX-1 | telemt-qr-wrong-app | #19 | ✅ DONE |
+| REG-1 | awg2-connection-422 | #95 | ✅ DONE |
+| CI-1 | ci-lint-security-audit-failures | #96 | ✅ DONE |
 
 ### Phase 2 — Critical Bugs & Operational Issues
 
@@ -109,6 +111,16 @@ These cause incorrect behavior, data corruption, or service degradation.
 | 23 | missing-rate-limiting | No Rate Limiting on Login | IMP1 §R8 | #67 ✅ DONE |
 | 24 | share-endpoint-no-rate-limit | Share Endpoint No Rate Limit | IMP2 §11 | #63 ✅ DONE |
 | 25 | telegram-bot-leaks-exceptions | Telegram Bot Leaks Exceptions | IMP2 §8 | #61 ✅ DONE |
+
+**Phase 3 (related):**
+
+| # | Slug | Title | Source | Issue |
+|---|------|-------|--------|-------|
+| 26 | fragile-server-reindexing | Fragile Server Re-indexing | IMP1 §R7 | | #60 |
+
+**Combined as:** Batch 2C — `feat/batch-2c-critical-bugs` | 🔲 IN PROGRESS
+
+**Phase 2 Complete:** #67, #63, #44, #75
 
 ### Phase 3 — Bugs & Quick Wins
 
@@ -176,6 +188,21 @@ Phase 4 (Architecture Refactor):
 - **ephemeral-secret-key** and **docker-compose-missing-config** are closely related — SECRET_KEY belongs in docker-compose.yml.
 - **fragile-server-reindexing** and **fragile-server-indexing-telegram** share the root cause (improper ID handling) and should be coordinated.
 - **plaintext-credentials-db** and **xray-plaintext-private-key** share the encryption-at-rest requirement and could use the same fernet encryption infrastructure.
+
+---
+
+## Phase 2 Status (2026-04-23)
+
+| Issue | Status |
+|-------|--------|
+| #79 get-next-ip-overflow | ✅ DONE (Batch 2C) |
+| #82 get-clients-side-effect | ✅ DONE (Batch 2C) |
+| #85 add-client-toctou-race | ✅ DONE (Batch 2C) |
+| #60 fragile-server-reindexing | ✅ DONE (Batch 2C) |
+| #65 fragile-server-indexing-telegram | ✅ DONE (Batch 2C) |
+| #61 telegram-bot-leaks-exceptions | ✅ DONE (Batch 2C) |
+
+**Phase 2 Complete:** 9/9 issues done (Batches 2A-2C). All deployed and verified.
 
 ---
 
