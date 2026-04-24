@@ -157,6 +157,7 @@ Larger structural changes. Dependencies on earlier phases noted.
 | 45 | god-file-app-py | app.py Split into Modules | IMP1 §R1 | pydantic-models-scattered, auth-check-inconsistency | #51 |
 | 46 | migration-no-schema-version | Migration Schema Versioning | IMP4 §23 | None | #83 |
 | 47 | no-security-integration-tests | Security & Integration Tests | IMP3 §19 | Phase 1 & 2 fixes | #86 |
+| 48 | e2e-playwright-suite | E2E Playwright Test Suite + Manual Checklist | N/A (Quality) | None | 🔲 TODO |
 
 ---
 
@@ -222,4 +223,4 @@ Phase 4 (Architecture Refactor):
 
 **Phase 3 Complete:** 9/9 issues done (Batches 3A-3E). Deployed to dev server. PR #100 open.
 
-**Overall Progress:** Phase 1 ✅ (16/16) + Phase 2 ✅ (9/9) + Phase 3 ✅ (9/9) = 34/47 issues done. Phase 4 (12 remaining).
+**Overall Progress:** Phase 1 ✅ (16/16) + Phase 2 ✅ (9/9) + Phase 3 ✅ (9/9) = 34/47 issues done. Phase 4 (12 remaining). Plus 1 E2E testing task (🔲 TODO).
