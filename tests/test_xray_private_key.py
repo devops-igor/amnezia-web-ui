@@ -203,8 +203,7 @@ class TestXrayPrivateKeyMigration:
 
         # Create a minimal DB with plaintext protocols containing private keys
         conn = sqlite3.connect(db_path)
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE servers (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -216,15 +215,11 @@ class TestXrayPrivateKeyMigration:
                 protocols TEXT,
                 created_at TEXT
             )
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
@@ -253,10 +248,8 @@ class TestXrayPrivateKeyMigration:
                 password_change_required INTEGER NOT NULL DEFAULT 0,
                 limits TEXT
             )
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE user_connections (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -270,32 +263,24 @@ class TestXrayPrivateKeyMigration:
                 traffic_delta_tx INTEGER DEFAULT 0,
                 created_at TEXT
             )
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE connection_creation_log (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
-        """
-        )
-        conn.execute(
-            """
+        """)
+        conn.execute("""
             CREATE TABLE migration_flags (key TEXT PRIMARY KEY, value TEXT)
-        """
-            ""
-        )
-        conn.execute(
-            """
+        """ "")
+        conn.execute("""
             CREATE TABLE known_hosts (
                 server_id INTEGER PRIMARY KEY,
                 fingerprint TEXT NOT NULL,
                 first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """
-        )
+        """)
         # Insert server with reality_private_key in protocols
         conn.execute(
             "INSERT INTO servers (name, host, ssh_pass, ssh_key, protocols) VALUES (?, ?, ?, ?, ?)",
