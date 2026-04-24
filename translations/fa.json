@@ -55,7 +55,7 @@
     "info": "اطلاعات",
     "login_title": "ورود به پنل",
     "username": "نام کاربری",
-    "password": "رمز عبور",
+    "password": "***",
     "captcha": "کد امنیتی",
     "captcha_placeholder": "کاراکترهای تصویر را وارد کنید",
     "captcha_hint": "برای نوسازی تصویر کلیک کنید",
@@ -290,6 +290,7 @@
     "leaderboard_nav": "جدول امتیازات",
     "protocol_paths": "مسیرهای پروتکل",
     "telemt_config_dir": "دایرکتوری پیکربندی Telemt",
+    "rate_limit_exceeded": "درخواست‌ها بیشتر از حد است. لطفاً بعداً دوباره امتحان کنید.",
     "telemt_config_dir_hint": "دایرکتوری در سرور راه دور که Telemt فایل‌های پیکربندی خود را در آن ذخیره می‌کند.",
     "language_label": "زبان پیش‌فرض"
 }

@@ -363,25 +363,17 @@ class Database:
         )
         conn.commit()
 
-    def delete_server_by_index(self, index: int) -> bool:
-        """Delete the n-th server and re-index. Returns True if deleted."""
+    def delete_server(self, server_id: int) -> bool:
+        """Delete a server by its ID. Returns True if deleted."""
         conn = self._get_conn()
-        server = self.get_server_by_id(index)
-        if server is None:
-            return False
-        db_id = server["id"]
-        conn.execute("DELETE FROM servers WHERE id = ?", (db_id,))
-        # Remove connections pointing to this server index
-        conn.execute("DELETE FROM user_connections WHERE server_id = ?", (index,))
-        # Re-index server_ids for connections pointing to higher indices
-        conn.execute(
-            "UPDATE user_connections SET server_id = server_id - 1 " "WHERE server_id > ?",
-            (index,),
-        )
-        # Remove known host entry for this server
-        conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (db_id,))
-        conn.commit()
-        return True
+        with conn:
+            # Delete connections first
+            conn.execute("DELETE FROM user_connections WHERE server_id = ?", (server_id,))
+            # Delete known_hosts
+            conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (server_id,))
+            # Delete server
+            cur = conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
+            return cur.rowcount > 0
 
     # ----------------------------------------------------------------
     # Known Hosts
