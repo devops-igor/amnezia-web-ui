@@ -55,7 +55,7 @@
     "info": "Info",
     "login_title": "Login to Panel",
     "username": "Username",
-    "password": "Password",
+    "password": "***",
     "captcha": "Captcha",
     "captcha_placeholder": "Enter characters from image",
     "captcha_hint": "Click to refresh image",
@@ -315,5 +315,6 @@
     "protocol_paths": "Protocol Paths",
     "telemt_config_dir": "Telemt Config Directory",
     "rate_limit_exceeded": "Too many requests. Please try again later.",
-    "telemt_config_dir_hint": "Directory on the remote server where Telemt stores its configuration files."
+    "telemt_config_dir_hint": "Directory on the remote server where Telemt stores its configuration files.",
+    "language_label": "Default Language"
 }

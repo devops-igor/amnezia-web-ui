@@ -27,6 +27,8 @@ import uvicorn
 import httpx
 import re
 
+from utils import format_bytes
+
 try:
     from multicolorcaptcha import CaptchaGenerator
 except ImportError:
@@ -251,6 +253,21 @@ def load_translations():
 def _t(text_id, lang="en"):
     lang_batch = TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))
     return lang_batch.get(text_id, text_id)
+
+
+def _get_default_lang() -> str:
+    """Read the default language from appearance settings, fall back to 'en'."""
+    try:
+        db = get_db()
+        appearance = db.get_setting("appearance", {})
+        return appearance.get("language", "en")
+    except Exception:
+        return "en"
+
+
+def _get_lang(request: Request) -> str:
+    """Get language from cookie, falling back to settings-configured default."""
+    return request.cookies.get("lang", _get_default_lang())
 
 
 load_translations()
@@ -628,23 +645,10 @@ def get_current_user(request: Request):
     return db.get_user(user_id)
 
 
-def _format_bytes(n: int) -> str:
-    """Format byte count as human-readable string (e.g. '1.5 GB')."""
-    if n is None:
-        n = 0
-    for unit in ["B", "KB", "MB", "GB", "TB", "PB"]:
-        if abs(n) < 1024.0:
-            if unit == "B":
-                return f"{int(n)} {unit}"
-            return f"{n:.2f} {unit}"
-        n /= 1024.0
-    return f"{n:.2f} EB"
-
-
 def tpl(request, template, **kwargs):
     db = get_db()
     settings = db.get_all_settings()
-    lang = request.cookies.get("lang", "en")
+    lang = _get_lang(request)
     ctx = {
         "request": request,
         "current_user": get_current_user(request),
@@ -656,7 +660,7 @@ def tpl(request, template, **kwargs):
         "_": lambda text_id: _t(text_id, lang),
         "translations_json": json.dumps(TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))),
         "all_translations_json": json.dumps(TRANSLATIONS),
-        "format_bytes": _format_bytes,
+        "format_bytes": format_bytes,
         # CSRF token for forms - available from cookie, set by CSRF middleware
         "csrf_token": request.cookies.get("csrftoken", ""),
     }
@@ -937,6 +941,16 @@ class AppearanceSettings(BaseModel):
     title: str = Field(default="Amnezia", min_length=1, max_length=100)
     logo: str = Field(default="🛡", min_length=1, max_length=100)
     subtitle: str = Field(default="Web Panel", min_length=1, max_length=200)
+    language: str = Field(default="en", min_length=1, max_length=10)
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, v: str) -> str:
+        """Validate language against available translations."""
+        v = v.strip().lower()
+        if v not in TRANSLATIONS:
+            raise ValueError(f"language must be one of: {', '.join(sorted(TRANSLATIONS.keys()))}")
+        return v
 
 
 class SyncSettings(BaseModel):
@@ -1554,7 +1568,7 @@ async def api_login(request: Request, req: LoginRequest):
     captcha_settings = db.get_setting("captcha", {})
     if captcha_settings.get("enabled") is True:
         answer = request.session.get("captcha_answer")
-        lang = request.cookies.get("lang", "ru")
+        lang = _get_lang(request)
         if not answer or not req.captcha or answer.lower() != req.captcha.lower():
             request.session.pop("captcha_answer", None)
             return JSONResponse({"error": _t("invalid_captcha", lang)}, status_code=400)
@@ -1562,7 +1576,7 @@ async def api_login(request: Request, req: LoginRequest):
 
     user = db.get_user_by_username(req.username)
     if user and verify_password(req.password, user["password_hash"]):
-        lang = request.cookies.get("lang", "ru")
+        lang = _get_lang(request)
         if not user.get("enabled", True):
             return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
         request.session["user_id"] = user["id"]
@@ -1571,7 +1585,7 @@ async def api_login(request: Request, req: LoginRequest):
             "role": user["role"],
             "password_change_required": user.get("password_change_required", False),
         }
-    lang = request.cookies.get("lang", "ru")
+    lang = _get_lang(request)
     return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
 
 
@@ -2363,7 +2377,7 @@ async def api_add_user(request: Request, req: AddUserRequest):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
-        lang = request.cookies.get("lang", "ru")
+        lang = _get_lang(request)
         # Check duplicate
         existing = db.get_user_by_username(req.username)
         if existing:
@@ -2494,7 +2508,7 @@ async def api_delete_user(request: Request, user_id: str):
     cur = get_current_user(request)
     if not cur or cur["role"] != "admin":
         return JSONResponse({"error": "Forbidden"}, status_code=403)
-    lang = request.cookies.get("lang", "ru")
+    lang = _get_lang(request)
     if cur["id"] == user_id:
         return JSONResponse({"error": _t("cannot_delete_self", lang)}, status_code=400)
     try:
@@ -2849,7 +2863,7 @@ async def share_page(token: str, request: Request):
     db = get_db()
     user = db.get_user_by_share_token(token)
     if not user or not user.get("share_enabled"):
-        lang = request.cookies.get("lang", "ru")
+        lang = _get_lang(request)
         return HTMLResponse(
             f"<h1>{_t('share_not_found', lang)}</h1><p>{_t('share_not_found_desc', lang)}</p>",
             status_code=404,
@@ -2877,7 +2891,7 @@ async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
         request.session[f"share_auth_{token}"] = True
         return {"status": "success"}
     else:
-        lang = request.cookies.get("lang", "ru")
+        lang = _get_lang(request)
         return JSONResponse({"error": _t("wrong_share_password", lang)}, status_code=401)
 
 
@@ -3006,13 +3020,13 @@ async def save_settings(request: Request, payload: SaveSettingsRequest):
     if not _check_admin(request):
         return JSONResponse({"error": "Forbidden"}, status_code=403)
     db = get_db()
-    db.update_setting("appearance", payload.appearance.dict())
-    db.update_setting("sync", payload.sync.dict())
-    db.update_setting("captcha", payload.captcha.dict())
-    db.update_setting("telegram", payload.telegram.dict())
-    db.update_setting("ssl", payload.ssl.dict())
-    db.update_setting("limits", payload.limits.dict())
-    db.update_setting("protocol_paths", payload.protocol_paths.dict())
+    db.update_setting("appearance", payload.appearance.model_dump())
+    db.update_setting("sync", payload.sync.model_dump())
+    db.update_setting("captcha", payload.captcha.model_dump())
+    db.update_setting("telegram", payload.telegram.model_dump())
+    db.update_setting("ssl", payload.ssl.model_dump())
+    db.update_setting("limits", payload.limits.model_dump())
+    db.update_setting("protocol_paths", payload.protocol_paths.model_dump())
     logger.info("Settings saved (including captcha and telegram)")
 
     # Handle bot start/stop based on new telegram settings
