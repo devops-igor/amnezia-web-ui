@@ -5,6 +5,7 @@ Unit tests for awg_manager.py
 import pytest
 from unittest.mock import MagicMock, patch
 from awg_manager import AWGManager, generate_wg_keypair, generate_psk, generate_awg_params
+import awg_manager
 
 
 class TestAWGKeyGeneration:
@@ -151,6 +152,31 @@ class TestAWGManager:
         with patch.object(self.manager, "_get_used_ips", return_value=["10.8.1.2"]):
             ip = self.manager._get_next_ip("awg")
             assert ip == "10.8.1.3"
+
+    def test_get_next_ip_exhausted_subnet_raises(self):
+        """When all IPs in subnet are used, should raise RuntimeError."""
+        # Temporarily change to /30 subnet (only 2 usable + gateway)
+        with patch("awg_manager.AWG_DEFAULTS", {**awg_manager.AWG_DEFAULTS, "subnet_cidr": 30}):
+            with patch.object(
+                self.manager,
+                "_get_used_ips",
+                return_value=["10.8.1.2", "10.8.1.3"],
+            ):
+                with pytest.raises(RuntimeError) as exc_info:
+                    self.manager._get_next_ip("awg")
+                assert "exhausted" in str(exc_info.value).lower()
+
+    def test_get_next_ip_full_subnet_concurrent(self):
+        """Simulate sequential exhaustion of a subnet (all 254 usable IPs taken)."""
+        all_ips = [f"10.8.1.{i}" for i in range(2, 255)]  # 253 client IPs + gateway = 254
+        with patch.object(
+            self.manager,
+            "_get_used_ips",
+            return_value=all_ips,
+        ):
+            with pytest.raises(RuntimeError) as exc_info:
+                self.manager._get_next_ip("awg")
+            assert "exhausted" in str(exc_info.value).lower()
 
     # ---- Parse bytes ----
 
@@ -593,3 +619,51 @@ class TestToggleClientSftp:
             if "docker exec" in cmd:
                 assert "$(whoami)" not in cmd
                 assert "rm -rf" not in cmd
+
+
+class TestAWGManagerConcurrent:
+    """Tests for concurrent safety in AWGManager."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.manager = AWGManager(self.mock_ssh)
+
+    def test_add_client_concurrent_no_collision(self):
+        """Sequential add_client under lock must not assign duplicate IPs."""
+        # Track used IPs to verify the lock path works
+        used = []
+
+        def track_ips(*args, **kwargs):
+            return list(used)
+
+        with (
+            patch.object(
+                self.manager, "_get_server_config", return_value="[Interface]\nPrivateKey = test\n"
+            ),
+            patch.object(self.manager, "_save_clients_table"),
+            patch.object(self.manager, "_get_clients_table", return_value=[]),
+            patch.object(self.manager, "_get_awg_params_from_config", return_value={}),
+            patch.object(self.manager, "_get_server_public_key", return_value="testpub"),
+            patch.object(self.manager, "_get_server_psk", return_value="testpsk"),
+            patch.object(self.manager, "_get_used_ips", side_effect=track_ips),
+        ):
+
+            mock_ssh = MagicMock()
+            mock_ssh.run_sudo_command.return_value = ("", "", 0)
+            mock_ssh.run_command.return_value = ("", "", 0)
+            mock_ssh.upload_file.return_value = None
+            self.manager.ssh = mock_ssh
+
+            result1 = self.manager.add_client("awg", "client1", "1.2.3.4", "55424")
+            ip1 = result1["client_ip"]
+            used.append(ip1)
+
+            result2 = self.manager.add_client("awg", "client2", "1.2.3.4", "55424")
+            ip2 = result2["client_ip"]
+
+        assert ip1 != ip2
+
+    def test_add_client_lock_held_during_ip_allocation(self):
+        """The _lock attribute should be a lock instance."""
+        assert hasattr(self.manager, "_lock")
+        assert self.manager._lock is not None

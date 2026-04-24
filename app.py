@@ -1377,6 +1377,25 @@ async def periodic_background_tasks():
                 logger.info(f"Traffic limit reached, disabling users: {to_disable_uids}")
                 await perform_mass_operations(toggle_uids=[(uid, False) for uid in to_disable_uids])
 
+            # --- 1b. TELEM QUOTA ENFORCEMENT ---
+            # Explicitly disable over-quota telemt users (side effect removed from get_clients)
+            for server in servers:
+                sid = server["id"]
+                if "telemt" not in server.get("protocols", {}):
+                    continue
+                try:
+                    ssh = get_ssh(server)
+                    await asyncio.to_thread(ssh.connect)
+                    manager = get_protocol_manager(ssh, "telemt")
+                    disabled = await asyncio.to_thread(manager.disable_overquota_users, "telemt")
+                    if disabled:
+                        logger.info(
+                            f"Disabled {len(disabled)} over-quota users on telemt server {sid}"
+                        )
+                    await asyncio.to_thread(ssh.disconnect)
+                except Exception as e:
+                    logger.error(f"Error disabling over-quota users on server {sid}: {e}")
+
             # --- 2. REMNAWAVE SYNC ---
             logger.info("Starting background Remnawave sync...")
             if db.get_setting("sync", {}).get("remnawave_sync_users"):
@@ -1676,7 +1695,7 @@ async def api_delete_server(request: Request, server_id: int):
         db = get_db()
         if db.get_server_by_id(server_id) is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        db.delete_server_by_index(server_id)
+        db.delete_server(server_id)
         return {"status": "success"}
     except Exception as e:
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
