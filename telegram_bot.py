@@ -6,6 +6,7 @@ Runs as a background asyncio task alongside the FastAPI app.
 
 import asyncio
 import logging
+import traceback
 from typing import Optional, Callable
 
 import httpx
@@ -119,17 +120,17 @@ def _find_user(load_data_fn: Callable, tg_id: str):
 def _build_connections_keyboard(conns: list, data: dict) -> dict:
     """Build inline keyboard where each button = one connection."""
     rows = []
-    servers = data.get("servers", [])
+    servers_by_id = {s["id"]: s for s in data.get("servers", [])}
     for c in conns:
-        sid = c.get("server_id", 0)
-        server_name = "Unknown"
-        if sid < len(servers):
-            srv = servers[sid]
+        sid = c.get("server_id")
+        srv = servers_by_id.get(sid)
+        if srv is not None:
             server_name = srv.get("name") or srv.get("host", "Unknown")[:20]
+        else:
+            server_name = "Unknown"
         proto = c.get("protocol", "").upper()
         name = c.get("name", "Connection")
         label = f"🔐 {name} · {proto} · {server_name}"
-        # callback_data must be ≤ 64 bytes — use short prefix
         rows.append([{"text": label, "callback_data": f"cfg:{c['id']}"}])
     rows.append([{"text": "🔄 Обновить список", "callback_data": "refresh"}])
     return {"inline_keyboard": rows}
@@ -241,12 +242,12 @@ async def _handle_get_config(
         return
 
     sid = conn["server_id"]
-    servers = data.get("servers", [])
-    if sid >= len(servers):
+    servers_by_id = {s["id"]: s for s in data.get("servers", [])}
+    server = servers_by_id.get(sid)
+    if server is None:
         await api.send_message(chat_id, "❌ Server not found.")
         return
 
-    server = servers[sid]
     proto = conn.get("protocol", "awg")
     conn_name = conn.get("name", "Connection")
 
@@ -268,7 +269,7 @@ async def _handle_get_config(
         ssh = SSHManager(
             server["host"],
             server.get("ssh_port", 22),
-            server["username"],
+            server.get("username", ""),
             server.get("password", ""),
             server.get("private_key", ""),
         )
@@ -339,11 +340,14 @@ async def _handle_get_config(
         )
 
     except Exception as e:
-        logger.exception("Bot: error getting config")
+        func_name = "_handle_get_config"
+        logger.error(f"Unhandled in {func_name}: {type(e).__name__}: {e}\n{traceback.format_exc()}")
         if loading_msg_id:
-            await api.edit_message(chat_id, loading_msg_id, f"❌ Error: {e}")
+            await api.edit_message(
+                chat_id, loading_msg_id, "An unexpected error occurred. Please try again."
+            )
         else:
-            await api.send_message(chat_id, f"❌ Error: {e}")
+            await api.send_message(chat_id, "An unexpected error occurred. Please try again.")
 
 
 # ----------------------------------------------------------------------- #
@@ -369,7 +373,9 @@ async def _run_bot(token: str, load_data_fn: Callable, generate_vpn_link_fn: Cal
                 logger.info("Telegram bot polling cancelled.")
                 return
             except Exception as e:
-                logger.warning(f"Telegram bot polling error: {e}")
+                logger.error(
+                    f"Unhandled in _run_bot: {type(e).__name__}: {e}\n{traceback.format_exc()}"
+                )
                 await asyncio.sleep(5)
                 continue
 
@@ -380,9 +386,24 @@ async def _run_bot(token: str, load_data_fn: Callable, generate_vpn_link_fn: Cal
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
-                    logger.exception(
-                        f"Telegram bot: error handling update {update['update_id']}: {e}"
+                    func_name = "_dispatch"
+                    logger.error(
+                        f"Unhandled in {func_name}: {type(e).__name__}: {e}\n"
+                        f"{traceback.format_exc()}"
                     )
+                    chat_id = None
+                    if "message" in update:
+                        chat_id = update["message"]["chat"].get("id")
+                    elif "callback_query" in update:
+                        chat_id = update["callback_query"]["message"]["chat"].get("id")
+                    if chat_id:
+                        try:
+                            await api.send_message(
+                                chat_id,
+                                "An unexpected error occurred. Please try again.",
+                            )
+                        except Exception:
+                            pass
 
 
 async def _dispatch(
