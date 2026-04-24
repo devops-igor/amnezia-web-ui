@@ -170,16 +170,14 @@ class TestDatabaseMigration:
         tmp_db.close()
 
         conn = sqlite3.connect(tmp_db_path)
-        conn.execute(
-            """CREATE TABLE IF NOT EXISTS users (
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
                 password_hash TEXT,
                 role TEXT NOT NULL DEFAULT 'user',
                 enabled INTEGER NOT NULL DEFAULT 1,
                 limits TEXT
-            )"""
-        )
+            )""")
         conn.execute(
             "INSERT INTO users (id, username, password_hash, role, enabled, limits) "
             "VALUES ('old-user', 'olduser', 'hash', 'user', 1, '{}')"
