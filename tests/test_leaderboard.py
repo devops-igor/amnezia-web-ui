@@ -7,7 +7,7 @@ Tests cover:
 - API route: authenticated response shape, period filtering, current_user_rank
 - API route: 401 for unauthenticated requests
 - Page route: redirect to login for unauthenticated, 200 for authenticated
-- _format_bytes helper function
+- format_bytes helper function (moved to utils.py)
 """
 
 import os
@@ -252,51 +252,51 @@ class TestGetLeaderboardEntries:
         assert entries[0]["total"] == 5000
 
 
-# ---------- _format_bytes Tests ----------
+# ---------- format_bytes Tests ----------
 
 
 class TestFormatBytes:
-    """Test the _format_bytes helper function."""
+    """Test the format_bytes helper function (now in utils.py)."""
 
     def test_bytes(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(500) == "500 B"
+        assert format_bytes(500) == "500 B"
 
     def test_kilobytes(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(1024) == "1.00 KB"
+        assert format_bytes(1024) == "1.00 KB"
 
     def test_megabytes(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(1024 * 1024) == "1.00 MB"
+        assert format_bytes(1024 * 1024) == "1.00 MB"
 
     def test_gigabytes(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(1024 * 1024 * 1024) == "1.00 GB"
+        assert format_bytes(1024 * 1024 * 1024) == "1.00 GB"
 
     def test_terabytes(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(1024 * 1024 * 1024 * 1024) == "1.00 TB"
+        assert format_bytes(1024 * 1024 * 1024 * 1024) == "1.00 TB"
 
     def test_zero(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(0) == "0 B"
+        assert format_bytes(0) == "0 B"
 
     def test_none_becomes_zero(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        assert _format_bytes(None) == "0 B"
+        assert format_bytes(None) == "0 B"
 
     def test_large_number(self):
-        from app import _format_bytes
+        from utils import format_bytes
 
-        result = _format_bytes(1234567890)
+        result = format_bytes(1234567890)
         assert "GB" in result or "TB" in result
 
 
