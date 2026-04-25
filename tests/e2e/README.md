@@ -6,7 +6,7 @@
 cd /home/igor/Amnezia-Web-Panel
 
 # Install dependencies
-pip install playwright==1.52.0 pytest-playwright==0.7.0 pytest-asyncio==1.3.0 --break-system-packages
+pip install playwright==1.52.0 pytest-playwright==0.7.2 pytest-asyncio==1.3.0 --break-system-packages
 
 # Install Chromium browser (one-time, ~100MB)
 python3 -m playwright install chromium
@@ -145,7 +145,7 @@ Add a delay between Playwright actions to watch what happens:
 
 ```python
 # In your test (temporary debug):
-await page.wait_for_timeout(2000)  # 2 second pause
+page.wait_for_timeout(2000)  # 2 second pause
 ```
 
 ### 8. Run with visible browser + slow motion
@@ -174,7 +174,7 @@ python3 -m playwright show-trace trace.zip
 ### "ModuleNotFoundError: No module named 'playwright'"
 
 ```bash
-pip install playwright==1.52.0 pytest-playwright==0.7.0 --break-system-packages
+pip install playwright==1.52.0 pytest-playwright==0.7.2 --break-system-packages
 python3 -m playwright install chromium
 ```
 
@@ -196,9 +196,9 @@ python3 -m playwright install chromium
 - Check the server is up: `curl -sk https://vpn.dev.drochi.games/login`
 - Check if captcha is enabled (test fixtures try to handle it but may fail)
 
-### Fixture "page" raises async_generator error
+### Fixture errors / test hangs
 
-This was a bug in conftest.py — already fixed. Make sure you have the latest version with `import types` and the `isinstance(page_obj, types.AsyncGeneratorType)` check.
+Tests use pytest-playwright's built-in sync fixtures. If you see hangs or async errors, make sure conftest.py does NOT define custom async `browser` or `page` fixtures — those conflict with pytest-asyncio.
 
 ---
 
