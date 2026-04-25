@@ -1,35 +1,33 @@
 """E2E tests for settings page and API."""
 
 import pytest
-from playwright.async_api import Page
+from playwright.sync_api import Page
 
 from tests.e2e.conftest import api_post
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_settings_page_loads(authenticated_page: Page, base_url: str) -> None:
+def test_settings_page_loads(authenticated_page: Page, base_url: str) -> None:
     """Navigate to /settings → sees settings form."""
     page = authenticated_page
-    await page.goto(f"{base_url}/settings")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/settings")
+    page.wait_for_load_state("networkidle")
 
     # Should not redirect to login
     assert "/login" not in page.url
 
     # Settings page should have content
-    content = await page.content()
+    content = page.content()
     assert len(content) > 100
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Change panel title → saved and reflected in page."""
     page = authenticated_page
 
     # Get current settings
-    settings_result = await page.evaluate(
+    settings_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/settings');
         return await res.json();
@@ -45,7 +43,7 @@ async def test_change_title(authenticated_page: Page, base_url: str, csrf_token:
     new_title = "E2E Test Panel"
 
     # Build settings payload with all required fields
-    save_result = await api_post(
+    save_result = api_post(
         page,
         "/api/settings/save",
         {
@@ -91,14 +89,14 @@ async def test_change_title(authenticated_page: Page, base_url: str, csrf_token:
         assert save_result["body"].get("status") == "success"
 
         # Verify by navigating to the page and checking the title appears
-        await page.goto(f"{base_url}/")
-        await page.wait_for_load_state("networkidle")
-        page_content = await page.content()
+        page.goto(f"{base_url}/")
+        page.wait_for_load_state("networkidle")
+        page_content = page.content()
         # Title should appear in the rendered page
         assert new_title in page_content or "E2E" in page_content
 
     # Restore original settings
-    restore_result = await api_post(
+    api_post(
         page,
         "/api/settings/save",
         {
@@ -141,13 +139,12 @@ async def test_change_title(authenticated_page: Page, base_url: str, csrf_token:
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Toggle captcha setting → setting changes."""
     page = authenticated_page
 
     # Get current settings
-    settings_result = await page.evaluate(
+    settings_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/settings');
         return await res.json();
@@ -160,7 +157,7 @@ async def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_toke
 
     # Toggle captcha on
     captcha_on = {"enabled": True}
-    save_result = await api_post(
+    save_result = api_post(
         page,
         "/api/settings/save",
         {
@@ -203,7 +200,7 @@ async def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_toke
 
     if save_result["status"] == 200:
         # Verify captcha is now enabled
-        verify_result = await page.evaluate(
+        verify_result = page.evaluate(
             """async () => {
             const res = await fetch('/api/settings');
             return await res.json();
@@ -216,7 +213,7 @@ async def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_toke
         )
 
     # Restore original captcha setting
-    await api_post(
+    api_post(
         page,
         "/api/settings/save",
         {
@@ -259,17 +256,16 @@ async def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_toke
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_backup_download(authenticated_page: Page, base_url: str) -> None:
+def test_backup_download(authenticated_page: Page, base_url: str) -> None:
     """Click download backup → gets backup file."""
     page = authenticated_page
 
     # Navigate to settings page first to get CSRF cookie
-    await page.goto(f"{base_url}/settings")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/settings")
+    page.wait_for_load_state("networkidle")
 
     # Download the backup
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
         const res = await fetch('/api/settings/backup/download', {

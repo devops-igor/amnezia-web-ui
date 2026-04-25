@@ -1,19 +1,18 @@
 """E2E tests for connection management."""
 
 import pytest
-from playwright.async_api import Page
+from playwright.sync_api import Page
 
 from tests.e2e.conftest import api_post
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_connection_list(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_connection_list(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Navigate to server connections → sees connection list."""
     page = authenticated_page
 
     # Get a server first
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -27,21 +26,20 @@ async def test_connection_list(authenticated_page: Page, base_url: str, csrf_tok
     server_id = servers[0]["id"]
 
     # Navigate to server detail page which shows connections
-    await page.goto(f"{base_url}/server/{server_id}")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/server/{server_id}")
+    page.wait_for_load_state("networkidle")
 
     # Verify page loaded
     assert "/login" not in page.url
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Add a new connection → appears in connection list."""
     page = authenticated_page
 
     # Need a server to add connections to
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -53,7 +51,7 @@ async def test_add_connection(authenticated_page: Page, base_url: str, csrf_toke
         pytest.skip("No servers available to add connections")
 
     server_id = servers[0]["id"]
-    add_result = await api_post(
+    add_result = api_post(
         page,
         f"/api/servers/{server_id}/connections/add",
         {
@@ -68,15 +66,12 @@ async def test_add_connection(authenticated_page: Page, base_url: str, csrf_toke
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_connection_config_and_qr(
-    authenticated_page: Page, base_url: str, csrf_token: str
-) -> None:
+def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """View connection config → sees config text and QR code."""
     page = authenticated_page
 
     # Get server and its connections
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -90,7 +85,7 @@ async def test_connection_config_and_qr(
     server_id = servers[0]["id"]
 
     # Get connections for this server
-    connections_result = await page.evaluate(
+    connections_result = page.evaluate(
         """async (serverId) => {
         const res = await fetch(`/api/servers/${serverId}/connections`);
         return await res.json();
@@ -108,7 +103,7 @@ async def test_connection_config_and_qr(
         pytest.skip("No connections available to test config view")
 
     conn_id = connections[0]["id"]
-    config_result = await api_post(
+    config_result = api_post(
         page,
         f"/api/servers/{server_id}/connections/config",
         {"connection_id": conn_id},
@@ -120,12 +115,11 @@ async def test_connection_config_and_qr(
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Enable/disable a connection → status changes."""
     page = authenticated_page
 
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -138,7 +132,7 @@ async def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_t
 
     server_id = servers[0]["id"]
 
-    connections_result = await page.evaluate(
+    connections_result = page.evaluate(
         """async (serverId) => {
         const res = await fetch(`/api/servers/${serverId}/connections`);
         return await res.json();
@@ -156,7 +150,7 @@ async def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_t
         pytest.skip("No connections available to test toggle")
 
     conn_id = connections[0]["id"]
-    toggle_result = await api_post(
+    toggle_result = api_post(
         page,
         f"/api/servers/{server_id}/connections/toggle",
         {"connection_id": conn_id},
@@ -168,12 +162,11 @@ async def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_t
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Delete a connection → removed from list."""
     page = authenticated_page
 
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -186,7 +179,7 @@ async def test_delete_connection(authenticated_page: Page, base_url: str, csrf_t
 
     server_id = servers[0]["id"]
 
-    connections_result = await page.evaluate(
+    connections_result = page.evaluate(
         """async (serverId) => {
         const res = await fetch(`/api/servers/${serverId}/connections`);
         return await res.json();
@@ -204,7 +197,7 @@ async def test_delete_connection(authenticated_page: Page, base_url: str, csrf_t
         pytest.skip("No connections available to test delete")
 
     conn_id = connections[0]["id"]
-    delete_result = await api_post(
+    delete_result = api_post(
         page,
         f"/api/servers/{server_id}/connections/remove",
         {"connection_id": conn_id},

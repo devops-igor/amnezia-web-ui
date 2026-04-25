@@ -1,21 +1,21 @@
 """E2E tests for user self-service (my connections)."""
 
 import pytest
-from playwright.async_api import Page
+from playwright.sync_api import Page
 
 from tests.e2e.conftest import api_post
 
 
-async def _create_test_user(
+def _create_test_user(
     page: Page, base_url: str, csrf_token: str, username: str = "e2e_my_user"
 ) -> dict:
     """Helper: create a regular user and return user dict."""
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": username,
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -25,7 +25,7 @@ async def _create_test_user(
     if add_result["status"] != 200:
         pytest.skip("Could not create test user")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -42,16 +42,13 @@ async def _create_test_user(
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_user_login_and_list(
-    page: Page, base_url: str, admin_user: str, admin_pass: str
-) -> None:
+def test_user_login_and_list(page: Page, base_url: str, admin_user: str, admin_pass: str) -> None:
     """Login as regular user → sees own connections."""
     # First, create a regular user via admin
-    await page.goto(f"{base_url}/login")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/login")
+    page.wait_for_load_state("networkidle")
 
-    csrf_token = await page.evaluate(
+    csrf_token = page.evaluate(
         """() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
@@ -61,7 +58,7 @@ async def test_user_login_and_list(
     )
 
     # Login as admin to create a test user
-    login_result = await page.evaluate(
+    login_result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
         const res = await fetch('/api/auth/login', {
             method: 'POST',
@@ -84,21 +81,21 @@ async def test_user_login_and_list(
         pytest.skip("Admin login failed — cannot create test user")
 
     # Create test user
-    test_user = await _create_test_user(page, base_url, csrf_token)
+    test_user = _create_test_user(page, base_url, csrf_token)
     test_username = test_user.get("username", "e2e_my_user")
 
     # Logout admin — navigate to /logout
-    await page.goto(f"{base_url}/logout")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/logout")
+    page.wait_for_load_state("networkidle")
 
     # Clear cookies for a fresh login
-    await page.context.clear_cookies()
+    page.context.clear_cookies()
 
     # Login as the test user
-    await page.goto(f"{base_url}/login")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/login")
+    page.wait_for_load_state("networkidle")
 
-    csrf_token2 = await page.evaluate(
+    csrf_token2 = page.evaluate(
         """() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
@@ -107,7 +104,7 @@ async def test_user_login_and_list(
     }"""
     )
 
-    user_login_result = await page.evaluate(
+    user_login_result = page.evaluate(
         """async ([username, password, csrfToken]) => {
         const res = await fetch('/api/auth/login', {
             method: 'POST',
@@ -129,14 +126,13 @@ async def test_user_login_and_list(
     assert user_login_result.get("status") == "success"
 
     # Navigate to /my — should see own connections
-    await page.goto(f"{base_url}/my")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/my")
+    page.wait_for_load_state("networkidle")
     assert "/login" not in page.url
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_create_connection(
+def test_create_connection(
     authenticated_page: Page,
     base_url: str,
     csrf_token: str,
@@ -145,7 +141,7 @@ async def test_create_connection(
     page = authenticated_page
 
     # Get a server to attach connection to
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -159,10 +155,10 @@ async def test_create_connection(
     server_id = servers[0]["id"]
 
     # Create a test user and add a connection for them
-    test_user = await _create_test_user(page, base_url, csrf_token, "e2e_conn_user")
+    test_user = _create_test_user(page, base_url, csrf_token, "e2e_conn_user")
     user_id = test_user["id"]
 
-    conn_result = await api_post(
+    conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
         {"server_id": server_id, "protocol": "awg", "name": "e2e_user_conn"},
@@ -175,20 +171,19 @@ async def test_create_connection(
         assert conn_result["body"].get("status") == "success" or "id" in conn_result["body"]
 
     # Clean up — delete the test user
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_view_connection_config(
+def test_view_connection_config(
     page: Page, base_url: str, admin_user: str, admin_pass: str
 ) -> None:
     """Click connection config -> sees config details."""
     # Login as admin, create user + connection, then view config
-    await page.goto(f"{base_url}/login")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/login")
+    page.wait_for_load_state("networkidle")
 
-    csrf_token = await page.evaluate(
+    csrf_token = page.evaluate(
         """() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
@@ -197,7 +192,7 @@ async def test_view_connection_config(
     }"""
     )
 
-    login_result = await page.evaluate(
+    login_result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
         const res = await fetch('/api/auth/login', {
             method: 'POST',
@@ -219,11 +214,11 @@ async def test_view_connection_config(
     if login_result.get("status") != "success":
         pytest.skip("Admin login failed")
 
-    test_user = await _create_test_user(page, base_url, csrf_token, "e2e_view_user")
+    test_user = _create_test_user(page, base_url, csrf_token, "e2e_view_user")
     user_id = test_user["id"]
 
     # Get servers to find a connection
-    servers_result = await page.evaluate(
+    servers_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -234,13 +229,13 @@ async def test_view_connection_config(
     )
 
     if not servers:
-        await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("No servers available for config test")
 
     server_id = servers[0]["id"]
 
     # Add a connection for the test user
-    conn_result = await api_post(
+    conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
         {"server_id": server_id, "protocol": "awg", "name": "e2e_view_conn"},
@@ -248,11 +243,11 @@ async def test_view_connection_config(
     )
 
     if conn_result["status"] != 200:
-        await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("Could not create connection for config test")
 
     # Fetch the connection config via the server API
-    config_result = await api_post(
+    config_result = api_post(
         page,
         f"/api/servers/{server_id}/connections/config",
         {"connection_id": conn_result["body"].get("id", "")},
@@ -263,20 +258,17 @@ async def test_view_connection_config(
     assert config_result["body"] is not None
 
     # Clean up
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_role_access_denied(
-    page: Page, base_url: str, admin_user: str, admin_pass: str
-) -> None:
+def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pass: str) -> None:
     """Regular user navigating to admin page → receives error or redirect."""
     # Login as admin, create a regular user
-    await page.goto(f"{base_url}/login")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/login")
+    page.wait_for_load_state("networkidle")
 
-    csrf_token = await page.evaluate(
+    csrf_token = page.evaluate(
         """() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
@@ -285,7 +277,7 @@ async def test_role_access_denied(
     }"""
     )
 
-    login_result = await page.evaluate(
+    login_result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
         const res = await fetch('/api/auth/login', {
             method: 'POST',
@@ -307,18 +299,18 @@ async def test_role_access_denied(
     if login_result.get("status") != "success":
         pytest.skip("Admin login failed")
 
-    test_user = await _create_test_user(page, base_url, csrf_token, "e2e_role_user")
+    test_user = _create_test_user(page, base_url, csrf_token, "e2e_role_user")
 
     # Logout admin
-    await page.goto(f"{base_url}/logout")
-    await page.wait_for_load_state("networkidle")
-    await page.context.clear_cookies()
+    page.goto(f"{base_url}/logout")
+    page.wait_for_load_state("networkidle")
+    page.context.clear_cookies()
 
     # Login as regular user
-    await page.goto(f"{base_url}/login")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/login")
+    page.wait_for_load_state("networkidle")
 
-    csrf_token2 = await page.evaluate(
+    csrf_token2 = page.evaluate(
         """() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
@@ -327,7 +319,7 @@ async def test_role_access_denied(
     }"""
     )
 
-    await page.evaluate(
+    page.evaluate(
         """async ([username, password, csrfToken]) => {
         await fetch('/api/auth/login', {
             method: 'POST',
@@ -346,7 +338,7 @@ async def test_role_access_denied(
     )
 
     # Try to access admin API — should get 403
-    api_result = await page.evaluate(
+    api_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/settings');
         return { status: res.status, body: await res.json() };

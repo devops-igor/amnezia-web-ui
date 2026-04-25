@@ -1,19 +1,18 @@
 """E2E tests for share link functionality."""
 
 import pytest
-from playwright.async_api import Page
+from playwright.sync_api import Page
 
 from tests.e2e.conftest import api_post
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Set up share for a user connection → share link generated."""
     page = authenticated_page
 
     # Get users (need a user to share)
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -23,12 +22,12 @@ async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_toke
     users = users_result if isinstance(users_result, list) else []
     if not users:
         # Create a test user
-        add_result = await api_post(
+        add_result = api_post(
             page,
             "/api/users/add",
             {
                 "username": "e2e_share_user",
-                "password": "TestPass123!",
+                "password": "***",
                 "role": "user",
                 "enabled": True,
             },
@@ -37,7 +36,7 @@ async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_toke
         if add_result["status"] != 200:
             pytest.skip("Could not create user for share test")
 
-        users_result2 = await page.evaluate(
+        users_result2 = page.evaluate(
             """async () => {
             const res = await fetch('/api/users');
             return await res.json();
@@ -61,10 +60,10 @@ async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_toke
     user_id = target_user["id"]
 
     # Enable sharing via the setup endpoint
-    share_result = await api_post(
+    share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "TestPass123!"},
+        {"enabled": True, "password": "***"},
         csrf_token,
     )
 
@@ -75,7 +74,7 @@ async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_toke
     assert "share_token" in body
 
     # Clean up — disable sharing
-    await api_post(
+    api_post(
         page,
         f"/api/users/{user_id}/share/setup",
         {"enabled": False},
@@ -84,18 +83,17 @@ async def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_toke
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Navigate to share link → sees share page."""
     page = authenticated_page
 
     # Create a test user
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_share_access_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -105,7 +103,7 @@ async def test_access_share_link(authenticated_page: Page, base_url: str, csrf_t
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -125,10 +123,10 @@ async def test_access_share_link(authenticated_page: Page, base_url: str, csrf_t
     user_id = target_user["id"]
 
     # Enable sharing
-    share_result = await api_post(
+    share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "TestPass123!"},
+        {"enabled": True, "password": "***"},
         csrf_token,
     )
 
@@ -140,27 +138,26 @@ async def test_access_share_link(authenticated_page: Page, base_url: str, csrf_t
         pytest.skip("No share token returned")
 
     # Navigate to the share link
-    await page.goto(f"{base_url}/share/{share_token}")
-    await page.wait_for_load_state("networkidle")
+    page.goto(f"{base_url}/share/{share_token}")
+    page.wait_for_load_state("networkidle")
 
     # Should see the share page (not 404)
-    content = await page.content()
+    content = page.content()
     assert "404" not in page.url
     assert len(content) > 0
 
     # Clean up
-    await api_post(
+    api_post(
         page,
         f"/api/users/{user_id}/share/setup",
         {"enabled": False},
         csrf_token,
     )
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_download_config_from_share(
+def test_download_config_from_share(
     authenticated_page: Page, base_url: str, csrf_token: str
 ) -> None:
     """Authenticate on share page, download config → gets config file."""
@@ -168,7 +165,7 @@ async def test_download_config_from_share(
 
     # This test requires a user with share enabled AND a connection.
     # If no servers/connections exist, skip.
-    servers_result = await page.evaluate(
+    servers_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -180,12 +177,12 @@ async def test_download_config_from_share(
         pytest.skip("No servers available for share config test")
 
     # Create a test user with share enabled
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_share_dl_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -195,7 +192,7 @@ async def test_download_config_from_share(
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share download test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -215,21 +212,21 @@ async def test_download_config_from_share(
     user_id = target_user["id"]
 
     # Enable sharing with password
-    share_result = await api_post(
+    share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "TestPass123!"},
+        {"enabled": True, "password": "***"},
         csrf_token,
     )
 
     if share_result["status"] != 200:
-        await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("Could not enable sharing")
 
     share_token = share_result["body"].get("share_token")
 
     # Authenticate on share page
-    auth_result = await page.evaluate(
+    auth_result = page.evaluate(
         """async ([shareToken, csrfToken]) => {
         const res = await fetch(`/api/share/${shareToken}/auth`, {
             method: 'POST',
@@ -249,10 +246,10 @@ async def test_download_config_from_share(
     assert auth_result["status"] in (200, 401, 403)
 
     # Clean up
-    await api_post(
+    api_post(
         page,
         f"/api/users/{user_id}/share/setup",
         {"enabled": False},
         csrf_token,
     )
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)

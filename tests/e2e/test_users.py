@@ -1,18 +1,17 @@
 """E2E tests for user management."""
 
 import pytest
-from playwright.async_api import Page
+from playwright.sync_api import Page
 
 from tests.e2e.conftest import api_post
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
+def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
     """Navigate to /users → sees user list."""
     page = authenticated_page
 
-    result = await page.evaluate(
+    result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -28,17 +27,16 @@ async def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Add a new user → appears in user list."""
     page = authenticated_page
 
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_test_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -53,22 +51,21 @@ async def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str
     # Clean up — try to delete the test user
     if add_result["status"] == 200 and "id" in body:
         user_id = body["id"]
-        await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Edit user details → changes saved."""
     page = authenticated_page
 
     # Create a test user first
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_edit_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -78,7 +75,7 @@ async def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: st
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for edit test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -99,7 +96,7 @@ async def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: st
     user_id = test_user["id"]
 
     # Edit the user
-    edit_result = await api_post(
+    edit_result = api_post(
         page,
         f"/api/users/{user_id}/update",
         {"username": "e2e_edit_user_renamed"},
@@ -110,22 +107,21 @@ async def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: st
     assert edit_result["body"] is not None
 
     # Clean up
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Enable/disable a user → status changes."""
     page = authenticated_page
 
     # Create a test user
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_toggle_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -135,7 +131,7 @@ async def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: 
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for toggle test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -155,25 +151,22 @@ async def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: 
     user_id = test_user["id"]
 
     # Toggle user enabled status
-    toggle_result = await api_post(page, f"/api/users/{user_id}/toggle", {}, csrf_token)
+    toggle_result = api_post(page, f"/api/users/{user_id}/toggle", {}, csrf_token)
 
     # Should respond
     assert toggle_result["body"] is not None
 
     # Clean up
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_add_user_connection(
-    authenticated_page: Page, base_url: str, csrf_token: str
-) -> None:
+def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Add a connection to a user → appears in user's connections."""
     page = authenticated_page
 
     # Get servers first
-    servers_result = await page.evaluate(
+    servers_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/servers');
         return await res.json();
@@ -185,12 +178,12 @@ async def test_add_user_connection(
         pytest.skip("No servers available for user connection test")
 
     # Create a test user
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_conn_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -200,7 +193,7 @@ async def test_add_user_connection(
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for connection test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -221,7 +214,7 @@ async def test_add_user_connection(
     server_id = servers[0]["id"]
 
     # Add connection for user
-    conn_result = await api_post(
+    conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
         {
@@ -235,22 +228,21 @@ async def test_add_user_connection(
     assert conn_result["body"] is not None
 
     # Clean up
-    await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Delete a user → removed from list."""
     page = authenticated_page
 
     # Create a test user
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": "e2e_delete_user",
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -260,7 +252,7 @@ async def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: 
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for delete test")
 
-    users_result = await page.evaluate(
+    users_result = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -280,13 +272,13 @@ async def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: 
     user_id = test_user["id"]
 
     # Delete the user
-    delete_result = await api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    delete_result = api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
     # Should succeed
     assert delete_result["body"] is not None
 
     # Verify user no longer exists
-    users_after = await page.evaluate(
+    users_after = page.evaluate(
         """async () => {
         const res = await fetch('/api/users');
         return await res.json();
@@ -298,19 +290,18 @@ async def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: 
 
 
 @pytest.mark.e2e
-@pytest.mark.asyncio
-async def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
+def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """XSS payload in username → payload is escaped, not executed."""
     page = authenticated_page
 
     xss_payload = '<script>alert("xss")</script>'
 
-    add_result = await api_post(
+    add_result = api_post(
         page,
         "/api/users/add",
         {
             "username": xss_payload,
-            "password": "TestPass123!",
+            "password": "***",
             "role": "user",
             "enabled": True,
         },
@@ -321,17 +312,17 @@ async def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_toke
     # If the user was created, verify the XSS isn't executed when viewed.
     if add_result["status"] == 200:
         # Navigate to users page and verify XSS is escaped
-        await page.goto(f"{base_url}/users")
-        await page.wait_for_load_state("networkidle")
+        page.goto(f"{base_url}/users")
+        page.wait_for_load_state("networkidle")
 
         # The page should not have executed the script
         # Check that no alert was triggered (Playwright handles alerts)
-        content = await page.content()
+        content = page.content()
         # The XSS payload should be HTML-escaped in the rendered page
         assert "<script>alert(" not in content or "&lt;script&gt;" in content
 
         # Clean up
-        users_result = await page.evaluate(
+        users_result = page.evaluate(
             """async () => {
             const res = await fetch('/api/users');
             return await res.json();
@@ -340,4 +331,4 @@ async def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_toke
         users = users_result if isinstance(users_result, list) else []
         for u in users:
             if xss_payload in u.get("username", ""):
-                await api_post(page, f"/api/users/{u['id']}/delete", {}, csrf_token)
+                api_post(page, f"/api/users/{u['id']}/delete", {}, csrf_token)
