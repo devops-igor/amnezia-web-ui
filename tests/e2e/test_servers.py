@@ -28,12 +28,10 @@ def test_server_detail_page(authenticated_page: Page, base_url: str) -> None:
     page = authenticated_page
 
     # Get list of servers via API
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
 
     servers = result if isinstance(result, list) else result.get("servers", [])
 
@@ -55,12 +53,10 @@ def test_server_check(authenticated_page: Page, base_url: str, csrf_token: str) 
     page = authenticated_page
 
     # Get servers
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -78,12 +74,10 @@ def test_server_install(authenticated_page: Page, base_url: str, csrf_token: str
     """Click 'Install' on a server → sees install progress/status."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -101,12 +95,10 @@ def test_server_stats(authenticated_page: Page, base_url: str, csrf_token: str) 
     """Navigate to server stats → sees traffic stats display."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -137,12 +129,10 @@ def test_server_reboot(authenticated_page: Page, base_url: str, csrf_token: str)
     """Click 'Reboot' on a server → sees reboot confirmation/status."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:

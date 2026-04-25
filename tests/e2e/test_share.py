@@ -12,12 +12,10 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
     page = authenticated_page
 
     # Get users (need a user to share)
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
 
     users = users_result if isinstance(users_result, list) else []
     if not users:
@@ -36,12 +34,10 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
         if add_result["status"] != 200:
             pytest.skip("Could not create user for share test")
 
-        users_result2 = page.evaluate(
-            """async () => {
+        users_result2 = page.evaluate("""async () => {
             const res = await fetch('/api/users');
             return await res.json();
-        }"""
-        )
+        }""")
         users = users_result2 if isinstance(users_result2, list) else []
 
     # Find our test user or use the first non-admin user
@@ -103,12 +99,10 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     target_user = None
@@ -165,12 +159,10 @@ def test_download_config_from_share(
 
     # This test requires a user with share enabled AND a connection.
     # If no servers/connections exist, skip.
-    servers_result = page.evaluate(
-        """async () => {
+    servers_result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = servers_result if isinstance(servers_result, list) else []
 
     if not servers:
@@ -192,12 +184,10 @@ def test_download_config_from_share(
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share download test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     target_user = None

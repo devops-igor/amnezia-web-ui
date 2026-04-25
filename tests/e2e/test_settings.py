@@ -27,12 +27,10 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
     page = authenticated_page
 
     # Get current settings
-    settings_result = page.evaluate(
-        """async () => {
+    settings_result = page.evaluate("""async () => {
         const res = await fetch('/api/settings');
         return await res.json();
-    }"""
-    )
+    }""")
 
     original_title = ""
     if isinstance(settings_result, dict):
@@ -144,12 +142,10 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
     page = authenticated_page
 
     # Get current settings
-    settings_result = page.evaluate(
-        """async () => {
+    settings_result = page.evaluate("""async () => {
         const res = await fetch('/api/settings');
         return await res.json();
-    }"""
-    )
+    }""")
 
     original_captcha = {"enabled": False}
     if isinstance(settings_result, dict):
@@ -200,12 +196,10 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
 
     if save_result["status"] == 200:
         # Verify captcha is now enabled
-        verify_result = page.evaluate(
-            """async () => {
+        verify_result = page.evaluate("""async () => {
             const res = await fetch('/api/settings');
             return await res.json();
-        }"""
-        )
+        }""")
         captcha_state = verify_result.get("captcha", {}) if isinstance(verify_result, dict) else {}
         # Captcha should be enabled (or at least the save succeeded)
         assert (
@@ -265,8 +259,7 @@ def test_backup_download(authenticated_page: Page, base_url: str) -> None:
     page.wait_for_load_state("networkidle")
 
     # Download the backup
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
         const res = await fetch('/api/settings/backup/download', {
             headers: { 'X-CSRF-Token': csrfToken },
@@ -278,8 +271,7 @@ def test_backup_download(authenticated_page: Page, base_url: str) -> None:
             contentLength: text.length,
             startsWithJson: text.startsWith('{') || text.startsWith('['),
         };
-    }"""
-    )
+    }""")
 
     # Should return 200 and JSON content
     assert result["status"] == 200

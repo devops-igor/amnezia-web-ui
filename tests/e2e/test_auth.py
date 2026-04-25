@@ -22,14 +22,12 @@ def test_login_success(page: Page, base_url: str, admin_user: str, admin_pass: s
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
@@ -60,14 +58,12 @@ def test_login_failure(page: Page, base_url: str) -> None:
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     result = page.evaluate(
         """async ([csrfToken]) => {
@@ -98,12 +94,10 @@ def test_login_rate_limiting(page: Page, base_url: str) -> None:
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     statuses = []
     for i in range(6):

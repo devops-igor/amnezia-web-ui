@@ -25,12 +25,10 @@ def _create_test_user(
     if add_result["status"] != 200:
         pytest.skip("Could not create test user")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     for u in users:
@@ -48,14 +46,12 @@ def test_user_login_and_list(page: Page, base_url: str, admin_user: str, admin_p
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     # Login as admin to create a test user
     login_result = page.evaluate(
@@ -95,14 +91,12 @@ def test_user_login_and_list(page: Page, base_url: str, admin_user: str, admin_p
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token2 = page.evaluate(
-        """() => {
+    csrf_token2 = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     user_login_result = page.evaluate(
         """async ([username, password, csrfToken]) => {
@@ -141,12 +135,10 @@ def test_create_connection(
     page = authenticated_page
 
     # Get a server to attach connection to
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -183,14 +175,12 @@ def test_view_connection_config(
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     login_result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
@@ -218,12 +208,10 @@ def test_view_connection_config(
     user_id = test_user["id"]
 
     # Get servers to find a connection
-    servers_result = page.evaluate(
-        """async () => {
+    servers_result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = (
         servers_result if isinstance(servers_result, list) else servers_result.get("servers", [])
     )
@@ -268,14 +256,12 @@ def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pa
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     login_result = page.evaluate(
         """async ([adminUser, adminPass, csrfToken]) => {
@@ -310,14 +296,12 @@ def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pa
     page.goto(f"{base_url}/login")
     page.wait_for_load_state("networkidle")
 
-    csrf_token2 = page.evaluate(
-        """() => {
+    csrf_token2 = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     page.evaluate(
         """async ([username, password, csrfToken]) => {
@@ -338,12 +322,10 @@ def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pa
     )
 
     # Try to access admin API — should get 403
-    api_result = page.evaluate(
-        """async () => {
+    api_result = page.evaluate("""async () => {
         const res = await fetch('/api/settings');
         return { status: res.status, body: await res.json() };
-    }"""
-    )
+    }""")
 
     # Regular user should be forbidden from admin endpoints
     assert api_result["status"] in (403, 401)

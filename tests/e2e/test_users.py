@@ -11,12 +11,10 @@ def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
     """Navigate to /users → sees user list."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
 
     # Should return a list of users (may include admin)
     if isinstance(result, dict) and "error" in result:
@@ -75,12 +73,10 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for edit test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     # Find our test user
@@ -131,12 +127,10 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for toggle test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -166,12 +160,10 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     page = authenticated_page
 
     # Get servers first
-    servers_result = page.evaluate(
-        """async () => {
+    servers_result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = servers_result if isinstance(servers_result, list) else []
 
     if not servers:
@@ -193,12 +185,10 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for connection test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -252,12 +242,10 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for delete test")
 
-    users_result = page.evaluate(
-        """async () => {
+    users_result = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -278,12 +266,10 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     assert delete_result["body"] is not None
 
     # Verify user no longer exists
-    users_after = page.evaluate(
-        """async () => {
+    users_after = page.evaluate("""async () => {
         const res = await fetch('/api/users');
         return await res.json();
-    }"""
-    )
+    }""")
     if isinstance(users_after, list):
         user_ids = [u["id"] for u in users_after]
         assert user_id not in user_ids
@@ -322,12 +308,10 @@ def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str
         assert "<script>alert(" not in content or "&lt;script&gt;" in content
 
         # Clean up
-        users_result = page.evaluate(
-            """async () => {
+        users_result = page.evaluate("""async () => {
             const res = await fetch('/api/users');
             return await res.json();
-        }"""
-        )
+        }""")
         users = users_result if isinstance(users_result, list) else []
         for u in users:
             if xss_payload in u.get("username", ""):

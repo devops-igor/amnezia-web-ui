@@ -128,14 +128,12 @@ def _do_login(page: Page, base_url: str, admin_user: str, admin_pass: str) -> No
         captcha_input.fill("e2e_bypass")
 
     # Get CSRF token from meta tag or cookie
-    csrf_token = page.evaluate(
-        """() => {
+    csrf_token = page.evaluate("""() => {
         const meta = document.querySelector('meta[name="csrf-token"]');
         if (meta) return meta.getAttribute('content');
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
 
     # Submit via the JS function on the page
     page.evaluate(
@@ -175,12 +173,10 @@ def authenticated_page(page: Page, base_url: str, admin_user: str, admin_pass: s
 @pytest.fixture
 def csrf_token(authenticated_page: Page, base_url: str) -> str:
     """Extract CSRF token from the authenticated browser session."""
-    token = authenticated_page.evaluate(
-        """() => {
+    token = authenticated_page.evaluate("""() => {
         const match = document.cookie.match(/csrftoken=([^;]+)/);
         return match ? match[1] : '';
-    }"""
-    )
+    }""")
     return token
 
 

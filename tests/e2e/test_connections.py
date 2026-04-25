@@ -12,12 +12,10 @@ def test_connection_list(authenticated_page: Page, base_url: str, csrf_token: st
     page = authenticated_page
 
     # Get a server first
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -39,12 +37,10 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
     page = authenticated_page
 
     # Need a server to add connections to
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -71,12 +67,10 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
     page = authenticated_page
 
     # Get server and its connections
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -119,12 +113,10 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
     """Enable/disable a connection → status changes."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -166,12 +158,10 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     """Delete a connection → removed from list."""
     page = authenticated_page
 
-    result = page.evaluate(
-        """async () => {
+    result = page.evaluate("""async () => {
         const res = await fetch('/api/servers');
         return await res.json();
-    }"""
-    )
+    }""")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
