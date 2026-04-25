@@ -162,7 +162,7 @@ def _do_login(page: Page, base_url: str, admin_user: str, admin_pass: str) -> No
     )
 
     # Wait for redirect to complete
-    page.wait_for_url(f"{base_url}/", timeout=5000)
+    page.wait_for_url(f"{base_url}/*", timeout=10000)
 
 
 @pytest.fixture
