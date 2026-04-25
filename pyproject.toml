@@ -29,3 +29,6 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+markers = [
+    "e2e: end-to-end Playwright tests",
+]
