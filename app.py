@@ -81,6 +81,7 @@ from config import (
 )
 
 from app.routers.auth import router as auth_router
+from app.routers.pages import router as pages_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -204,6 +205,7 @@ load_translations()
 
 # Register extracted route routers
 app.include_router(auth_router)
+app.include_router(pages_router)
 
 
 # ======================== Helpers ========================
@@ -793,81 +795,6 @@ async def periodic_background_tasks():
         await asyncio.sleep(600)
 
 
-# ======================== PAGE ROUTES ========================
-
-
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request, user: dict = Depends(get_current_user)):
-    if user["role"] == "user":
-        return RedirectResponse(url="/my", status_code=302)
-    db = get_db()
-    servers = db.get_all_servers()
-    return tpl(request, "index.html", servers=servers)
-
-
-@app.get("/server/{server_id}", response_class=HTMLResponse)
-async def server_detail(request: Request, server_id: int, user: dict = Depends(get_current_user)):
-    if user["role"] not in ("admin", "support"):
-        return RedirectResponse(url="/my", status_code=302)
-    db = get_db()
-    server = db.get_server_by_id(server_id)
-    if server is None:
-        return RedirectResponse(url="/")
-    users_list = db.get_all_users()
-    return tpl(request, "server.html", server=server, server_id=server_id, users=users_list)
-
-
-@app.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request, user: dict = Depends(get_current_user)):
-    if user["role"] not in ("admin", "support"):
-        return RedirectResponse(url="/my", status_code=302)
-    db = get_db()
-    users_list = db.get_all_users()
-    # Count connections per user
-    conns = db.get_all_connections()
-    for u in users_list:
-        u["connections_count"] = sum(1 for c in conns if c["user_id"] == u["id"])
-    servers = db.get_all_servers()
-    return tpl(request, "users.html", users=users_list, servers=servers)
-
-
-@app.get("/my", response_class=HTMLResponse)
-async def my_connections_page(request: Request, user: dict = Depends(get_current_user)):
-    db = get_db()
-    conns = db.get_connections_by_user(user["id"])
-    # Enrich with server names
-    for c in conns:
-        sid = c.get("server_id", 0)
-        srv = db.get_server_by_id(sid)
-        if srv:
-            c["server_name"] = srv.get("name", srv.get("host", ""))
-        else:
-            c["server_name"] = "Unknown"
-    # Add explicit id to each server for template
-    servers = db.get_all_servers()
-    return tpl(request, "my_connections.html", connections=conns, servers=servers)
-
-
-@app.get("/leaderboard", response_class=HTMLResponse)
-async def leaderboard_page(request: Request, user: dict = Depends(get_current_user)):
-    period = request.query_params.get("period", "all-time")
-    if period not in ("all-time", "monthly"):
-        period = "all-time"
-    monthly_label: str | None = datetime.now().strftime("%B %Y") if period == "monthly" else None
-    entries = get_leaderboard_entries(period)
-    current_user_rank = None
-    for e in entries:
-        if e.get("username") == user.get("username"):
-            current_user_rank = e["rank"]
-            break
-    return tpl(
-        request,
-        "leaderboard.html",
-        entries=entries,
-        period=period,
-        current_user_rank=current_user_rank,
-        monthly_label=monthly_label,
-    )
 
 
 @app.get("/api/leaderboard")
