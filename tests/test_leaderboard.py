@@ -6,7 +6,7 @@ Tests cover:
 - get_leaderboard_entries: users with zero traffic excluded
 - API route: authenticated response shape, period filtering, current_user_rank
 - API route: 401 for unauthenticated requests
-- Page route: redirect to login for unauthenticated, 200 for authenticated
+- Page route: 401 for unauthenticated (FastAPI Depends raises 401)
 - format_bytes helper function (moved to utils.py)
 """
 
@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 
 from database import Database
+from dependencies import get_current_user
 
 # ---------- Fixtures ----------
 
@@ -184,35 +185,37 @@ class TestGetLeaderboardEntries:
         import app
         from fastapi.testclient import TestClient
 
-        alice = _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
+        _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         bob = _make_user(temp_db, "bob", traffic_total_rx=0, traffic_total_tx=0)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=bob),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["current_user_rank"] is None
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: bob
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["current_user_rank"] is None
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_current_user_rank_none_when_disabled(self, temp_db):
         import app
         from fastapi.testclient import TestClient
 
-        alice = _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
+        _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         bob = _make_user(
             temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=1000, enabled=False
         )
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=bob),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["current_user_rank"] is None
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: bob
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["current_user_rank"] is None
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_empty_users(self, temp_db):
         import app
@@ -314,7 +317,7 @@ class TestLeaderboardAPI:
         with patch.object(app, "get_db", return_value=temp_db):
             response = client.get("/api/leaderboard")
         assert response.status_code == 401
-        assert response.json()["error"] == "unauthorized"
+        assert response.json()["detail"] == "Not authenticated"
 
     def test_authenticated_returns_200(self, temp_db):
         import app
@@ -322,17 +325,18 @@ class TestLeaderboardAPI:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            assert "period" in body
-            assert "entries" in body
-            assert "current_user_rank" in body
-            assert body["period"] == "all-time"
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                assert "period" in body
+                assert "entries" in body
+                assert "current_user_rank" in body
+                assert body["period"] == "all-time"
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_period_all_time(self, temp_db):
         import app
@@ -341,16 +345,17 @@ class TestLeaderboardAPI:
         alice = _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         _make_user(temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=1000)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard?period=all-time")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["period"] == "all-time"
-            assert len(body["entries"]) == 2
-            assert body["entries"][0]["username"] == "bob"
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=all-time")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["period"] == "all-time"
+                assert len(body["entries"]) == 2
+                assert body["entries"][0]["username"] == "bob"
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_period_monthly(self, temp_db):
         import app
@@ -359,16 +364,17 @@ class TestLeaderboardAPI:
         alice = _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         _make_user(temp_db, "bob", monthly_rx=300, monthly_tx=200)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard?period=monthly")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["period"] == "monthly"
-            assert body["entries"][0]["username"] == "bob"
-            assert body["entries"][0]["total"] == 500
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=monthly")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["period"] == "monthly"
+                assert body["entries"][0]["username"] == "bob"
+                assert body["entries"][0]["total"] == 500
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_invalid_period_defaults_to_all_time(self, temp_db):
         import app
@@ -376,15 +382,16 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_tx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard?period=invalid")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["period"] == "all-time"
-            assert body["entries"][0]["download"] == 100  # all-time value
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=invalid")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["period"] == "all-time"
+                assert body["entries"][0]["download"] == 100  # all-time value
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_current_user_rank_in_response(self, temp_db):
         import app
@@ -394,14 +401,15 @@ class TestLeaderboardAPI:
         _make_user(temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=0)
         charlie = _make_user(temp_db, "charlie", traffic_total_rx=1000, traffic_total_tx=0)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=charlie),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["current_user_rank"] == 3
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: charlie
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["current_user_rank"] == 3
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_current_user_rank_is_first(self, temp_db):
         import app
@@ -409,14 +417,15 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=5000, traffic_total_tx=0)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            assert body["current_user_rank"] == 1
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["current_user_rank"] == 1
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_no_query_param_defaults_all_time(self, temp_db):
         import app
@@ -424,13 +433,14 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            assert response.json()["period"] == "all-time"
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                assert response.json()["period"] == "all-time"
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_byte_values_are_integers(self, temp_db):
         import app
@@ -440,20 +450,21 @@ class TestLeaderboardAPI:
             temp_db, "alice", traffic_total_rx=5368709120, traffic_total_tx=1073741824
         )
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard")
-            assert response.status_code == 200
-            body = response.json()
-            entry = body["entries"][0]
-            assert isinstance(entry["download"], int)
-            assert isinstance(entry["upload"], int)
-            assert isinstance(entry["total"], int)
-            # tx = server-sent = client download, rx = server-received = client upload
-            assert entry["download"] == 1073741824
-            assert entry["upload"] == 5368709120
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard")
+                assert response.status_code == 200
+                body = response.json()
+                entry = body["entries"][0]
+                assert isinstance(entry["download"], int)
+                assert isinstance(entry["upload"], int)
+                assert isinstance(entry["total"], int)
+                # tx = server-sent = client download, rx = server-received = client upload
+                assert entry["download"] == 1073741824
+                assert entry["upload"] == 5368709120
+            finally:
+                app.app.dependency_overrides.clear()
 
 
 # ---------- Page Route Tests ----------
@@ -462,15 +473,14 @@ class TestLeaderboardAPI:
 class TestLeaderboardPage:
     """Test GET /leaderboard page route."""
 
-    def test_unauthenticated_redirects_to_login(self, temp_db):
+    def test_unauthenticated_returns_401(self, temp_db):
         import app
         from fastapi.testclient import TestClient
 
         client = TestClient(app.app)
         with patch.object(app, "get_db", return_value=temp_db):
-            response = client.get("/leaderboard", follow_redirects=False)
-        assert response.status_code == 302
-        assert "/login" in response.headers.get("location", "")
+            response = client.get("/leaderboard")
+        assert response.status_code == 401
 
     def test_authenticated_returns_200(self, temp_db):
         import app
@@ -478,12 +488,13 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard")
-            assert response.status_code == 200
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard")
+                assert response.status_code == 200
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_authenticated_renders_template(self, temp_db):
         import app
@@ -491,13 +502,14 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard")
-            assert response.status_code == 200
-            assert "text/html" in response.headers.get("content-type", "")
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard")
+                assert response.status_code == 200
+                assert "text/html" in response.headers.get("content-type", "")
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_period_filter_in_page(self, temp_db):
         import app
@@ -505,12 +517,13 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard?period=monthly")
-            assert response.status_code == 200
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=monthly")
+                assert response.status_code == 200
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_invalid_period_defaults_on_page(self, temp_db):
         import app
@@ -518,12 +531,13 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser", traffic_total_rx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard?period=invalid")
-            assert response.status_code == 200
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=invalid")
+                assert response.status_code == 200
+            finally:
+                app.app.dependency_overrides.clear()
 
 
 # ---------- monthly_label Tests ----------
@@ -539,20 +553,21 @@ class TestMonthlyLabel:
 
         alice = _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard?period=monthly")
-            assert response.status_code == 200
-            body = response.json()
-            assert "monthly_label" in body
-            assert body["monthly_label"] is not None
-            # Should match format "Month Year" e.g. "April 2026"
-            assert isinstance(body["monthly_label"], str)
-            parts = body["monthly_label"].split(" ")
-            assert len(parts) == 2
-            assert parts[1].isdigit()  # year is numeric
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=monthly")
+                assert response.status_code == 200
+                body = response.json()
+                assert "monthly_label" in body
+                assert body["monthly_label"] is not None
+                # Should match format "Month Year" e.g. "April 2026"
+                assert isinstance(body["monthly_label"], str)
+                parts = body["monthly_label"].split(" ")
+                assert len(parts) == 2
+                assert parts[1].isdigit()  # year is numeric
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_api_monthly_label_null_when_all_time(self, temp_db):
         """API response includes monthly_label: null when period=all-time."""
@@ -561,15 +576,16 @@ class TestMonthlyLabel:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=100, traffic_total_tx=50)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=alice),
-        ):
-            response = client.get("/api/leaderboard?period=all-time")
-            assert response.status_code == 200
-            body = response.json()
-            assert "monthly_label" in body
-            assert body["monthly_label"] is None
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=all-time")
+                assert response.status_code == 200
+                body = response.json()
+                assert "monthly_label" in body
+                assert body["monthly_label"] is None
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_page_monthly_label_in_context(self, temp_db):
         """Page renders with monthly_label in context when period=monthly."""
@@ -578,15 +594,16 @@ class TestMonthlyLabel:
 
         user = _make_user(temp_db, "testuser", monthly_rx=100, monthly_tx=50)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard?period=monthly")
-            assert response.status_code == 200
-            html = response.text
-            current_month_label = datetime.now().strftime("%B %Y")
-            assert current_month_label in html
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=monthly")
+                assert response.status_code == 200
+                html = response.text
+                current_month_label = datetime.now().strftime("%B %Y")
+                assert current_month_label in html
+            finally:
+                app.app.dependency_overrides.clear()
 
     def test_page_monthly_label_absent_when_all_time(self, temp_db):
         """Page does not render a monthly label value when period=all-time."""
@@ -595,14 +612,15 @@ class TestMonthlyLabel:
 
         user = _make_user(temp_db, "testuser", traffic_total_rx=100, traffic_total_tx=50)
         client = TestClient(app.app)
-        with (
-            patch.object(app, "get_db", return_value=temp_db),
-            patch.object(app, "get_current_user", return_value=user),
-        ):
-            response = client.get("/leaderboard?period=all-time")
-            assert response.status_code == 200
-            html = response.text
-            # Check the monthly-label span exists but doesn't contain the label text
-            assert 'id="monthly-label"' in html
-            current_month_label = datetime.now().strftime("%B %Y")
-            assert ">April 2026<" not in html or current_month_label not in html
+        with patch.object(app, "get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=all-time")
+                assert response.status_code == 200
+                html = response.text
+                # Check the monthly-label span exists but doesn't contain the label text
+                assert 'id="monthly-label"' in html
+                current_month_label = datetime.now().strftime("%B %Y")
+                assert ">April 2026<" not in html or current_month_label not in html
+            finally:
+                app.app.dependency_overrides.clear()
