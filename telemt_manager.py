@@ -13,6 +13,7 @@ from typing import Any, Optional
 import httpx
 from integrity import IntegrityError, load_expected_hash, verify_integrity
 from ssh_manager import SSHManager
+from docker_utils import check_docker_installed
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,7 @@ class TelemtManager:
 
     def check_docker_installed(self) -> bool:
         """Check if Docker is installed on the remote server."""
-        out, _, _ = self.ssh.run_command("docker --version 2>/dev/null")
-        return bool(out.strip())
+        return check_docker_installed(self.ssh)
 
     def _detect_package_manager(self) -> str:
         """Detect the remote server's package manager. Returns 'apt' or 'yum'."""
@@ -157,7 +157,7 @@ class TelemtManager:
         This method still uses SSH for file upload and docker-compose.
         """
         results = []
-        if not self.check_docker_installed():
+        if not check_docker_installed(self.ssh):
             results.append("Installing Docker...")
             self.ssh.run_sudo_command("curl -fsSL https://get.docker.com | sh")
             pkg_mgr = self._detect_package_manager()

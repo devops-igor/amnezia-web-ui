@@ -100,6 +100,8 @@ class Database:
         }
     )
 
+    SCHEMA_VERSION = 1  # Increment when schema changes
+
     def __init__(self, db_path: str, secret_key: Optional[str] = None) -> None:
         self.db_path = db_path
         self._secret_key = secret_key or ""
@@ -138,6 +140,12 @@ class Database:
 
         # Populate default settings on fresh installs
         self._ensure_default_settings()
+
+        self._ensure_indexes()
+
+        # Set schema version if not already set (new databases)
+        if self.get_schema_version() == 0:
+            self.set_schema_version(self.SCHEMA_VERSION)
 
         logger.info("Database initialized: %s", self.db_path)
 
@@ -192,6 +200,27 @@ class Database:
             conn.commit()
             self.set_migration_flag("xray_private_keys_cleared", "1")
             logger.info("Migration: xray_private_keys_cleared complete")
+
+    def _ensure_indexes(self) -> None:
+        """Create missing indexes on existing databases.
+
+        Called from __init__ to ensure indexes exist even on databases
+        created before the indexes were added to schema.sql.
+        Uses IF NOT EXISTS so it's idempotent.
+        """
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+            "CREATE INDEX IF NOT EXISTS idx_users_share_token ON users(share_token)",
+            "CREATE INDEX IF NOT EXISTS idx_users_remnawave_uuid ON users(remnawave_uuid)",
+            "CREATE INDEX IF NOT EXISTS idx_user_connections_client_id ON user_connections(client_id)",
+        ]
+        conn = self._get_conn()
+        for idx_sql in indexes:
+            try:
+                conn.execute(idx_sql)
+            except Exception as e:
+                logger.warning("Failed to create index: %s", e)
+        conn.commit()
 
     # ----------------------------------------------------------------
     # Default settings
@@ -277,14 +306,15 @@ class Database:
         row = conn.execute("SELECT COUNT(*) FROM servers").fetchone()
         return row[0]
 
-    def create_server(self, server: Dict[str, Any]) -> int:
-        """Insert a server and return its database id."""
-        conn = self._get_conn()
+    def _insert_server(self, conn, server: Dict[str, Any]) -> int:
+        """Insert a server row. Shared by create_server() and save_data().
+
+        Handles credential encryption internally. Returns lastrowid.
+        """
         protocols_raw = server.get("protocols", {})
         if isinstance(protocols_raw, dict):
             protocols_raw = credential_crypto.strip_sensitive_protocol_fields(protocols_raw)
         protocols_json = json.dumps(protocols_raw)
-        # Encrypt credentials before storing
         raw_pass = server.get("password") or server.get("ssh_pass", "")
         raw_key = server.get("private_key") or server.get("ssh_key", "")
         encrypted_pass = credential_crypto.encrypt_credential(raw_pass)
@@ -304,8 +334,14 @@ class Database:
                 server.get("created_at", datetime.now().isoformat()),
             ),
         )
-        conn.commit()
         return cur.lastrowid
+
+    def create_server(self, server: Dict[str, Any]) -> int:
+        """Insert a server and return its database id."""
+        conn = self._get_conn()
+        lastrowid = self._insert_server(conn, server)
+        conn.commit()
+        return lastrowid
 
     def update_server(self, server_id: int, updates: Dict[str, Any]) -> None:
         """Update a server by its database id."""
@@ -457,9 +493,11 @@ class Database:
         row = conn.execute("SELECT * FROM users WHERE remnawave_uuid = ?", (uuid,)).fetchone()
         return self._user_row_to_dict(row) if row else None
 
-    def create_user(self, user: Dict[str, Any]) -> str:
-        """Insert a user and return its id."""
-        conn = self._get_conn()
+    def _insert_user(self, conn, user: Dict[str, Any]) -> None:
+        """Insert a user row. Shared by create_user() and save_data().
+
+        Assumes `user` dict has already been validated/hashed by the caller.
+        """
         limits_json = json.dumps(user.get("limits", {}))
         conn.execute(
             """INSERT INTO users (id, username, email, telegramId, description,
@@ -501,6 +539,11 @@ class Database:
                 limits_json,
             ),
         )
+
+    def create_user(self, user: Dict[str, Any]) -> str:
+        """Insert a user and return its id."""
+        conn = self._get_conn()
+        self._insert_user(conn, user)
         conn.commit()
         return user.get("id", "")
 
@@ -793,6 +836,26 @@ class Database:
             )
         conn.commit()
 
+    def get_schema_version(self) -> int:
+        """Get the current database schema version. Returns 0 if not set."""
+        conn = self._get_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key = 'schema_version'").fetchone()
+        if row:
+            try:
+                return int(row["value"])
+            except (ValueError, TypeError):
+                return 0
+        return 0
+
+    def set_schema_version(self, version: int) -> None:
+        """Set the database schema version."""
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', ?)",
+            (str(version),),
+        )
+        conn.commit()
+
     # ----------------------------------------------------------------
     # Bulk / compatibility methods (mimic load_data/save_data interface)
     # ----------------------------------------------------------------
@@ -830,73 +893,11 @@ class Database:
 
             # Insert servers
             for srv in data.get("servers", []):
-                protocols_raw = srv.get("protocols", {})
-                if isinstance(protocols_raw, dict):
-                    protocols_raw = credential_crypto.strip_sensitive_protocol_fields(protocols_raw)
-                protocols_json = json.dumps(protocols_raw)
-                # Encrypt credentials before inserting
-                raw_pass = srv.get("password") or srv.get("ssh_pass", "")
-                raw_key = srv.get("private_key") or srv.get("ssh_key", "")
-                encrypted_pass = credential_crypto.encrypt_credential(raw_pass)
-                encrypted_key = credential_crypto.encrypt_credential(raw_key)
-                conn.execute(
-                    """INSERT INTO servers (name, host, ssh_user, ssh_port,
-                       ssh_pass, ssh_key, protocols, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        srv.get("name", ""),
-                        srv.get("host", ""),
-                        srv.get("username") or srv.get("ssh_user", ""),
-                        srv.get("ssh_port", 22),
-                        encrypted_pass,
-                        encrypted_key,
-                        protocols_json,
-                        srv.get("created_at", datetime.now().isoformat()),
-                    ),
-                )
+                self._insert_server(conn, srv)
 
             # Insert users
             for u in data.get("users", []):
-                limits_json = json.dumps(u.get("limits", {}))
-                conn.execute(
-                    """INSERT INTO users (id, username, email, telegramId, description,
-                       password_hash, role, enabled, traffic_limit, traffic_used,
-                       traffic_total, traffic_total_rx, traffic_total_tx,
-                       monthly_rx, monthly_tx, monthly_reset_at,
-                       traffic_reset_strategy, share_enabled, share_token,
-                       share_password_hash, remnawave_uuid, created_at,
-                       last_reset_at, expiration_date, limits)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                               ?, ?, ?, ?, ?)""",
-                    (
-                        u.get("id", ""),
-                        u.get("username", ""),
-                        u.get("email"),
-                        u.get("telegramId"),
-                        u.get("description"),
-                        u.get("password_hash", ""),
-                        u.get("role", "user"),
-                        1 if u.get("enabled", True) else 0,
-                        u.get("traffic_limit", 0),
-                        u.get("traffic_used", 0),
-                        u.get("traffic_total", 0),
-                        u.get("traffic_total_rx", 0),
-                        u.get("traffic_total_tx", 0),
-                        u.get("monthly_rx", 0),
-                        u.get("monthly_tx", 0),
-                        u.get("monthly_reset_at", ""),
-                        u.get("traffic_reset_strategy", "never"),
-                        1 if u.get("share_enabled", False) else 0,
-                        u.get("share_token"),
-                        u.get("share_password_hash"),
-                        u.get("remnawave_uuid"),
-                        u.get("created_at", datetime.now().isoformat()),
-                        u.get("last_reset_at", datetime.now().isoformat()),
-                        u.get("expiration_date"),
-                        limits_json,
-                    ),
-                )
+                self._insert_user(conn, u)
 
             # Insert connections
             for c in data.get("user_connections", []):
