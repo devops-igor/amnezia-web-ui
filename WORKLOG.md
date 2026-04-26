@@ -329,3 +329,4 @@
 [2026-04-27 00:45] | pm_bot | SPAWN | Spawning py_bot for Step 3 only — extract config.py to project root. Surgical approach with exact line ranges.
 [2026-04-27 01:05] | pm_bot | SPAWN | Spawning py_bot for Steps 4-6 — extract auth, pages, and server routes into app/routers/. 80 max turns.
 [2026-04-27 01:30] | pm_bot | SPAWN | Spawning py_bot for Steps 5-6 — extract page routes and server routes. 80 max turns.
+[2026-04-27 01:40] | pm_bot | SMOKE_TEST | Steps 4-5 committed. Step 6 partially done. 635/637 tests pass (2 failures in test_api_connections due to local get_ssh/get_protocol_manager in servers.py). app.py: 2777→1683 (39% reduction). 23 routes extracted to routers.
