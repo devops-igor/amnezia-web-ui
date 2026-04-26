@@ -1,23 +1,14 @@
 import os
-import sys
-import json
 import logging
 import secrets
 import uuid
 import asyncio
 from datetime import datetime
 
-import io
-from fastapi.responses import (
-    JSONResponse,
-    RedirectResponse,
-    HTMLResponse,
-    StreamingResponse,
-    Response,
-)
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from fastapi import FastAPI, Request, Query, UploadFile, File, Depends
+from fastapi import FastAPI, Request, Depends
 from starlette.middleware.sessions import SessionMiddleware
 from typing import List
 import uvicorn
@@ -37,48 +28,29 @@ from xray_manager import XrayManager
 from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
 
-from schemas import (
-    ChangePasswordRequest,
-    AddServerRequest,
-    InstallProtocolRequest,
-    ProtocolRequest,
-    AddConnectionRequest,
-    EditConnectionRequest,
-    ConnectionActionRequest,
-    ToggleConnectionRequest,
-    ServerConfigSaveRequest,
-    SaveSettingsRequest,
-    ShareSetupRequest,
-    ShareAuthRequest,
-    MyAddConnectionRequest,
-)
-from dependencies import get_current_user_optional, get_current_user, require_admin
+from schemas import ChangePasswordRequest, InstallProtocolRequest
+from dependencies import get_current_user
 from app.utils.helpers import (
     _get_client_ip,
-    _sanitize_error,
-    serialize_protocols,
     generate_vpn_link,
     hash_password,
-    verify_password,
     get_leaderboard_entries,
     _t,
-    _get_lang,
 )
-from app.utils.templates import templates, tpl
 from config import (
-    DATA_DIR,
-    DB_PATH,
-    _get_secret_key,
     TRANSLATIONS,
+    _get_secret_key,
     load_translations,
-    _db_instance,
     get_db,
     init_db,
 )
 
 from app.routers.auth import router as auth_router
+from app.routers.connections import router as connections_router
 from app.routers.pages import router as pages_router
 from app.routers.servers import router as servers_router
+from app.routers.settings import router as settings_router
+from app.routers.share import router as share_router
 from app.routers.users import router as users_router
 
 # Configure logging
@@ -203,8 +175,11 @@ load_translations()
 
 # Register extracted route routers
 app.include_router(auth_router)
+app.include_router(connections_router)
 app.include_router(pages_router)
 app.include_router(servers_router)
+app.include_router(settings_router)
+app.include_router(share_router)
 app.include_router(users_router)
 
 
@@ -815,521 +790,6 @@ async def api_leaderboard(request: Request, user: dict = Depends(get_current_use
             "monthly_label": monthly_label,
         }
     )
-
-
-# ======================== MY CONNECTIONS API (for user role) ========================
-
-
-@app.get("/api/my/connections")
-async def api_my_connections(request: Request, user: dict = Depends(get_current_user)):
-    db = get_db()
-    conns = db.get_connections_by_user(user["id"])
-    for c in conns:
-        sid = c.get("server_id", 0)
-        srv = db.get_server_by_id(sid)
-        if srv:
-            c["server_name"] = srv.get("name", srv.get("host", ""))
-        else:
-            c["server_name"] = "Unknown"
-
-    # Include effective limits for the frontend
-    settings = db.get_all_settings()
-    global_limits = settings.get("limits", {})
-    user_limits = user.get("limits", {})
-    effective_limits = {
-        "max_connections": user_limits.get(
-            "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
-        ),
-        "current_connections": len(conns),
-    }
-
-    return {"connections": conns, "limits": effective_limits}
-
-
-@app.post("/api/my/connections/add")
-async def api_my_add_connection(
-    request: Request, req: MyAddConnectionRequest, user: dict = Depends(get_current_user)
-):
-
-    # Validate user account status
-    if not user.get("enabled", True):
-        return JSONResponse({"error": "Account is disabled"}, status_code=403)
-
-    # Check expiration
-    exp_str = user.get("expiration_date")
-    if exp_str:
-        try:
-            exp_date = datetime.fromisoformat(exp_str)
-            if datetime.now() > exp_date:
-                return JSONResponse({"error": "Account expired"}, status_code=403)
-        except Exception:
-            pass  # Invalid date format, ignore
-
-    # Check traffic limit
-    traffic_limit = user.get("traffic_limit", 0)
-    traffic_used = user.get("traffic_used", 0)
-    if traffic_limit > 0 and traffic_used >= traffic_limit:
-        return JSONResponse({"error": "Traffic limit exceeded"}, status_code=403)
-
-    # ---- Rate Limiting & Connection Limits ----
-    db = get_db()
-
-    # Resolve limits
-    settings = db.get_all_settings()
-    global_limits = settings.get("limits", {})
-    user_limits = user.get("limits", {})
-    max_conns_per_user = user_limits.get(
-        "max_connections_per_user", global_limits.get("max_connections_per_user", 10)
-    )
-    rate_limit_count = user_limits.get(
-        "connection_rate_limit_count", global_limits.get("connection_rate_limit_count", 5)
-    )
-    rate_limit_window = user_limits.get(
-        "connection_rate_limit_window", global_limits.get("connection_rate_limit_window", 60)
-    )
-
-    # Check per-user connection count
-    user_conns = db.get_connections_by_user(user["id"])
-    if len(user_conns) >= max_conns_per_user:
-        logger.warning(
-            f"Rate limit triggered (max connections): user_id={user['id']}, "
-            f"current={len(user_conns)}, limit={max_conns_per_user}"
-        )
-        return JSONResponse(
-            {
-                "error": f"Maximum connections limit reached ({max_conns_per_user})",
-                "limit": max_conns_per_user,
-                "current": len(user_conns),
-            },
-            status_code=428,
-        )
-
-    # Check time-based rate limiting (sliding window)
-    now = datetime.now()
-    recent = db.get_recent_connections_log(user["id"], rate_limit_window)
-    if len(recent) >= rate_limit_count:
-        oldest = min(recent, key=lambda e: e["created_at"])
-        try:
-            oldest_ts = datetime.fromisoformat(oldest["created_at"])
-            retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
-        except Exception:
-            retry_after = rate_limit_window
-        logger.warning(
-            f"Rate limit triggered (sliding window): user_id={user['id']}, "
-            f"recent_count={len(recent)}, limit={rate_limit_count}, window={rate_limit_window}s"
-        )
-        return JSONResponse(
-            {
-                "error": f"Connection rate limit exceeded ({rate_limit_count} per {rate_limit_window}s)",
-                "retry_after": retry_after,
-            },
-            status_code=428,
-            headers={"Retry-After": str(retry_after)},
-        )
-
-    # Validate server exists
-    server = db.get_server_by_id(req.server_id)
-    if server is None:
-        return JSONResponse({"error": "Server not found"}, status_code=404)
-
-    # Verify protocol is installed
-    proto_info = server.get("protocols", {}).get(req.protocol, {})
-    if not proto_info or not proto_info.get("installed", False):
-        return JSONResponse(
-            {"error": f"Protocol {req.protocol} is not installed on this server"},
-            status_code=400,
-        )
-
-    # Check for duplicate connection name
-    existing_names = {c.get("name", "") for c in user_conns}
-    if req.name in existing_names:
-        return JSONResponse(
-            {
-                "error": "duplicate_name",
-                "message": "A connection with this name already exists.",
-            },
-            status_code=409,
-        )
-
-    port = proto_info.get("port", "55424")
-
-    # Prune old connection log entries
-    db.prune_connection_log(1000)
-
-    ssh = None
-    try:
-        ssh = get_ssh(server)
-        await asyncio.to_thread(ssh.connect)
-        manager = get_protocol_manager(ssh, req.protocol)
-
-        # Create client on remote server
-        if req.protocol == "telemt":
-            result = await asyncio.to_thread(
-                manager.add_client,
-                req.protocol,
-                req.name,
-                server["host"],
-                port,
-                telemt_quota=req.telemt_quota,
-                telemt_max_ips=req.telemt_max_ips,
-                telemt_expiry=req.telemt_expiry,
-            )
-        else:
-            result = await asyncio.to_thread(
-                manager.add_client, req.protocol, req.name, server["host"], port
-            )
-
-        if result.get("client_id"):
-            new_conn = {
-                "id": str(uuid.uuid4()),
-                "user_id": user["id"],
-                "server_id": req.server_id,
-                "protocol": req.protocol,
-                "client_id": result["client_id"],
-                "name": req.name,
-                "created_at": now.isoformat(),
-            }
-            db.create_connection(new_conn)
-            db.log_connection_creation(user["id"])
-
-            # Enrich connection with server_name for frontend
-            new_conn["server_name"] = server.get("name", server.get("host", "Unknown"))
-
-            # Build response
-            response = {
-                "status": "success",
-                "connection": new_conn,
-                "client_id": result["client_id"],
-            }
-            if result.get("config"):
-                response["config"] = result["config"]
-                response["vpn_link"] = generate_vpn_link(result["config"])
-            return response
-        else:
-            return JSONResponse({"error": "Failed to create connection on server"}, status_code=500)
-    except Exception as e:
-        logger.exception("Error in api_my_add_connection")
-        safe_msg = _sanitize_error(str(e), "Failed to create connection")
-        return JSONResponse({"error": safe_msg}, status_code=500)
-    finally:
-        if ssh:
-            await asyncio.to_thread(ssh.disconnect)
-
-
-@app.post("/api/users/{user_id}/share/setup")
-async def api_user_share_setup(
-    user_id: str, req: ShareSetupRequest, request: Request, user: dict = Depends(require_admin)
-):
-    db = get_db()
-    user = db.get_user(user_id)
-    if not user:
-        return JSONResponse({"error": "User not found"}, status_code=404)
-
-    updates = {"share_enabled": req.enabled}
-    if not user.get("share_token"):
-        updates["share_token"] = secrets.token_urlsafe(16)
-    if req.password:
-        updates["share_password_hash"] = hash_password(req.password)
-    elif req.password == "":  # Clear
-        updates["share_password_hash"] = None
-
-    db.update_user(user_id, updates)
-    # Refresh user to get current share_token
-    user = db.get_user(user_id)
-    return {"status": "success", "share_token": user.get("share_token")}
-
-
-@app.get("/share/{token}", response_class=HTMLResponse)
-@limiter.limit("10/minute")
-async def share_page(token: str, request: Request):
-    db = get_db()
-    user = db.get_user_by_share_token(token)
-    if not user or not user.get("share_enabled"):
-        lang = _get_lang(request)
-        return HTMLResponse(
-            f"<h1>{_t('share_not_found', lang)}</h1><p>{_t('share_not_found_desc', lang)}</p>",
-            status_code=404,
-        )
-
-    auth_session_key = f"share_auth_{token}"
-    need_password = bool(user.get("share_password_hash")) and not request.session.get(
-        auth_session_key
-    )
-
-    return tpl(
-        request, "user_share.html", share_user=user, need_password=need_password, token=token
-    )
-
-
-@app.post("/api/share/{token}/auth")
-@limiter.limit("10/minute")
-async def api_share_auth(token: str, req: ShareAuthRequest, request: Request):
-    db = get_db()
-    user = db.get_user_by_share_token(token)
-    if not user or not user.get("share_enabled"):
-        return JSONResponse({"error": "Link expired or disabled"}, status_code=404)
-
-    if verify_password(req.password, user.get("share_password_hash", "")):
-        request.session[f"share_auth_{token}"] = True
-        return {"status": "success"}
-    else:
-        lang = _get_lang(request)
-        return JSONResponse({"error": _t("wrong_share_password", lang)}, status_code=401)
-
-
-@app.get("/api/share/{token}/connections")
-@limiter.limit("20/minute")
-async def api_share_connections(token: str, request: Request):
-    db = get_db()
-    user = db.get_user_by_share_token(token)
-    if not user or not user.get("share_enabled"):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
-
-    if user.get("share_password_hash"):
-        if not request.session.get(f"share_auth_{token}"):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    conns = [dict(c) for c in db.get_connections_by_user(user["id"])]
-    for c in conns:
-        sid = c["server_id"]
-        srv = db.get_server_by_id(sid)
-        if srv:
-            c["server_name"] = srv.get("name") or srv["host"]
-        else:
-            c["server_name"] = "Unknown"
-
-    return {"connections": conns, "username": user["username"]}
-
-
-@app.post("/api/share/{token}/config/{connection_id}")
-@limiter.limit("10/minute")
-async def api_share_config(token: str, connection_id: str, request: Request):
-    db = get_db()
-    user = db.get_user_by_share_token(token)
-    if not user or not user.get("share_enabled"):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
-
-    if user.get("share_password_hash"):
-        if not request.session.get(f"share_auth_{token}"):
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-    conn = db.get_connection_by_id(connection_id)
-    if not conn or conn.get("user_id") != user["id"]:
-        return JSONResponse({"error": "Not found"}, status_code=404)
-
-    try:
-        sid = conn["server_id"]
-        server = db.get_server_by_id(sid)
-        if server is None:
-            return JSONResponse({"error": "Server not found"}, status_code=404)
-        proto_info = server.get("protocols", {}).get(conn["protocol"], {})
-        port = proto_info.get("port", "55424")
-        ssh = get_ssh(server)
-        await asyncio.to_thread(ssh.connect)
-        # Use appropriate manager for the protocol
-        manager = get_protocol_manager(ssh, conn["protocol"])
-        config = await asyncio.to_thread(
-            manager.get_client_config,
-            conn["protocol"],
-            conn["client_id"],
-            server["host"],
-            port,
-        )
-        await asyncio.to_thread(ssh.disconnect)
-        vpn_link = generate_vpn_link(config) if config else ""
-        return {"config": config, "vpn_link": vpn_link}
-    except Exception as e:
-        logger.exception("Error getting shared config")
-        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
-
-
-@app.post("/api/my/connections/{connection_id}/config")
-async def api_my_connection_config(
-    request: Request, connection_id: str, user: dict = Depends(get_current_user)
-):
-    try:
-        db = get_db()
-        conn = db.get_connection_by_id(connection_id)
-        if not conn or conn.get("user_id") != user["id"]:
-            return JSONResponse({"error": "Connection not found"}, status_code=404)
-        sid = conn["server_id"]
-        server = db.get_server_by_id(sid)
-        if server is None:
-            return JSONResponse({"error": "Server not found"}, status_code=404)
-        proto_info = server.get("protocols", {}).get(conn["protocol"], {})
-        port = proto_info.get("port", "55424")
-        ssh = get_ssh(server)
-        await asyncio.to_thread(ssh.connect)
-        # Use appropriate manager for the protocol
-        manager = get_protocol_manager(ssh, conn["protocol"])
-        config = await asyncio.to_thread(
-            manager.get_client_config,
-            conn["protocol"],
-            conn["client_id"],
-            server["host"],
-            port,
-        )
-        await asyncio.to_thread(ssh.disconnect)
-        vpn_link = generate_vpn_link(config) if config else ""
-        return {"config": config, "vpn_link": vpn_link}
-    except Exception as e:
-        logger.exception("Error getting my connection config")
-        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
-
-
-@app.get("/settings")
-async def settings_page(request: Request, user: dict = Depends(require_admin)):
-    db = get_db()
-    return tpl(
-        request, "settings.html", settings=db.get_all_settings(), servers=db.get_all_servers()
-    )
-
-
-@app.get("/api/settings")
-async def api_get_settings(request: Request, user: dict = Depends(require_admin)):
-    db = get_db()
-    return db.get_all_settings()
-
-
-@app.post("/api/settings/save")
-async def save_settings(
-    request: Request, payload: SaveSettingsRequest, user: dict = Depends(require_admin)
-):
-    db = get_db()
-    db.update_setting("appearance", payload.appearance.model_dump())
-    db.update_setting("sync", payload.sync.model_dump())
-    db.update_setting("captcha", payload.captcha.model_dump())
-    db.update_setting("telegram", payload.telegram.model_dump())
-    db.update_setting("ssl", payload.ssl.model_dump())
-    db.update_setting("limits", payload.limits.model_dump())
-    db.update_setting("protocol_paths", payload.protocol_paths.model_dump())
-    logger.info("Settings saved (including captcha and telegram)")
-
-    # Handle bot start/stop based on new telegram settings
-    tg_cfg = payload.telegram
-    if tg_cfg.enabled and tg_cfg.token:
-        if not tg_bot.is_running():
-            logger.info("Starting Telegram bot (settings save)...")
-            tg_bot.launch_bot(tg_cfg.token, db.load_data, generate_vpn_link)
-    else:
-        if tg_bot.is_running():
-            logger.info("Stopping Telegram bot (settings save)...")
-            asyncio.create_task(tg_bot.stop_bot())
-
-    return {"status": "success", "bot_running": tg_bot.is_running()}
-
-
-@app.post("/api/settings/telegram/toggle")
-async def api_telegram_toggle(request: Request, user: dict = Depends(require_admin)):
-    """Quick enable/disable of the bot without a full settings save."""
-    db = get_db()
-    tg_cfg = db.get_setting("telegram", {})
-    token = tg_cfg.get("token", "")
-    if not token:
-        return JSONResponse({"error": "Telegram token not set in settings"}, status_code=400)
-
-    if tg_bot.is_running():
-        await tg_bot.stop_bot()
-        db.update_setting("telegram", {**tg_cfg, "enabled": False})
-        return {"status": "stopped", "bot_running": False}
-    else:
-        tg_bot.launch_bot(token, db.load_data, generate_vpn_link)
-        db.update_setting("telegram", {**tg_cfg, "enabled": True})
-        return {"status": "started", "bot_running": True}
-
-
-@app.post("/api/settings/sync_now")
-async def api_sync_now(request: Request, user: dict = Depends(require_admin)):
-    count, msg = await sync_users_with_remnawave()
-    return {"status": "success", "count": count, "message": msg}
-
-
-@app.post("/api/settings/sync_delete")
-async def api_sync_delete(request: Request, user: dict = Depends(require_admin)):
-    db = get_db()
-    all_users = db.get_all_users()
-    to_delete_ids = [u["id"] for u in all_users if u.get("remnawave_uuid")]
-    if to_delete_ids:
-        await perform_mass_operations(delete_uids=to_delete_ids)
-    return {"status": "success", "count": len(to_delete_ids)}
-
-
-@app.get("/api/settings/backup/download")
-async def api_backup_download(request: Request, user: dict = Depends(require_admin)):
-    try:
-        db = get_db()
-        backup_data = db.load_data()
-        # Strip credentials from backup — they must not be exported
-        for srv in backup_data.get("servers", []):
-            srv.pop("password", None)
-            srv.pop("private_key", None)
-            # Also strip sensitive protocol fields (defense-in-depth)
-            if isinstance(srv.get("protocols"), dict):
-                srv["protocols"] = serialize_protocols(srv["protocols"])
-        backup_data["credentials_excluded"] = True
-        backup_json = json.dumps(backup_data, indent=2, ensure_ascii=False)
-        return Response(
-            content=backup_json,
-            media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=data.json"},
-        )
-    except Exception as e:
-        logger.exception("Error creating backup")
-        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
-
-
-@app.post("/api/settings/backup/restore")
-async def api_backup_restore(
-    request: Request, user: dict = Depends(require_admin), file: UploadFile = File(...)
-):
-    try:
-        content = await file.read()
-        if not content:
-            return JSONResponse({"error": "Empty file"}, status_code=400)
-
-        try:
-            backup_data = json.loads(content)
-        except json.JSONDecodeError:
-            return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
-
-        # Basic structure validation
-        required_keys = ["servers", "users"]
-        missing = [k for k in required_keys if k not in backup_data]
-        if missing:
-            return JSONResponse(
-                {"error": f'Invalid structure. Missing keys: {", ".join(missing)}'},
-                status_code=400,
-            )
-
-        # Ensure types are correct
-        if not isinstance(backup_data["servers"], list) or not isinstance(
-            backup_data["users"], list
-        ):
-            return JSONResponse(
-                {"error": "Invalid structure: servers and users must be lists"},
-                status_code=400,
-            )
-
-        # If backup has credentials_excluded flag, set empty strings so
-        # restore works without error (credentials must be re-entered)
-        if backup_data.get("credentials_excluded"):
-            logger.warning(
-                "Restoring backup without credentials — "
-                "SSH passwords and keys must be re-entered manually"
-            )
-            for srv in backup_data.get("servers", []):
-                srv["password"] = ""
-                srv["private_key"] = ""
-
-        # Save the new data
-        db = get_db()
-        db.save_data(backup_data)
-
-        # In a real app we might want to restart or re-init background tasks
-        return {"status": "success"}
-    except Exception as e:
-        logger.exception("Error during restore")
-        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
 if __name__ == "__main__":
