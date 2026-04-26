@@ -19,7 +19,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi import FastAPI, Request, Query, UploadFile, File
+from fastapi import FastAPI, Request, Query, UploadFile, File, Depends
 from starlette.middleware.sessions import SessionMiddleware
 from typing import Optional, List
 import uvicorn
@@ -65,6 +65,7 @@ from schemas import (
     ShareAuthRequest,
     MyAddConnectionRequest,
 )
+from dependencies import get_current_user_optional, get_current_user, require_admin
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -656,21 +657,13 @@ async def sync_users_with_remnawave():
         return 0, f"Error: {str(e)}"
 
 
-def get_current_user(request: Request):
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return None
-    db = get_db()
-    return db.get_user(user_id)
-
-
 def tpl(request, template, **kwargs):
     db = get_db()
     settings = db.get_all_settings()
     lang = _get_lang(request)
     ctx = {
         "request": request,
-        "current_user": get_current_user(request),
+        "current_user": get_current_user_optional(request),
         "site_settings": settings.get("appearance", {}),
         "captcha_settings": settings.get("captcha", {}),
         "telegram_settings": settings.get("telegram", {}),
@@ -1031,7 +1024,8 @@ async def periodic_background_tasks():
 
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
-    if get_current_user(request):
+    user = get_current_user_optional(request)
+    if user:
         return RedirectResponse(url="/", status_code=302)
     return tpl(request, "login.html")
 
@@ -1051,10 +1045,7 @@ async def logout(request: Request):
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+async def index(request: Request, user: dict = Depends(get_current_user)):
     if user["role"] == "user":
         return RedirectResponse(url="/my", status_code=302)
     db = get_db()
@@ -1063,10 +1054,7 @@ async def index(request: Request):
 
 
 @app.get("/server/{server_id}", response_class=HTMLResponse)
-async def server_detail(request: Request, server_id: int):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+async def server_detail(request: Request, server_id: int, user: dict = Depends(get_current_user)):
     if user["role"] not in ("admin", "support"):
         return RedirectResponse(url="/my", status_code=302)
     db = get_db()
@@ -1078,10 +1066,7 @@ async def server_detail(request: Request, server_id: int):
 
 
 @app.get("/users", response_class=HTMLResponse)
-async def users_page(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+async def users_page(request: Request, user: dict = Depends(get_current_user)):
     if user["role"] not in ("admin", "support"):
         return RedirectResponse(url="/my", status_code=302)
     db = get_db()
@@ -1095,10 +1080,7 @@ async def users_page(request: Request):
 
 
 @app.get("/my", response_class=HTMLResponse)
-async def my_connections_page(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+async def my_connections_page(request: Request, user: dict = Depends(get_current_user)):
     db = get_db()
     conns = db.get_connections_by_user(user["id"])
     # Enrich with server names
@@ -1115,10 +1097,7 @@ async def my_connections_page(request: Request):
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
-async def leaderboard_page(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return RedirectResponse(url="/login", status_code=302)
+async def leaderboard_page(request: Request, user: dict = Depends(get_current_user)):
     period = request.query_params.get("period", "all-time")
     if period not in ("all-time", "monthly"):
         period = "all-time"
@@ -1188,14 +1167,13 @@ async def api_login(request: Request, req: LoginRequest):
 
 
 @app.post("/api/auth/change-password")
-async def api_change_password(request: Request, req: ChangePasswordRequest):
+async def api_change_password(
+    request: Request, req: ChangePasswordRequest, user: dict = Depends(get_current_user)
+):
     """Change password for the currently authenticated user.
 
     Clears password_change_required flag on success.
     """
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     if not verify_password(req.current_password, user["password_hash"]):
         return JSONResponse({"error": "Current password is incorrect"}, status_code=400)
@@ -1219,10 +1197,7 @@ async def api_change_password(request: Request, req: ChangePasswordRequest):
 
 
 @app.get("/api/leaderboard")
-async def api_leaderboard(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
+async def api_leaderboard(request: Request, user: dict = Depends(get_current_user)):
     period = request.query_params.get("period", "all-time")
     if period not in ("all-time", "monthly"):
         period = "all-time"
@@ -1246,17 +1221,10 @@ async def api_leaderboard(request: Request):
 # ======================== SERVER API (admin/support) ========================
 
 
-def _check_admin(request):
-    user = get_current_user(request)
-    if not user or user["role"] not in ("admin", "support"):
-        return None
-    return user
-
-
 @app.post("/api/servers/add")
-async def api_add_server(request: Request, req: AddServerRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_add_server(
+    request: Request, req: AddServerRequest, user: dict = Depends(require_admin)
+):
     try:
         host = req.host.strip()
         username = req.username.strip()
@@ -1300,9 +1268,7 @@ async def api_add_server(request: Request, req: AddServerRequest):
 
 
 @app.post("/api/servers/{server_id}/delete")
-async def api_delete_server(request: Request, server_id: int):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_delete_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         if db.get_server_by_id(server_id) is None:
@@ -1314,9 +1280,7 @@ async def api_delete_server(request: Request, server_id: int):
 
 
 @app.post("/api/servers/{server_id}/reboot")
-async def api_reboot_server(request: Request, server_id: int):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_reboot_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1339,9 +1303,7 @@ async def api_reboot_server(request: Request, server_id: int):
 
 
 @app.post("/api/servers/{server_id}/clear")
-async def api_clear_server(request: Request, server_id: int):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_clear_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1372,9 +1334,7 @@ async def api_clear_server(request: Request, server_id: int):
 
 
 @app.post("/api/servers/{server_id}/stats")
-async def api_server_stats(request: Request, server_id: int):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_server_stats(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1440,9 +1400,7 @@ async def api_server_stats(request: Request, server_id: int):
 
 
 @app.post("/api/servers/{server_id}/check")
-async def api_check_server(request: Request, server_id: int):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_check_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1507,9 +1465,12 @@ async def api_check_server(request: Request, server_id: int):
 
 
 @app.post("/api/servers/{server_id}/install")
-async def api_install_protocol(request: Request, server_id: int, req: InstallProtocolRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_install_protocol(
+    request: Request,
+    server_id: int,
+    req: InstallProtocolRequest,
+    user: dict = Depends(require_admin),
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1552,9 +1513,9 @@ async def api_install_protocol(request: Request, server_id: int, req: InstallPro
 
 
 @app.post("/api/servers/{server_id}/uninstall")
-async def api_uninstall_protocol(request: Request, server_id: int, req: ProtocolRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_uninstall_protocol(
+    request: Request, server_id: int, req: ProtocolRequest, user: dict = Depends(require_admin)
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1589,10 +1550,10 @@ CONTAINER_NAMES = {
 
 
 @app.post("/api/servers/{server_id}/container/toggle")
-async def api_container_toggle(request: Request, server_id: int, req: ProtocolRequest):
+async def api_container_toggle(
+    request: Request, server_id: int, req: ProtocolRequest, user: dict = Depends(require_admin)
+):
     """Start or stop a protocol Docker container."""
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1623,10 +1584,10 @@ async def api_container_toggle(request: Request, server_id: int, req: ProtocolRe
 
 
 @app.post("/api/servers/{server_id}/server_config")
-async def api_server_config(request: Request, server_id: int, req: ProtocolRequest):
+async def api_server_config(
+    request: Request, server_id: int, req: ProtocolRequest, user: dict = Depends(require_admin)
+):
     """Get the raw server-side WireGuard/Xray configuration."""
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1656,10 +1617,13 @@ async def api_server_config(request: Request, server_id: int, req: ProtocolReque
 
 
 @app.post("/api/servers/{server_id}/server_config/save")
-async def api_server_config_save(request: Request, server_id: int, req: ServerConfigSaveRequest):
+async def api_server_config_save(
+    request: Request,
+    server_id: int,
+    req: ServerConfigSaveRequest,
+    user: dict = Depends(require_admin),
+):
     """Save the raw server-side WireGuard/Xray configuration and apply changes."""
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1694,12 +1658,13 @@ async def api_server_config_save(request: Request, server_id: int, req: ServerCo
 
 @app.get("/api/servers/{server_id}/connections")
 async def api_get_connections(
-    request: Request, server_id: int, protocol: str = Query(default="awg")
+    request: Request,
+    server_id: int,
+    protocol: str = Query(default="awg"),
+    user: dict = Depends(require_admin),
 ):
     if not protocol:
         protocol = "awg"
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1732,9 +1697,9 @@ async def api_get_connections(
 
 
 @app.post("/api/servers/{server_id}/connections/add")
-async def api_add_connection(request: Request, server_id: int, req: AddConnectionRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_add_connection(
+    request: Request, server_id: int, req: AddConnectionRequest, user: dict = Depends(require_admin)
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1791,9 +1756,12 @@ async def api_add_connection(request: Request, server_id: int, req: AddConnectio
 
 
 @app.post("/api/servers/{server_id}/connections/remove")
-async def api_remove_connection(request: Request, server_id: int, req: ConnectionActionRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_remove_connection(
+    request: Request,
+    server_id: int,
+    req: ConnectionActionRequest,
+    user: dict = Depends(require_admin),
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1815,9 +1783,12 @@ async def api_remove_connection(request: Request, server_id: int, req: Connectio
 
 
 @app.post("/api/servers/{server_id}/connections/edit")
-async def api_edit_connection(request: Request, server_id: int, req: EditConnectionRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_edit_connection(
+    request: Request,
+    server_id: int,
+    req: EditConnectionRequest,
+    user: dict = Depends(require_admin),
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1845,10 +1816,12 @@ async def api_edit_connection(request: Request, server_id: int, req: EditConnect
 
 
 @app.post("/api/servers/{server_id}/connections/config")
-async def api_get_connection_config(request: Request, server_id: int, req: ConnectionActionRequest):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_get_connection_config(
+    request: Request,
+    server_id: int,
+    req: ConnectionActionRequest,
+    user: dict = Depends(get_current_user),
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1883,9 +1856,12 @@ async def api_get_connection_config(request: Request, server_id: int, req: Conne
 
 
 @app.post("/api/servers/{server_id}/connections/toggle")
-async def api_toggle_connection(request: Request, server_id: int, req: ToggleConnectionRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_toggle_connection(
+    request: Request,
+    server_id: int,
+    req: ToggleConnectionRequest,
+    user: dict = Depends(require_admin),
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -1909,9 +1885,13 @@ async def api_toggle_connection(request: Request, server_id: int, req: ToggleCon
 
 
 @app.get("/api/users")
-async def api_list_users(request: Request, search: str = "", page: int = 1, size: int = 10):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_list_users(
+    request: Request,
+    search: str = "",
+    page: int = 1,
+    size: int = 10,
+    user: dict = Depends(require_admin),
+):
     db = get_db()
     all_users = db.get_all_users()
     conns = db.get_all_connections()
@@ -1969,10 +1949,7 @@ async def api_list_users(request: Request, search: str = "", page: int = 1, size
 
 
 @app.post("/api/users/add")
-async def api_add_user(request: Request, req: AddUserRequest):
-    cur = get_current_user(request)
-    if not cur or cur["role"] != "admin":
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         lang = _get_lang(request)
@@ -2052,9 +2029,9 @@ async def api_add_user(request: Request, req: AddUserRequest):
 
 
 @app.post("/api/users/{user_id}/update")
-async def api_update_user(request: Request, user_id: str, req: UpdateUserRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_update_user(
+    request: Request, user_id: str, req: UpdateUserRequest, user: dict = Depends(require_admin)
+):
     try:
         db = get_db()
         user = db.get_user(user_id)
@@ -2102,12 +2079,9 @@ async def api_update_user(request: Request, user_id: str, req: UpdateUserRequest
 
 
 @app.post("/api/users/{user_id}/delete")
-async def api_delete_user(request: Request, user_id: str):
-    cur = get_current_user(request)
-    if not cur or cur["role"] != "admin":
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_delete_user(request: Request, user_id: str, user: dict = Depends(require_admin)):
     lang = _get_lang(request)
-    if cur["id"] == user_id:
+    if user["id"] == user_id:
         return JSONResponse({"error": _t("cannot_delete_self", lang)}, status_code=400)
     try:
         success = await perform_delete_user(user_id)
@@ -2120,10 +2094,9 @@ async def api_delete_user(request: Request, user_id: str):
 
 
 @app.post("/api/users/{user_id}/toggle")
-async def api_toggle_user(request: Request, user_id: str, req: ToggleUserRequest):
-    cur = get_current_user(request)
-    if not cur or cur["role"] != "admin":
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_toggle_user(
+    request: Request, user_id: str, req: ToggleUserRequest, user: dict = Depends(require_admin)
+):
     try:
         success = await perform_toggle_user(user_id, req.enabled)
         if not success:
@@ -2135,9 +2108,12 @@ async def api_toggle_user(request: Request, user_id: str, req: ToggleUserRequest
 
 
 @app.post("/api/users/{user_id}/connections/add")
-async def api_add_user_connection(request: Request, user_id: str, req: AddUserConnectionRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_add_user_connection(
+    request: Request,
+    user_id: str,
+    req: AddUserConnectionRequest,
+    user: dict = Depends(require_admin),
+):
     try:
         db = get_db()
         user = db.get_user(user_id)
@@ -2195,10 +2171,9 @@ async def api_add_user_connection(request: Request, user_id: str, req: AddUserCo
 
 
 @app.get("/api/users/{user_id}/connections")
-async def api_get_user_connections(request: Request, user_id: str):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_get_user_connections(
+    request: Request, user_id: str, user: dict = Depends(get_current_user)
+):
     # Users can only see their own, admin/support can see all
     if user["role"] == "user" and user["id"] != user_id:
         return JSONResponse({"error": "Forbidden"}, status_code=403)
@@ -2216,10 +2191,7 @@ async def api_get_user_connections(request: Request, user_id: str):
 
 
 @app.get("/api/my/connections")
-async def api_my_connections(request: Request):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_my_connections(request: Request, user: dict = Depends(get_current_user)):
     db = get_db()
     conns = db.get_connections_by_user(user["id"])
     for c in conns:
@@ -2245,10 +2217,9 @@ async def api_my_connections(request: Request):
 
 
 @app.post("/api/my/connections/add")
-async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_my_add_connection(
+    request: Request, req: MyAddConnectionRequest, user: dict = Depends(get_current_user)
+):
 
     # Validate user account status
     if not user.get("enabled", True):
@@ -2416,9 +2387,9 @@ async def api_my_add_connection(request: Request, req: MyAddConnectionRequest):
 
 
 @app.post("/api/users/{user_id}/share/setup")
-async def api_user_share_setup(user_id: str, req: ShareSetupRequest, request: Request):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_user_share_setup(
+    user_id: str, req: ShareSetupRequest, request: Request, user: dict = Depends(require_admin)
+):
     db = get_db()
     user = db.get_user(user_id)
     if not user:
@@ -2543,10 +2514,9 @@ async def api_share_config(token: str, connection_id: str, request: Request):
 
 
 @app.post("/api/my/connections/{connection_id}/config")
-async def api_my_connection_config(request: Request, connection_id: str):
-    user = get_current_user(request)
-    if not user:
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_my_connection_config(
+    request: Request, connection_id: str, user: dict = Depends(get_current_user)
+):
     try:
         db = get_db()
         conn = db.get_connection_by_id(connection_id)
@@ -2578,10 +2548,7 @@ async def api_my_connection_config(request: Request, connection_id: str):
 
 
 @app.get("/settings")
-async def settings_page(request: Request):
-    user = _check_admin(request)
-    if not user:
-        return RedirectResponse("/login")
+async def settings_page(request: Request, user: dict = Depends(require_admin)):
     db = get_db()
     return tpl(
         request, "settings.html", settings=db.get_all_settings(), servers=db.get_all_servers()
@@ -2589,17 +2556,15 @@ async def settings_page(request: Request):
 
 
 @app.get("/api/settings")
-async def api_get_settings(request: Request):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_get_settings(request: Request, user: dict = Depends(require_admin)):
     db = get_db()
     return db.get_all_settings()
 
 
 @app.post("/api/settings/save")
-async def save_settings(request: Request, payload: SaveSettingsRequest):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def save_settings(
+    request: Request, payload: SaveSettingsRequest, user: dict = Depends(require_admin)
+):
     db = get_db()
     db.update_setting("appearance", payload.appearance.model_dump())
     db.update_setting("sync", payload.sync.model_dump())
@@ -2625,10 +2590,8 @@ async def save_settings(request: Request, payload: SaveSettingsRequest):
 
 
 @app.post("/api/settings/telegram/toggle")
-async def api_telegram_toggle(request: Request):
+async def api_telegram_toggle(request: Request, user: dict = Depends(require_admin)):
     """Quick enable/disable of the bot without a full settings save."""
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
     db = get_db()
     tg_cfg = db.get_setting("telegram", {})
     token = tg_cfg.get("token", "")
@@ -2646,17 +2609,13 @@ async def api_telegram_toggle(request: Request):
 
 
 @app.post("/api/settings/sync_now")
-async def api_sync_now(request: Request):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_sync_now(request: Request, user: dict = Depends(require_admin)):
     count, msg = await sync_users_with_remnawave()
     return {"status": "success", "count": count, "message": msg}
 
 
 @app.post("/api/settings/sync_delete")
-async def api_sync_delete(request: Request):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_sync_delete(request: Request, user: dict = Depends(require_admin)):
     db = get_db()
     all_users = db.get_all_users()
     to_delete_ids = [u["id"] for u in all_users if u.get("remnawave_uuid")]
@@ -2666,9 +2625,9 @@ async def api_sync_delete(request: Request):
 
 
 @app.get("/api/servers/{server_id}/{protocol}/clients")
-async def api_get_server_clients(request: Request, server_id: int, protocol: str):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_get_server_clients(
+    request: Request, server_id: int, protocol: str, user: dict = Depends(require_admin)
+):
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -2701,9 +2660,7 @@ async def api_get_server_clients(request: Request, server_id: int, protocol: str
 
 
 @app.get("/api/settings/backup/download")
-async def api_backup_download(request: Request):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_backup_download(request: Request, user: dict = Depends(require_admin)):
     try:
         db = get_db()
         backup_data = db.load_data()
@@ -2727,9 +2684,9 @@ async def api_backup_download(request: Request):
 
 
 @app.post("/api/settings/backup/restore")
-async def api_backup_restore(request: Request, file: UploadFile = File(...)):
-    if not _check_admin(request):
-        return JSONResponse({"error": "Forbidden"}, status_code=403)
+async def api_backup_restore(
+    request: Request, user: dict = Depends(require_admin), file: UploadFile = File(...)
+):
     try:
         content = await file.read()
         if not content:
