@@ -16,21 +16,18 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+
 from fastapi import FastAPI, Request, Query, UploadFile, File, Depends
 from starlette.middleware.sessions import SessionMiddleware
-from typing import Optional, List
+from typing import List
 import uvicorn
 import httpx
-
-from utils import format_bytes
 
 try:
     from multicolorcaptcha import CaptchaGenerator
 except ImportError:
     CaptchaGenerator = None
 
-from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
 from ssh_manager import SSHManager
@@ -41,7 +38,7 @@ from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
 
 from schemas import (
-    LoginRequest,
+    ChangePasswordRequest,
     AddServerRequest,
     InstallProtocolRequest,
     ProtocolRequest,
@@ -55,7 +52,6 @@ from schemas import (
     SaveSettingsRequest,
     ToggleUserRequest,
     AddUserConnectionRequest,
-    ChangePasswordRequest,
     ShareSetupRequest,
     ShareAuthRequest,
     MyAddConnectionRequest,
@@ -72,6 +68,7 @@ from app.utils.helpers import (
     _t,
     _get_lang,
 )
+from app.utils.templates import templates, tpl
 from config import (
     DATA_DIR,
     DB_PATH,
@@ -83,6 +80,8 @@ from config import (
     init_db,
 )
 
+from app.routers.auth import router as auth_router
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -90,7 +89,8 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="Amnezia Web Panel")
 
 
-limiter = Limiter(key_func=_get_client_ip)
+from app.utils.rate_limiter import limiter
+
 app.state.limiter = limiter
 
 
@@ -197,11 +197,13 @@ app.mount(
     StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
     name="static",
 )
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
 # Load translations from config module
 load_translations()
+
+# Register extracted route routers
+app.include_router(auth_router)
 
 
 # ======================== Helpers ========================
@@ -493,29 +495,6 @@ async def sync_users_with_remnawave():
     except Exception as e:
         logger.exception("Synchronization error")
         return 0, f"Error: {str(e)}"
-
-
-def tpl(request, template, **kwargs):
-    db = get_db()
-    settings = db.get_all_settings()
-    lang = _get_lang(request)
-    ctx = {
-        "request": request,
-        "current_user": get_current_user_optional(request),
-        "site_settings": settings.get("appearance", {}),
-        "captcha_settings": settings.get("captcha", {}),
-        "telegram_settings": settings.get("telegram", {}),
-        "bot_running": tg_bot.is_running(),
-        "lang": lang,
-        "_": lambda text_id: _t(text_id, lang),
-        "translations_json": json.dumps(TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))),
-        "all_translations_json": json.dumps(TRANSLATIONS),
-        "format_bytes": format_bytes,
-        # CSRF token for forms - available from cookie, set by CSRF middleware
-        "csrf_token": request.cookies.get("csrftoken", ""),
-    }
-    ctx.update(kwargs)
-    return templates.TemplateResponse(template, ctx)
 
 
 # ======================== Startup ========================
@@ -817,28 +796,6 @@ async def periodic_background_tasks():
 # ======================== PAGE ROUTES ========================
 
 
-@app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
-    user = get_current_user_optional(request)
-    if user:
-        return RedirectResponse(url="/", status_code=302)
-    return tpl(request, "login.html")
-
-
-@app.get("/set_lang/{lang}")
-async def set_lang(lang: str, request: Request):
-    ref = request.headers.get("referer", "/")
-    response = RedirectResponse(url=ref)
-    response.set_cookie(key="lang", value=lang, max_age=31536000)
-    return response
-
-
-@app.get("/logout")
-async def logout(request: Request):
-    request.session.clear()
-    return RedirectResponse(url="/login", status_code=302)
-
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, user: dict = Depends(get_current_user)):
     if user["role"] == "user":
@@ -911,84 +868,6 @@ async def leaderboard_page(request: Request, user: dict = Depends(get_current_us
         current_user_rank=current_user_rank,
         monthly_label=monthly_label,
     )
-
-
-# ======================== AUTH API ========================
-
-
-@app.get("/api/auth/captcha")
-async def api_captcha(request: Request):
-    if not CaptchaGenerator:
-        return JSONResponse({"error": "multicolorcaptcha is not installed"}, status_code=500)
-
-    # 2 is a multiplier for the image resolution size
-    generator = CaptchaGenerator(2)
-    captcha = generator.gen_captcha_image(difficult_level=2)
-    request.session["captcha_answer"] = captcha.characters
-
-    img_bytes = io.BytesIO()
-    captcha.image.save(img_bytes, format="PNG")
-    img_bytes.seek(0)
-
-    return StreamingResponse(img_bytes, media_type="image/png")
-
-
-@app.post("/api/auth/login")
-@limiter.limit("5/minute")
-async def api_login(request: Request, req: LoginRequest):
-    db = get_db()
-    captcha_settings = db.get_setting("captcha", {})
-    if captcha_settings.get("enabled") is True:
-        answer = request.session.get("captcha_answer")
-        lang = _get_lang(request)
-        if not answer or not req.captcha or answer.lower() != req.captcha.lower():
-            request.session.pop("captcha_answer", None)
-            return JSONResponse({"error": _t("invalid_captcha", lang)}, status_code=400)
-        request.session.pop("captcha_answer", None)
-
-    user = db.get_user_by_username(req.username)
-    if user and verify_password(req.password, user["password_hash"]):
-        lang = _get_lang(request)
-        if not user.get("enabled", True):
-            return JSONResponse({"error": _t("account_disabled", lang)}, status_code=403)
-        request.session["user_id"] = user["id"]
-        return {
-            "status": "success",
-            "role": user["role"],
-            "password_change_required": user.get("password_change_required", False),
-        }
-    lang = _get_lang(request)
-    return JSONResponse({"error": _t("invalid_login", lang)}, status_code=401)
-
-
-@app.post("/api/auth/change-password")
-async def api_change_password(
-    request: Request, req: ChangePasswordRequest, user: dict = Depends(get_current_user)
-):
-    """Change password for the currently authenticated user.
-
-    Clears password_change_required flag on success.
-    """
-
-    if not verify_password(req.current_password, user["password_hash"]):
-        return JSONResponse({"error": "Current password is incorrect"}, status_code=400)
-
-    if req.new_password != req.confirm_password:
-        return JSONResponse({"error": "New passwords do not match"}, status_code=400)
-
-    if len(req.new_password) < 8:
-        return JSONResponse({"error": "Password must be at least 8 characters"}, status_code=400)
-
-    db = get_db()
-    db.update_user(
-        user["id"],
-        {
-            "password_hash": hash_password(req.new_password),
-            "password_change_required": False,
-        },
-    )
-    logger.info(f"User '{user['username']}' changed their password")
-    return {"status": "success"}
 
 
 @app.get("/api/leaderboard")
