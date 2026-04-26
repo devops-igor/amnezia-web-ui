@@ -55,7 +55,7 @@
     "info": "信息",
     "login_title": "登录管理面板",
     "username": "用户名",
-    "password": "***",
+    "password": "密码",
     "captcha": "验证码",
     "captcha_placeholder": "输入图中字符",
     "captcha_hint": "点击刷新验证码",
