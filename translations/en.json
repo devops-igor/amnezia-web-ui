@@ -55,7 +55,7 @@
     "info": "Info",
     "login_title": "Login to Panel",
     "username": "Username",
-    "password": "***",
+    "password": "Password",
     "captcha": "Captcha",
     "captcha_placeholder": "Enter characters from image",
     "captcha_hint": "Click to refresh image",
