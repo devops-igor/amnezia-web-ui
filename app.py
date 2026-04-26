@@ -2,8 +2,6 @@ import os
 import sys
 import json
 import logging
-import base64
-import hashlib
 import secrets
 import uuid
 import asyncio
@@ -24,7 +22,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from typing import Optional, List
 import uvicorn
 import httpx
-import re
 
 from utils import format_bytes
 
@@ -34,7 +31,6 @@ except ImportError:
     CaptchaGenerator = None
 
 from slowapi import Limiter
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from ssh_manager import SSHManager
@@ -43,7 +39,6 @@ from xray_manager import XrayManager
 from database import Database
 from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
-import credential_crypto
 
 from schemas import (
     LoginRequest,
@@ -66,20 +61,23 @@ from schemas import (
     MyAddConnectionRequest,
 )
 from dependencies import get_current_user_optional, get_current_user, require_admin
+from app.utils.helpers import (
+    _get_client_ip,
+    _sanitize_error,
+    serialize_protocols,
+    generate_vpn_link,
+    hash_password,
+    verify_password,
+    get_leaderboard_entries,
+    _t,
+    _get_lang,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Amnezia Web Panel")
-
-
-def _get_client_ip(request: Request) -> str:
-    """Get client IP, respecting X-Forwarded-For from reverse proxy."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return get_remote_address(request)
 
 
 limiter = Limiter(key_func=_get_client_ip)
@@ -270,26 +268,6 @@ def load_translations():
     logger.info(f"Loaded translations: {list(TRANSLATIONS.keys())}")
 
 
-def _t(text_id, lang="en"):
-    lang_batch = TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))
-    return lang_batch.get(text_id, text_id)
-
-
-def _get_default_lang() -> str:
-    """Read the default language from appearance settings, fall back to 'en'."""
-    try:
-        db = get_db()
-        appearance = db.get_setting("appearance", {})
-        return appearance.get("language", "en")
-    except Exception:
-        return "en"
-
-
-def _get_lang(request: Request) -> str:
-    """Get language from cookie, falling back to settings-configured default."""
-    return request.cookies.get("lang", _get_default_lang())
-
-
 load_translations()
 
 
@@ -314,30 +292,6 @@ def init_db():
     get_db()
 
 
-# Patterns to strip from error messages shown to users (security)
-_SENSITIVE_PATTERNS = [
-    re.compile(r"/[\w/.-]+"),  # File paths
-    re.compile(r"\b\d{1,3}(\.\d{1,3}){3}\b"),  # IP addresses
-    re.compile(r"\b[\w.-]+@ [\w.-]+\.\w{2,}\b"),  # Email-like patterns
-    re.compile(r"\b0x[0-9a-fA-F]+\b"),  # Hex addresses
-]
-
-
-def _sanitize_error(message: str, fallback: str = "An unexpected error occurred") -> str:
-    """Strip potentially sensitive information from error messages shown to users.
-    Logs the full error server-side but returns a sanitized version to the client.
-    """
-    if not message or message.strip() == "":
-        return fallback
-    sanitized = message
-    for pattern in _SENSITIVE_PATTERNS:
-        sanitized = pattern.sub("***", sanitized)
-    # If the entire message was redacted, use fallback
-    if not sanitized.strip() or all(c == "*" for c in sanitized):
-        return fallback
-    return sanitized
-
-
 def get_ssh(server):
     return SSHManager(
         host=server["host"],
@@ -346,17 +300,6 @@ def get_ssh(server):
         password=server.get("password"),
         private_key=server.get("private_key"),
     )
-
-
-def serialize_protocols(protocols: dict) -> dict:
-    """Strip sensitive fields from protocols before returning via API.
-
-    This is an additional defense-in-depth layer on top of the stripping
-    that already happens in _server_row_to_dict().
-    """
-    if not isinstance(protocols, dict):
-        return protocols
-    return credential_crypto.strip_sensitive_protocol_fields(protocols)
 
 
 def get_protocol_manager(ssh, protocol: str):
@@ -377,26 +320,6 @@ def get_protocol_manager(ssh, protocol: str):
     from awg_manager import AWGManager
 
     return AWGManager(ssh)
-
-
-def generate_vpn_link(config_text):
-    b64 = base64.b64encode(config_text.strip().encode("utf-8")).decode("utf-8")
-    return f"vpn://{b64}"
-
-
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
-    return f"{salt}${h.hex()}"
-
-
-def verify_password(password: str, password_hash: str) -> bool:
-    try:
-        salt, h = password_hash.split("$", 1)
-        new_h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
-        return new_h.hex() == h
-    except Exception:
-        return False
 
 
 async def perform_delete_user(user_id: str):
@@ -678,49 +601,6 @@ def tpl(request, template, **kwargs):
     }
     ctx.update(kwargs)
     return templates.TemplateResponse(template, ctx)
-
-
-def get_leaderboard_entries(period: str) -> list[dict]:
-    """Aggregate traffic data for the leaderboard.
-
-    Args:
-        period: "all-time" or "monthly"
-
-    Returns:
-        list of dicts with rank, username, download, upload, total.
-        Users with zero total traffic or disabled accounts are excluded.
-    """
-    db = get_db()
-    users = db.get_all_users()
-    entries = []
-    for u in users:
-        # Skip disabled users (enabled is explicitly False or non-truthy)
-        if u.get("enabled", True) is not True:
-            continue
-        if period == "monthly":
-            download = u.get("monthly_tx", 0)  # server-sent = client download
-            upload = u.get("monthly_rx", 0)  # server-received = client upload
-        else:
-            download = u.get("traffic_total_tx", 0)  # server-sent = client download
-            upload = u.get("traffic_total_rx", 0)  # server-received = client upload
-        total = download + upload
-        # Skip zero-traffic users
-        if total == 0:
-            continue
-        entries.append(
-            {
-                "rank": 0,
-                "username": u.get("username", ""),
-                "download": download,
-                "upload": upload,
-                "total": total,
-            }
-        )
-    # Sort by descending total, then ascending username (case-insensitive)
-    entries.sort(key=lambda e: (-e["total"], e["username"].lower()))
-    for i, e in enumerate(entries):
-        e["rank"] = i + 1
-    return entries
 
 
 # ======================== Startup ========================
