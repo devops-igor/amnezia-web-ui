@@ -55,7 +55,7 @@
     "info": "Info",
     "login_title": "Connexion au Panneau",
     "username": "Nom d'utilisateur",
-    "password": "***",
+    "password": "Mot de passe",
     "captcha": "Captcha",
     "captcha_placeholder": "Entrez les caractères",
     "captcha_hint": "Cliquez pour rafraîchir",
