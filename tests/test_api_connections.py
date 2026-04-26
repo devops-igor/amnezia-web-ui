@@ -64,7 +64,7 @@ class TestApiMyAddConnection:
 
     @patch("app.utils.helpers.get_ssh")
     @patch("app.utils.helpers.get_protocol_manager")
-    @patch("app.get_db")
+    @patch("app.routers.connections.get_db")
     def test_duplicate_connection_name_returns_json_error(
         self,
         mock_get_db,
@@ -130,7 +130,7 @@ class TestApiMyAddConnection:
         finally:
             app.app.dependency_overrides.clear()
 
-    @patch("app.get_db")
+    @patch("app.routers.connections.get_db")
     def test_duplicate_connection_error_message_format(self, mock_get_db):
         """Test that the duplicate connection error message is user-friendly"""
         import app
@@ -182,7 +182,7 @@ class TestApiMyAddConnection:
         finally:
             app.app.dependency_overrides.clear()
 
-    @patch("app.get_db")
+    @patch("app.routers.connections.get_db")
     def test_rate_limit_returns_json_error(self, mock_get_db):
         """Test that rate limit errors return proper JSON response with retry_after"""
         import app
