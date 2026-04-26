@@ -5,6 +5,7 @@ from datetime import datetime
 import urllib.parse
 
 from utils import format_bytes
+from docker_utils import check_docker_installed
 
 logger = logging.getLogger(__name__)
 
@@ -33,13 +34,7 @@ class XrayManager:
     # ===================== INSTALLATION =====================
 
     def check_docker_installed(self):
-        out, err, code = self.ssh.run_command("docker --version 2>/dev/null")
-        if code != 0:
-            return False
-        out2, _, code2 = self.ssh.run_command(
-            "systemctl is-active docker 2>/dev/null || service docker status 2>/dev/null"
-        )
-        return "active" in out2 or "running" in out2.lower()
+        return check_docker_installed(self.ssh)
 
     def check_container_running(self):
         out, _, _ = self.ssh.run_sudo_command(
@@ -72,7 +67,7 @@ class XrayManager:
         """Full installation of Xray."""
         results = []
 
-        if not self.check_docker_installed():
+        if not check_docker_installed(self.ssh):
             results.append("Installing Docker...")
             # Using same install method as AWGManager or assume it's installed
             pass
