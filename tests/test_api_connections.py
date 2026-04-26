@@ -258,9 +258,9 @@ class TestApiAddConnectionTelemtFailure:
             "settings": {},
         }
 
-    @patch("app.get_db")
-    @patch("app.utils.helpers.get_ssh")
-    @patch("app.utils.helpers.get_protocol_manager")
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
     def test_telemt_api_failure_returns_500_no_data_written(
         self,
         mock_get_protocol_manager,
@@ -310,9 +310,9 @@ class TestApiAddConnectionTelemtFailure:
         finally:
             app.app.dependency_overrides.clear()
 
-    @patch("app.get_db")
-    @patch("app.utils.helpers.get_ssh")
-    @patch("app.utils.helpers.get_protocol_manager")
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
     def test_telemt_success_writes_connection(
         self,
         mock_get_protocol_manager,
