@@ -8,7 +8,7 @@ field_validator decorators. Tests follow the VERIFICATION_PLAN.md spec.
 import pytest
 from pydantic import ValidationError
 
-from app import (
+from schemas import (
     VALID_PROTOCOLS,
     LoginRequest,
     AddServerRequest,
