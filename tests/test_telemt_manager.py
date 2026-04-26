@@ -46,7 +46,10 @@ class TestCheckDockerInstalled:
         self.manager = TelemtManager(self.mock_ssh)
 
     def test_docker_installed(self):
-        self.mock_ssh.run_command.return_value = ("Docker version 20.10.0", "", 0)
+        self.mock_ssh.run_command.side_effect = [
+            ("Docker version 20.10.0", "", 0),
+            ("active", "", 0),
+        ]
         assert self.manager.check_docker_installed() is True
 
     def test_docker_not_installed(self):
