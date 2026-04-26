@@ -18,6 +18,8 @@ from base64 import b64encode
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
+from docker_utils import check_docker_installed
+
 logger = logging.getLogger(__name__)
 
 # Default AWG parameters (from protocols_defs.h)
@@ -164,13 +166,7 @@ class AWGManager:
 
     def check_docker_installed(self):
         """Check if Docker is installed and running."""
-        out, err, code = self.ssh.run_command("docker --version 2>/dev/null")
-        if code != 0:
-            return False
-        out2, _, code2 = self.ssh.run_command(
-            "systemctl is-active docker 2>/dev/null || service docker status 2>/dev/null"
-        )
-        return "active" in out2 or "running" in out2.lower()
+        return check_docker_installed(self.ssh)
 
     def install_docker(self):
         """Install Docker on the server (mirrors install_docker.sh)."""
@@ -263,7 +259,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         results = []
 
         # Step 1: Install Docker
-        if not self.check_docker_installed():
+        if not check_docker_installed(self.ssh):
             results.append("Installing Docker...")
             self.install_docker()
             results.append("Docker installed successfully")
