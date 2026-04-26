@@ -72,7 +72,16 @@ from app.utils.helpers import (
     _t,
     _get_lang,
 )
-from config import DATA_DIR, DB_PATH, _get_secret_key, TRANSLATIONS, load_translations, _db_instance, get_db, init_db
+from config import (
+    DATA_DIR,
+    DB_PATH,
+    _get_secret_key,
+    TRANSLATIONS,
+    load_translations,
+    _db_instance,
+    get_db,
+    init_db,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

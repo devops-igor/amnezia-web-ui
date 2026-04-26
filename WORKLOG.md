@@ -325,3 +325,5 @@
 [2026-04-26 19:25] | pm_bot | SPAWN | Re-spawning py_bot for task #37 fix — test mocking broken after auth extraction. Converting patch.object to dependency_overrides.
 [2026-04-26 19:45] | py_bot | IMPLEMENTATION_COMPLETE | Task #37: Unified auth check patterns into FastAPI Depends(). Removed _check_admin(), added get_current_user, require_admin, get_current_user_optional to dependencies.py. 637 tests pass.
 [2026-04-26 19:45] | pm_bot | SMOKE_TEST | Task #37 smoke test: 637 pass, 0 fail. black/flake8 clean. py_compile OK.
+[2026-04-27 00:30] | pm_bot | SPAWN | Re-spawning py_bot for task #45 fix v2 — resolved namespace collision approach. Config and services go at project root (like schemas.py), only routers go inside app/. This avoids circular imports.
+[2026-04-27 00:45] | pm_bot | SPAWN | Spawning py_bot for Step 3 only — extract config.py to project root. Surgical approach with exact line ranges.
