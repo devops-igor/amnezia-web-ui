@@ -320,3 +320,8 @@
 [2026-04-26 18:45] | pm_bot | SPAWN | Re-spawning py_bot for task #36 cleanup — schemas.py created but models not removed from app.py, imports not updated, test files not created. Focused cleanup prompt.
 [2026-04-26 19:10] | py_bot | IMPLEMENTATION_COMPLETE | Task #36: Extracted 25 Pydantic models from app.py to schemas.py. 624 tests pass, black/flake8 clean. App.py reduced from 3239 to 2829 lines.
 [2026-04-26 19:10] | pm_bot | RECEIVED | py_bot completed task #36 cleanup. Mechanical fixes (flake8 F401 unused imports, global TRANSLATIONS) applied by pm_bot directly per user override rule. Smoke test: 624 pass, 0 fail.
+[2026-04-26 19:12] | pm_bot | PROJECT_START | Phase 4C: Starting task #37 auth-check-inconsistency — unify auth patterns into FastAPI Depends()
+[2026-04-26 19:12] | pm_bot | SPAWN | Spawning py_bot for task #37 (unify auth checks). Branch: feat/phase4-auth-dependencies.
+[2026-04-26 19:25] | pm_bot | SPAWN | Re-spawning py_bot for task #37 fix — test mocking broken after auth extraction. Converting patch.object to dependency_overrides.
+[2026-04-26 19:45] | py_bot | IMPLEMENTATION_COMPLETE | Task #37: Unified auth check patterns into FastAPI Depends(). Removed _check_admin(), added get_current_user, require_admin, get_current_user_optional to dependencies.py. 637 tests pass.
+[2026-04-26 19:45] | pm_bot | SMOKE_TEST | Task #37 smoke test: 637 pass, 0 fail. black/flake8 clean. py_compile OK.
