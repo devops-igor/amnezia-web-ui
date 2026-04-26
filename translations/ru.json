@@ -55,7 +55,7 @@
     "info": "Информация",
     "login_title": "Вход в панель",
     "username": "Логин",
-    "password": "***",
+    "password": "Пароль",
     "captcha": "Капча",
     "captcha_placeholder": "Введите символы с картинки",
     "captcha_hint": "Нажмите для обновления картинки",
