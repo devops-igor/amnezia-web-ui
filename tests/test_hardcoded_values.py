@@ -162,7 +162,7 @@ class TestInstallProtocolWithPackageManager:
         """Helper to run install_protocol with a given package manager and return sudo calls."""
         with (
             patch.object(self.manager, "_detect_package_manager", return_value=pkg_mgr),
-            patch.object(self.manager, "check_docker_installed", return_value=docker_installed),
+            patch("telemt_manager.check_docker_installed", return_value=docker_installed),
             patch.object(self.manager, "check_protocol_installed", return_value=False),
             patch("telemt_manager.verify_integrity", return_value=True),
             patch("telemt_manager.load_expected_hash", return_value="abc123"),
@@ -239,7 +239,7 @@ class TestInstallProtocolWithPackageManager:
         mock_detect = MagicMock(return_value="apt")
         with (
             patch.object(self.manager, "_detect_package_manager", mock_detect),
-            patch.object(self.manager, "check_docker_installed", return_value=False),
+            patch("telemt_manager.check_docker_installed", return_value=False),
             patch.object(self.manager, "check_protocol_installed", return_value=False),
             patch("telemt_manager.verify_integrity", return_value=True),
             patch("telemt_manager.load_expected_hash", return_value="abc123"),

@@ -76,9 +76,17 @@ CREATE INDEX IF NOT EXISTS idx_user_connections_user_id ON user_connections(user
 CREATE INDEX IF NOT EXISTS idx_user_connections_server_id ON user_connections(server_id);
 CREATE INDEX IF NOT EXISTS idx_creation_log_user_time ON connection_creation_log(user_id, created_at);
 
+-- Note: Additional indexes for users(username), users(share_token), users(remnawave_uuid),
+-- and user_connections(client_id) are created by Database._ensure_indexes() at runtime.
+-- They are NOT in schema.sql to avoid CREATE INDEX failures when columns don't exist yet
+-- during migration scenarios (e.g., adding share_token column to an old schema).
+
 CREATE TABLE IF NOT EXISTS known_hosts (
     server_id INTEGER PRIMARY KEY,
     fingerprint TEXT NOT NULL,
     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (server_id) REFERENCES servers(id)
 );
+
+-- Schema version is tracked in the settings table with key='schema_version'
+-- See Database.SCHEMA_VERSION and Database.get/set_schema_version()
