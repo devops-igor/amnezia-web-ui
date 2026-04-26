@@ -41,6 +41,32 @@ def migrate_if_needed(data_dir: str) -> None:
     migrate_data_json_to_sqlite(data_file, db_path)
 
 
+def _validate_data(data: dict) -> list[str]:
+    """Validate migration data structure. Returns list of errors (empty = valid)."""
+    errors = []
+    if not isinstance(data, dict):
+        errors.append("data is not a dict")
+        return errors
+
+    required_server_keys = {"name", "host"}
+    for i, srv in enumerate(data.get("servers", [])):
+        if not isinstance(srv, dict):
+            errors.append(f"servers[{i}] is not a dict")
+        elif not required_server_keys.issubset(srv.keys()):
+            missing = required_server_keys - set(srv.keys())
+            errors.append(f"servers[{i}] missing keys: {missing}")
+
+    required_user_keys = {"id", "username"}
+    for i, u in enumerate(data.get("users", [])):
+        if not isinstance(u, dict):
+            errors.append(f"users[{i}] is not a dict")
+        elif not required_user_keys.issubset(u.keys()):
+            missing = required_user_keys - set(u.keys())
+            errors.append(f"users[{i}] missing keys: {missing}")
+
+    return errors
+
+
 def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     """Migrate data.json to panel.db. Raises on failure.
 
@@ -51,15 +77,19 @@ def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     if not os.path.exists(data_file):
         raise FileNotFoundError(f"data.json not found at {data_file}")
 
-    if os.path.exists(db_path):
-        logger.info("panel.db already exists, skipping migration")
-        return
-
-    logger.info("Starting migration from %s to %s", data_file, db_path)
-
     # Read data.json
     with open(data_file, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    # Validate before touching the database
+    errors = _validate_data(data)
+    if errors:
+        raise ValueError(f"Invalid data.json: {'; '.join(errors)}")
+
+    # If a partial DB exists from a failed migration, remove it
+    if os.path.exists(db_path):
+        logger.warning("Partial panel.db found from failed migration, removing")
+        os.remove(db_path)
 
     # Set defaults (same as load_data)
     data.setdefault("servers", [])
@@ -69,7 +99,7 @@ def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     data.setdefault(
         "settings",
         {
-            "appearance": {"title": "Amnezia", "logo": "❤️", "subtitle": "Web Panel"},
+            "appearance": {"title": "Amnezia", "logo": "\u2764\ufe0f", "subtitle": "Web Panel"},
             "sync": {
                 "remnawave_url": "",
                 "remnawave_api_key": "",
@@ -93,22 +123,22 @@ def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     # Import Database and create
     from database import Database
 
-    db = Database(db_path)
-
-    # Use save_data to write everything at once
+    # Run migration
     try:
+        db = Database(db_path)
         db.save_data(data)
-    except Exception as exc:
-        # Remove the partially created DB on failure
+        # Set schema version after successful migration
+        db.set_schema_version(Database.SCHEMA_VERSION)
+    except Exception:
+        # Remove partial DB so app can retry on next startup
         if os.path.exists(db_path):
             os.remove(db_path)
-        logger.error("Migration failed: %s", exc)
         raise
 
-    # Backup data.json
+    # Only rename data.json after SUCCESSFUL migration
     backup_path = data_file + ".bak"
     shutil.move(data_file, backup_path)
-    logger.info("Migration complete. data.json moved to %s", backup_path)
+    logger.info("Migration complete. data.json renamed to %s", backup_path)
 
 
 if __name__ == "__main__":
