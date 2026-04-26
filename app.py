@@ -6,7 +6,7 @@ import secrets
 import uuid
 import asyncio
 from datetime import datetime
-from pathlib import Path
+
 import io
 from fastapi.responses import (
     JSONResponse,
@@ -36,7 +36,7 @@ from slowapi.errors import RateLimitExceeded
 from ssh_manager import SSHManager
 from awg_manager import AWGManager
 from xray_manager import XrayManager
-from database import Database
+
 from starlette_csrf import CSRFMiddleware
 import telegram_bot as tg_bot
 
@@ -72,6 +72,7 @@ from app.utils.helpers import (
     _t,
     _get_lang,
 )
+from config import DATA_DIR, DB_PATH, _get_secret_key, TRANSLATIONS, load_translations, _db_instance, get_db, init_db
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,66 +101,6 @@ async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded)
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# Define DATA_DIR early so it can be used by _get_secret_key()
-if getattr(sys, "frozen", False):
-    application_path = os.path.dirname(sys.executable)
-else:
-    application_path = os.path.dirname(__file__)
-
-DATA_DIR = application_path
-DB_PATH = os.path.join(DATA_DIR, "panel.db")
-
-# ======================== SECRET_KEY Initialization ========================
-# SECRET_KEY is used for session encryption. We need a persistent key that survives
-# restarts. Priority: env var > file > generate new (with warning)
-
-
-def _get_secret_key() -> str:
-    """Get or generate a persistent SECRET_KEY.
-
-    Priority:
-    1. SECRET_KEY environment variable (highest priority, for production/Docker)
-    2. .secret_key file in application directory (persistence across restarts)
-    3. Generate new key and save to file (first boot scenario, logs warning)
-
-    The file-based approach ensures the key persists across container restarts
-    when using Docker volumes.
-    """
-    # 1. Check environment variable first
-    env_key = os.environ.get("SECRET_KEY")
-    if env_key:
-        logger.info("Using SECRET_KEY from environment variable")
-        return env_key
-
-    # 2. Check for existing key file
-    key_file = Path(DATA_DIR) / ".secret_key"
-    if key_file.exists():
-        try:
-            stored_key = key_file.read_text().strip()
-            if stored_key:
-                logger.info("Loaded SECRET_KEY from persistent storage")
-                return stored_key
-        except Exception as e:
-            logger.warning(f"Failed to read SECRET_KEY from file: {e}")
-
-    # 3. Generate new key and save to file
-    new_key = secrets.token_hex(32)
-    try:
-        key_file.write_text(new_key)
-        # Ensure file permissions are restrictive (owner read/write only)
-        os.chmod(key_file, 0o600)
-        logger.warning(
-            "Generated new SECRET_KEY on first boot. "
-            "Set SECRET_KEY environment variable for production to prevent this warning. "
-            "Key stored in: %s",
-            key_file,
-        )
-    except Exception as e:
-        logger.error("Failed to save generated SECRET_KEY to file: %s", e)
-
-    return new_key
-
 
 # Password change required middleware
 # Blocks all /api/ requests (except auth endpoints) for users who must change their password
@@ -250,46 +191,11 @@ app.mount(
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
 
 
-# ======================== Translations ========================
-TRANSLATIONS = {}
-
-
-def load_translations():
-    trans_dir = os.path.join(os.path.dirname(__file__), "translations")
-    if os.path.exists(trans_dir):
-        for f in os.listdir(trans_dir):
-            if f.endswith(".json"):
-                lang = f.split(".")[0]
-                try:
-                    with open(os.path.join(trans_dir, f), "r", encoding="utf-8") as tf:
-                        TRANSLATIONS[lang] = json.load(tf)
-                except Exception as e:
-                    logger.error(f"Error loading translation {f}: {e}")
-    logger.info(f"Loaded translations: {list(TRANSLATIONS.keys())}")
-
-
+# Load translations from config module
 load_translations()
 
 
 # ======================== Helpers ========================
-
-_db_instance: Optional[Database] = None
-
-
-def get_db() -> Database:
-    """Return the singleton Database instance, creating it if needed."""
-    global _db_instance
-    if _db_instance is None:
-        _db_instance = Database(DB_PATH, secret_key=_get_secret_key())
-    return _db_instance
-
-
-def init_db():
-    """Initialize the database and run migration if needed."""
-    import migrate_to_sqlite
-
-    migrate_to_sqlite.migrate_if_needed(DATA_DIR)
-    get_db()
 
 
 def get_ssh(server):
