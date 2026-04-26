@@ -12,6 +12,8 @@ import re
 import secrets
 
 import credential_crypto
+from ssh_manager import SSHManager
+from xray_manager import XrayManager
 from fastapi import Request
 from slowapi.util import get_remote_address
 
@@ -145,3 +147,36 @@ def _get_default_lang() -> str:
 def _get_lang(request: Request) -> str:
     """Get language from cookie, falling back to settings-configured default."""
     return request.cookies.get("lang", _get_default_lang())
+
+
+def get_ssh(server):
+    """Create an SSHManager instance from a server dict."""
+    return SSHManager(
+        host=server["host"],
+        port=server.get("ssh_port", 22),
+        username=server["username"],
+        password=server.get("password"),
+        private_key=server.get("private_key"),
+    )
+
+
+def get_protocol_manager(ssh, protocol: str):
+    """Create a protocol manager instance for the given SSH connection and protocol."""
+    if protocol == "xray":
+        return XrayManager(ssh)
+    elif protocol == "telemt":
+        from telemt_manager import TelemtManager
+        from config import get_db
+
+        db = get_db()
+        config_dir = db.get_setting("protocol_paths", {}).get(
+            "telemt_config_dir", "/opt/amnezia/telemt"
+        )
+        return TelemtManager(ssh, config_dir=config_dir)
+    elif protocol == "dns":
+        from dns_manager import DNSManager
+
+        return DNSManager(ssh)
+    from awg_manager import AWGManager
+
+    return AWGManager(ssh)
