@@ -361,8 +361,11 @@ class TestPasswordChangeIntegration:
         )
 
         # Override the app's database singleton
-        self._orig_db_instance = app_module._db_instance
-        app_module._db_instance = self.db
+        import config as config_module
+
+        self._orig_db_instance = config_module._db_instance
+        config_module._db_instance = self.db
+        self.config_module = config_module
         self.app_module = app_module
 
         self.client = TestClient(app_module.app)
@@ -372,7 +375,7 @@ class TestPasswordChangeIntegration:
 
     def teardown_method(self):
         """Clean up."""
-        self.app_module._db_instance = self._orig_db_instance
+        self.config_module._db_instance = self._orig_db_instance
         self.db._get_conn().close()
         os.unlink(self.tmp_db_path)
 
