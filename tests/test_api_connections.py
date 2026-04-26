@@ -62,8 +62,8 @@ class TestApiMyAddConnection:
         conn.close()
         os.unlink(self.tmp_db_path)
 
-    @patch("app.get_ssh")
-    @patch("app.get_protocol_manager")
+    @patch("app.utils.helpers.get_ssh")
+    @patch("app.utils.helpers.get_protocol_manager")
     @patch("app.get_db")
     def test_duplicate_connection_name_returns_json_error(
         self,
@@ -259,8 +259,8 @@ class TestApiAddConnectionTelemtFailure:
         }
 
     @patch("app.get_db")
-    @patch("app.get_ssh")
-    @patch("app.get_protocol_manager")
+    @patch("app.utils.helpers.get_ssh")
+    @patch("app.utils.helpers.get_protocol_manager")
     def test_telemt_api_failure_returns_500_no_data_written(
         self,
         mock_get_protocol_manager,
@@ -311,8 +311,8 @@ class TestApiAddConnectionTelemtFailure:
             app.app.dependency_overrides.clear()
 
     @patch("app.get_db")
-    @patch("app.get_ssh")
-    @patch("app.get_protocol_manager")
+    @patch("app.utils.helpers.get_ssh")
+    @patch("app.utils.helpers.get_protocol_manager")
     def test_telemt_success_writes_connection(
         self,
         mock_get_protocol_manager,
