@@ -315,7 +315,7 @@ class TestPasswordChangeValidation:
 
     def test_verify_password_works(self):
         """verify_password should correctly validate against hash_password."""
-        from app import hash_password, verify_password
+        from app.utils.helpers import hash_password, verify_password
 
         hashed = hash_password("mysecretpass")
         assert verify_password("mysecretpass", hashed) is True
