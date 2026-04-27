@@ -22,6 +22,8 @@ from schemas import (
     ToggleConnectionRequest,
 )
 from awg_manager import AWGManager
+from ssh_manager import SSHManager
+from xray_manager import XrayManager
 
 logger = logging.getLogger(__name__)
 

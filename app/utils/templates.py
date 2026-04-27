@@ -11,11 +11,15 @@ from config import get_db, TRANSLATIONS
 from dependencies import get_current_user_optional
 
 # Shared Jinja2 templates instance — routers import this.
-templates = Jinja2Templates(directory=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "templates"))
+templates = Jinja2Templates(
+    directory=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "templates")
+)
+
 
 # Telegram bot references resolved lazily to avoid circular imports at module level.
 def _get_tg_bot():
     import telegram_bot as tg_bot
+
     return tg_bot
 
 
