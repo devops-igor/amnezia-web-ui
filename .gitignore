@@ -31,6 +31,8 @@ coverage.xml
 # User data
 data.json
 panel.db
+panel.db-shm
+panel.db-wal
 .DS_Store
 
 # IDEs
@@ -46,3 +48,4 @@ screen/
 WORKLOG.md
 .secret_key
 =0.9.0
+tests/e2e/screenshots/
