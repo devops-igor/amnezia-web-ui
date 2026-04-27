@@ -57,7 +57,7 @@ Archived task folders in `_archive/`.
 | 42 | telegram-bot-full-db-dump | Telegram Bot DB Dump | None | #58 | Open |
 | 43 | missing-db-indexes | Missing DB Indexes | None | #76 | ✅ DONE |
 | 44 | background-task-monolith | PBT Monolith → Services | #66 | #52 | Open |
-| 45 | god-file-app-py | app.py Split into Modules | #36, #37 | #51 | ✅ DONE (QA pending) |
+| 45 | god-file-app-py | app.py Split into Modules | #36, #37 | #51 | ✅ DONE (QA APPROVED, PR #108 MERGED) |
 | 46 | migration-no-schema-version | Migration Schema Versioning | None | #83 | ✅ DONE |
 | 47 | no-security-integration-tests | Security & Integration Tests | Phase 1 & 2 | #86 | Open |
 
@@ -73,9 +73,9 @@ Archived task folders in `_archive/`.
 
 ## Overall Progress
 
-**Phase 1 ✅ (16/16) + Phase 2 ✅ (9/9) + Phase 3 ✅ (9/9) + E2E ✅ + Phase 4A ✅ (4/12) + Phase 4B-C ✅ (2/12) + Phase 4D ✅ (1/12, QA pending) = 42/47 issues done.**
+**Phase 4A ✅ (4/12) + Phase 4B-C ✅ (2/12) + Phase 4D ✅ (1/12, QA APPROVED, PR #108 MERGED) = 43/47 issues done.**
 
-Phase 4 remaining: 5 tasks (after QA approves #45).
+Phase 4 remaining: 5 tasks.
 
 ---
 
