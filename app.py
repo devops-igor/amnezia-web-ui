@@ -84,6 +84,19 @@ async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded)
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+async def _unauthorized_handler(request: Request, exc):
+    """Redirect unauthenticated HTML requests to /login, return JSON for API requests."""
+    from fastapi.responses import RedirectResponse
+
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept:
+        return RedirectResponse(url="/login", status_code=303)
+    return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+
+
+app.add_exception_handler(401, _unauthorized_handler)
+
 # Password change required middleware
 # Blocks all /api/ requests (except auth endpoints) for users who must change their password
 # MUST be added BEFORE SessionMiddleware so it runs AFTER SessionMiddleware on request path
