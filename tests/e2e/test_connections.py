@@ -3,19 +3,16 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import api_get, api_post
 
 
 @pytest.mark.e2e
 def test_connection_list(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Navigate to server connections → sees connection list."""
+    """Navigate to server connections -> sees connection list."""
     page = authenticated_page
 
     # Get a server first
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -33,14 +30,11 @@ def test_connection_list(authenticated_page: Page, base_url: str, csrf_token: st
 
 @pytest.mark.e2e
 def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Add a new connection → appears in connection list."""
+    """Add a new connection -> appears in connection list."""
     page = authenticated_page
 
     # Need a server to add connections to
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -63,14 +57,11 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
 
 @pytest.mark.e2e
 def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """View connection config → sees config text and QR code."""
+    """View connection config -> sees config text and QR code."""
     page = authenticated_page
 
     # Get server and its connections
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -79,13 +70,7 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
     server_id = servers[0]["id"]
 
     # Get connections for this server
-    connections_result = page.evaluate(
-        """async (serverId) => {
-        const res = await fetch(`/api/servers/${serverId}/connections`);
-        return await res.json();
-    }""",
-        server_id,
-    )
+    connections_result = api_get(page, f"/api/servers/{server_id}/connections")
 
     connections = (
         connections_result
@@ -110,13 +95,10 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
 
 @pytest.mark.e2e
 def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Enable/disable a connection → status changes."""
+    """Enable/disable a connection -> status changes."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -124,13 +106,7 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
 
     server_id = servers[0]["id"]
 
-    connections_result = page.evaluate(
-        """async (serverId) => {
-        const res = await fetch(`/api/servers/${serverId}/connections`);
-        return await res.json();
-    }""",
-        server_id,
-    )
+    connections_result = api_get(page, f"/api/servers/{server_id}/connections")
 
     connections = (
         connections_result
@@ -155,13 +131,10 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
 
 @pytest.mark.e2e
 def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Delete a connection → removed from list."""
+    """Delete a connection -> removed from list."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -169,13 +142,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
 
     server_id = servers[0]["id"]
 
-    connections_result = page.evaluate(
-        """async (serverId) => {
-        const res = await fetch(`/api/servers/${serverId}/connections`);
-        return await res.json();
-    }""",
-        server_id,
-    )
+    connections_result = api_get(page, f"/api/servers/{server_id}/connections")
 
     connections = (
         connections_result

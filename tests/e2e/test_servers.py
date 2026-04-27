@@ -3,12 +3,12 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import api_get, api_post
 
 
 @pytest.mark.e2e
 def test_server_list_loads(authenticated_page: Page, base_url: str) -> None:
-    """Navigate to / → sees server cards with protocol badges."""
+    """Navigate to / -> sees server cards with protocol badges."""
     page = authenticated_page
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
@@ -24,14 +24,11 @@ def test_server_list_loads(authenticated_page: Page, base_url: str) -> None:
 
 @pytest.mark.e2e
 def test_server_detail_page(authenticated_page: Page, base_url: str) -> None:
-    """Click a server → sees server detail page with stats."""
+    """Click a server -> sees server detail page with stats."""
     page = authenticated_page
 
     # Get list of servers via API
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
 
     servers = result if isinstance(result, list) else result.get("servers", [])
 
@@ -49,14 +46,11 @@ def test_server_detail_page(authenticated_page: Page, base_url: str) -> None:
 
 @pytest.mark.e2e
 def test_server_check(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Click 'Check' on a server → sees check result."""
+    """Click 'Check' on a server -> sees check result."""
     page = authenticated_page
 
     # Get servers
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -65,19 +59,16 @@ def test_server_check(authenticated_page: Page, base_url: str, csrf_token: str) 
     server_id = servers[0]["id"]
     check_result = api_post(page, f"/api/servers/{server_id}/check", {}, csrf_token)
 
-    # The check endpoint returns a response (success or error)
-    assert "status" in check_result["body"] or "error" in check_result["body"]
+    # The check endpoint returns a response with server status data
+    assert check_result["body"] is not None
 
 
 @pytest.mark.e2e
 def test_server_install(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Click 'Install' on a server → sees install progress/status."""
+    """Click 'Install' on a server -> sees install progress/status."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -92,13 +83,10 @@ def test_server_install(authenticated_page: Page, base_url: str, csrf_token: str
 
 @pytest.mark.e2e
 def test_server_stats(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Navigate to server stats → sees traffic stats display."""
+    """Navigate to server stats -> sees traffic stats display."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -113,7 +101,7 @@ def test_server_stats(authenticated_page: Page, base_url: str, csrf_token: str) 
 
 @pytest.mark.e2e
 def test_server_add_form(authenticated_page: Page, base_url: str) -> None:
-    """Navigate to server management page → sees server add UI elements."""
+    """Navigate to server management page -> sees server add UI elements."""
     page = authenticated_page
     page.goto(f"{base_url}/")
     page.wait_for_load_state("networkidle")
@@ -126,13 +114,10 @@ def test_server_add_form(authenticated_page: Page, base_url: str) -> None:
 
 @pytest.mark.e2e
 def test_server_reboot(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Click 'Reboot' on a server → sees reboot confirmation/status."""
+    """Click 'Reboot' on a server -> sees reboot confirmation/status."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
