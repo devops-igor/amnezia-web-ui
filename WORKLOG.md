@@ -388,3 +388,6 @@
 - Live verification: login, dashboard, users, settings, leaderboard, Swagger docs all working
 
 [2026-04-27 04:10] | pm_bot | DEPLOY | Deployed feat/phase4-god-file-split to dev server. PR #108 open. Docker had ModuleNotFoundError for app.utils — fixed by adding COPY app/ ./app/ to Dockerfile.
+
+[2026-04-27 04:30] | pm_bot | FIX | 401 handler: unauthenticated / now redirects to /login for HTML requests. API requests still return JSON 401. Deployed and verified on dev server.
+[2026-04-27 04:35] | pm_bot | CHORE | Removed E2E test screenshots from git history (git filter-repo), added tests/e2e/screenshots/ to .gitignore. Force-pushed feat/phase4-god-file-split.
