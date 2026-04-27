@@ -30,6 +30,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/servers")
 
 
+@router.get("/")
+async def api_list_servers(request: Request, user: dict = Depends(get_current_user)):
+    """Return all servers as JSON."""
+    db = get_db()
+    servers = db.get_all_servers()
+    return servers
+
+
 CONTAINER_NAMES = {
     "awg": "amnezia-awg",
     "awg2": "amnezia-awg2",
