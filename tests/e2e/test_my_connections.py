@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import _do_login, _get_csrf_cookie, api_get, api_post
 
 
 def _create_test_user(
@@ -15,7 +15,7 @@ def _create_test_user(
         "/api/users/add",
         {
             "username": username,
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -25,10 +25,7 @@ def _create_test_user(
     if add_result["status"] != 200:
         pytest.skip("Could not create test user")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     for u in users:
@@ -41,83 +38,25 @@ def _create_test_user(
 
 @pytest.mark.e2e
 def test_user_login_and_list(page: Page, base_url: str, admin_user: str, admin_pass: str) -> None:
-    """Login as regular user → sees own connections."""
-    # First, create a regular user via admin
-    page.goto(f"{base_url}/login")
-    page.wait_for_load_state("networkidle")
+    """Login as regular user -> sees own connections."""
+    # First, login as admin to create a test user
+    _do_login(page, base_url, admin_user, admin_pass)
+    csrf_token = _get_csrf_cookie(page)
 
-    csrf_token = page.evaluate("""() => {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta) return meta.getAttribute('content');
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }""")
-
-    # Login as admin to create a test user
-    login_result = page.evaluate(
-        """async ([adminUser, adminPass, csrfToken]) => {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({
-                username: adminUser,
-                password: adminPass,
-                captcha: null,
-            }),
-        });
-        return await res.json();
-    }""",
-        [admin_user, admin_pass, csrf_token],
-    )
-
-    if login_result.get("status") != "success":
-        pytest.skip("Admin login failed — cannot create test user")
-
-    # Create test user
-    test_user = _create_test_user(page, base_url, csrf_token)
+    # Create test user via admin API
+    test_user = _create_test_user(page, base_url, csrf_token, "e2e_my_user")
     test_username = test_user.get("username", "e2e_my_user")
+    test_password = "TestPass123!"
 
-    # Logout admin — navigate to /logout
+    # Logout admin
     page.goto(f"{base_url}/logout")
     page.wait_for_load_state("networkidle")
 
     # Clear cookies for a fresh login
     page.context.clear_cookies()
 
-    # Login as the test user
-    page.goto(f"{base_url}/login")
-    page.wait_for_load_state("networkidle")
-
-    csrf_token2 = page.evaluate("""() => {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta) return meta.getAttribute('content');
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }""")
-
-    user_login_result = page.evaluate(
-        """async ([username, password, csrfToken]) => {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({
-                username: username,
-                password: password,
-                captcha: null,
-            }),
-        });
-        return await res.json();
-    }""",
-        [test_username, "testpass12345", csrf_token2],
-    )
-
-    assert user_login_result.get("status") == "success"
+    # Login as the test user via API (bypasses CSP)
+    _do_login(page, base_url, test_username, test_password)
 
     # Navigate to /my — should see own connections
     page.goto(f"{base_url}/my")
@@ -135,10 +74,7 @@ def test_create_connection(
     page = authenticated_page
 
     # Get a server to attach connection to
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/servers")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -171,47 +107,15 @@ def test_view_connection_config(
     page: Page, base_url: str, admin_user: str, admin_pass: str
 ) -> None:
     """Click connection config -> sees config details."""
-    # Login as admin, create user + connection, then view config
-    page.goto(f"{base_url}/login")
-    page.wait_for_load_state("networkidle")
-
-    csrf_token = page.evaluate("""() => {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta) return meta.getAttribute('content');
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }""")
-
-    login_result = page.evaluate(
-        """async ([adminUser, adminPass, csrfToken]) => {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({
-                username: adminUser,
-                password: adminPass,
-                captcha: null,
-            }),
-        });
-        return await res.json();
-    }""",
-        [admin_user, admin_pass, csrf_token],
-    )
-
-    if login_result.get("status") != "success":
-        pytest.skip("Admin login failed")
+    # Login as admin
+    _do_login(page, base_url, admin_user, admin_pass)
+    csrf_token = _get_csrf_cookie(page)
 
     test_user = _create_test_user(page, base_url, csrf_token, "e2e_view_user")
     user_id = test_user["id"]
 
     # Get servers to find a connection
-    servers_result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    servers_result = api_get(page, "/api/servers")
     servers = (
         servers_result if isinstance(servers_result, list) else servers_result.get("servers", [])
     )
@@ -251,39 +155,10 @@ def test_view_connection_config(
 
 @pytest.mark.e2e
 def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pass: str) -> None:
-    """Regular user navigating to admin page → receives error or redirect."""
-    # Login as admin, create a regular user
-    page.goto(f"{base_url}/login")
-    page.wait_for_load_state("networkidle")
-
-    csrf_token = page.evaluate("""() => {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta) return meta.getAttribute('content');
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }""")
-
-    login_result = page.evaluate(
-        """async ([adminUser, adminPass, csrfToken]) => {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({
-                username: adminUser,
-                password: adminPass,
-                captcha: null,
-            }),
-        });
-        return await res.json();
-    }""",
-        [admin_user, admin_pass, csrf_token],
-    )
-
-    if login_result.get("status") != "success":
-        pytest.skip("Admin login failed")
+    """Regular user navigating to admin page -> receives error or redirect."""
+    # Login as admin
+    _do_login(page, base_url, admin_user, admin_pass)
+    csrf_token = _get_csrf_cookie(page)
 
     test_user = _create_test_user(page, base_url, csrf_token, "e2e_role_user")
 
@@ -292,40 +167,18 @@ def test_role_access_denied(page: Page, base_url: str, admin_user: str, admin_pa
     page.wait_for_load_state("networkidle")
     page.context.clear_cookies()
 
-    # Login as regular user
-    page.goto(f"{base_url}/login")
-    page.wait_for_load_state("networkidle")
+    # Login as regular user via API (bypasses CSP)
+    _do_login(page, base_url, test_user.get("username", "e2e_role_user"), "TestPass123!")
 
-    csrf_token2 = page.evaluate("""() => {
-        const meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta) return meta.getAttribute('content');
-        const match = document.cookie.match(/csrftoken=([^;]+)/);
-        return match ? match[1] : '';
-    }""")
-
-    page.evaluate(
-        """async ([username, password, csrfToken]) => {
-        await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({
-                username: username,
-                password: password,
-                captcha: null,
-            }),
-        });
-    }""",
-        [test_user.get("username", "e2e_role_user"), "testpass12345", csrf_token2],
-    )
+    # Get CSRF token for the regular user's session
+    regular_csrf = _get_csrf_cookie(page)
 
     # Try to access admin API — should get 403
-    api_result = page.evaluate("""async () => {
-        const res = await fetch('/api/settings');
-        return { status: res.status, body: await res.json() };
-    }""")
+    # Use Playwright's request API (bypasses CSP) with regular user's CSRF
+    api_result = page.request.get(
+        f"{base_url}/api/settings",
+        headers={"X-CSRF-Token": regular_csrf},
+    )
 
     # Regular user should be forbidden from admin endpoints
-    assert api_result["status"] in (403, 401)
+    assert api_result.status in (403, 401)
