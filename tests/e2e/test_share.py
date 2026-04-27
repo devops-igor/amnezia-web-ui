@@ -3,19 +3,16 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import api_get, api_post
 
 
 @pytest.mark.e2e
 def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Set up share for a user connection → share link generated."""
+    """Set up share for a user connection -> share link generated."""
     page = authenticated_page
 
     # Get users (need a user to share)
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
 
     users = users_result if isinstance(users_result, list) else []
     if not users:
@@ -25,7 +22,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
             "/api/users/add",
             {
                 "username": "e2e_share_user",
-                "password": "***",
+                "password": "TestPass123!",
                 "role": "user",
                 "enabled": True,
             },
@@ -34,10 +31,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
         if add_result["status"] != 200:
             pytest.skip("Could not create user for share test")
 
-        users_result2 = page.evaluate("""async () => {
-            const res = await fetch('/api/users');
-            return await res.json();
-        }""")
+        users_result2 = api_get(page, "/api/users")
         users = users_result2 if isinstance(users_result2, list) else []
 
     # Find our test user or use the first non-admin user
@@ -59,7 +53,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
     share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "***"},
+        {"enabled": True, "password": "TestPass123!"},
         csrf_token,
     )
 
@@ -80,7 +74,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
 
 @pytest.mark.e2e
 def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Navigate to share link → sees share page."""
+    """Navigate to share link -> sees share page."""
     page = authenticated_page
 
     # Create a test user
@@ -89,7 +83,7 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
         "/api/users/add",
         {
             "username": "e2e_share_access_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -99,10 +93,7 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     target_user = None
@@ -120,7 +111,7 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
     share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "***"},
+        {"enabled": True, "password": "TestPass123!"},
         csrf_token,
     )
 
@@ -154,15 +145,12 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
 def test_download_config_from_share(
     authenticated_page: Page, base_url: str, csrf_token: str
 ) -> None:
-    """Authenticate on share page, download config → gets config file."""
+    """Authenticate on share page, download config -> gets config file."""
     page = authenticated_page
 
     # This test requires a user with share enabled AND a connection.
     # If no servers/connections exist, skip.
-    servers_result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    servers_result = api_get(page, "/api/servers")
     servers = servers_result if isinstance(servers_result, list) else []
 
     if not servers:
@@ -174,7 +162,7 @@ def test_download_config_from_share(
         "/api/users/add",
         {
             "username": "e2e_share_dl_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -184,10 +172,7 @@ def test_download_config_from_share(
     if add_result["status"] != 200:
         pytest.skip("Could not create user for share download test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     target_user = None
@@ -205,7 +190,7 @@ def test_download_config_from_share(
     share_result = api_post(
         page,
         f"/api/users/{user_id}/share/setup",
-        {"enabled": True, "password": "***"},
+        {"enabled": True, "password": "TestPass123!"},
         csrf_token,
     )
 
@@ -215,25 +200,19 @@ def test_download_config_from_share(
 
     share_token = share_result["body"].get("share_token")
 
-    # Authenticate on share page
-    auth_result = page.evaluate(
-        """async ([shareToken, csrfToken]) => {
-        const res = await fetch(`/api/share/${shareToken}/auth`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': csrfToken,
-            },
-            body: JSON.stringify({ password: 'TestPass123!' }),
-        });
-        return { status: res.status, body: await res.json() };
-    }""",
-        [share_token, csrf_token],
+    # Authenticate on share page via Playwright's request API (bypasses CSP)
+    auth_result = page.request.post(
+        f"{base_url}/api/share/{share_token}/auth",
+        data={"password": "TestPass123!"},
+        headers={
+            "X-CSRF-Token": csrf_token,
+            "Content-Type": "application/json",
+        },
     )
 
     # Auth might succeed or fail depending on CSRF and session state
     # Just verify the endpoint is reachable
-    assert auth_result["status"] in (200, 401, 403)
+    assert auth_result.status in (200, 401, 403)
 
     # Clean up
     api_post(
