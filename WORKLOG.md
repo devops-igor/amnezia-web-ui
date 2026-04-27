@@ -355,3 +355,24 @@
 ### CI Fixes
 - pytest-asyncio 0.23.8 -> 1.3.0 (conflicted with pytest 9.0.3)
 - black 26.3.1 formatting on 5 files (awg_manager.py, 4 test files)
+
+## Phase 4 — God File Split (Continued)
+
+[2026-04-27 01:51] | py_bot | IMPLEMENTATION_COMPLETE | Step 7: Extracted 7 user routes from app.py to app/routers/users.py. Lazy imports for perform_delete_user/perform_toggle_user to avoid circular import with app/__init__.py exec shim. app.py: 1680→1372 lines. 637/637 tests pass. black/flake8/py_compile clean. Commit 66d54e3 on feat/phase4-god-file-split.
+| [2026-04-27 02:45] | py_bot | IMPLEMENTATION_COMPLETE | Step 8: Extract connection and share routes from app.py. Created app/routers/connections.py (3 routes, prefix /api/my/connections) and app/routers/share.py (5 routes, no prefix, tags=["share"]). Removed 361 lines from app.py (1372→1011). All 637 tests pass. Updated test mock patches for connections router. |
+| [2026-04-27 02:25] | py_bot | IMPLEMENTATION_COMPLETE | Step 9: Extracted 8 settings routes from app.py to app/routers/settings.py. Settings page, API endpoints, Telegram toggle, Remnawave sync, backup download/restore. APIRouter(tags=["settings"]) with no prefix, full paths preserved. Lazy imports for sync_users_with_remnawave and perform_mass_operations to avoid circular dependency. Removed 179 lines from app.py (1011→832). Cleaned unused imports (json, sys, io, RedirectResponse, StreamingResponse, Response, Query, UploadFile, File, all schemas except ChangePasswordRequest/InstallProtocolRequest for test compat, _sanitize_error, serialize_protocols, _get_lang, templates, tpl, DATA_DIR, DB_PATH, _db_instance, get_current_user_optional, require_admin). Kept TRANSLATIONS import for _t() dynamic import. 637/637 tests pass. black/flake8/py_compile clean. |
+
+## Task #45 God-File Split — April 27, 2026 (continued)
+
+[2026-04-27 01:50] | pm_bot | SMOKE_TEST | Step 6 fix: Updated mock patch targets from app.get_db/app.utils.helpers.get_ssh to app.routers.servers.get_db/get_ssh/get_protocol_manager. 637/637 tests pass. Committed as 7feaad3.
+[2026-04-27 02:00] | pm_bot | SPAWN | Spawning py_bot for Step 7 — extract user routes to app/routers/users.py.
+[2026-04-27 02:15] | py_bot | IMPLEMENTATION_COMPLETE | Step 7: Extracted 7 user routes to app/routers/users.py. app.py: 1680→1372. 637 tests pass. Committed as 66d54e3.
+[2026-04-27 02:20] | pm_bot | SPAWN | Spawning py_bot for Step 8 — extract connection and share routes.
+[2026-04-27 02:35] | py_bot | IMPLEMENTATION_COMPLETE | Step 8: Extracted 3 connection routes to app/routers/connections.py and 5 share routes to app/routers/share.py. app.py: 1372→1011. 637 tests pass. Committed as part of 3ab6f19.
+[2026-04-27 02:40] | pm_bot | SPAWN | Spawning py_bot for Step 9 — extract settings routes.
+[2026-04-27 02:50] | py_bot | IMPLEMENTATION_COMPLETE | Step 9: Extracted 8 settings routes to app/routers/settings.py. app.py: 1011→832. 637 tests pass. Committed as part of 3ab6f19.
+[2026-04-27 02:55] | pm_bot | SMOKE_TEST | Steps 8-9 verified: 637/637 pass, black/flake8 clean. Committed as 3ab6f19.
+[2026-04-27 03:00] | pm_bot | SPAWN | Spawning py_bot for Steps 10-11 — extract leaderboard route and background tasks.
+[2026-04-27 03:20] | py_bot | IMPLEMENTATION_COMPLETE | Steps 10-11: Extracted leaderboard route to app/routers/leaderboard.py and 5 background functions to app/services/background.py. app.py: 832→267. py_bot hit API rate limit on commit step.
+[2026-04-27 03:30] | pm_bot | SMOKE_TEST | Steps 10-11 verified and fixed: Added backward-compat re-exports (ChangePasswordRequest, InstallProtocolRequest, get_leaderboard_entries, background functions) for tests. Fixed flake8 F401/E402 warnings. All 637 tests pass, black/flake8 clean. Committed as b2a7f08.
+[2026-04-27 03:35] | pm_bot | GIT_PUSH | Pushed feat/phase4-god-file-split to origin. 11 commits, app.py reduced from 2777→267 lines (90.4% reduction).
