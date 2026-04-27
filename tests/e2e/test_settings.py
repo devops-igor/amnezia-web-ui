@@ -3,12 +3,12 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import api_get, api_post
 
 
 @pytest.mark.e2e
 def test_settings_page_loads(authenticated_page: Page, base_url: str) -> None:
-    """Navigate to /settings → sees settings form."""
+    """Navigate to /settings -> sees settings form."""
     page = authenticated_page
     page.goto(f"{base_url}/settings")
     page.wait_for_load_state("networkidle")
@@ -23,14 +23,11 @@ def test_settings_page_loads(authenticated_page: Page, base_url: str) -> None:
 
 @pytest.mark.e2e
 def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Change panel title → saved and reflected in page."""
+    """Change panel title -> saved and reflected in page."""
     page = authenticated_page
 
     # Get current settings
-    settings_result = page.evaluate("""async () => {
-        const res = await fetch('/api/settings');
-        return await res.json();
-    }""")
+    settings_result = api_get(page, "/api/settings")
 
     original_title = ""
     if isinstance(settings_result, dict):
@@ -138,14 +135,11 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
 
 @pytest.mark.e2e
 def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Toggle captcha setting → setting changes."""
+    """Toggle captcha setting -> setting changes."""
     page = authenticated_page
 
     # Get current settings
-    settings_result = page.evaluate("""async () => {
-        const res = await fetch('/api/settings');
-        return await res.json();
-    }""")
+    settings_result = api_get(page, "/api/settings")
 
     original_captcha = {"enabled": False}
     if isinstance(settings_result, dict):
@@ -196,10 +190,7 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
 
     if save_result["status"] == 200:
         # Verify captcha is now enabled
-        verify_result = page.evaluate("""async () => {
-            const res = await fetch('/api/settings');
-            return await res.json();
-        }""")
+        verify_result = api_get(page, "/api/settings")
         captcha_state = verify_result.get("captcha", {}) if isinstance(verify_result, dict) else {}
         # Captcha should be enabled (or at least the save succeeded)
         assert (
@@ -251,28 +242,16 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
 
 @pytest.mark.e2e
 def test_backup_download(authenticated_page: Page, base_url: str) -> None:
-    """Click download backup → gets backup file."""
+    """Click download backup -> gets backup file."""
     page = authenticated_page
 
-    # Navigate to settings page first to get CSRF cookie
-    page.goto(f"{base_url}/settings")
-    page.wait_for_load_state("networkidle")
-
-    # Download the backup
-    result = page.evaluate("""async () => {
-        const csrfToken = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
-        const res = await fetch('/api/settings/backup/download', {
-            headers: { 'X-CSRF-Token': csrfToken },
-        });
-        const text = await res.text();
-        return {
-            status: res.status,
-            contentType: res.headers.get('content-type'),
-            contentLength: text.length,
-            startsWithJson: text.startsWith('{') || text.startsWith('['),
-        };
-    }""")
+    # Use Playwright's request API to download backup (bypasses CSP)
+    result = page.request.get(
+        f"{base_url}/api/settings/backup/download",
+    )
 
     # Should return 200 and JSON content
-    assert result["status"] == 200
-    assert result["startsWithJson"]
+    assert result.status == 200
+    content_type = result.headers.get("content-type", "")
+    text = result.text()
+    assert text.startswith("{") or text.startswith("[")
