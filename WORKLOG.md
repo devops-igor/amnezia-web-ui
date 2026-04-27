@@ -325,3 +325,138 @@
 [2026-04-26 19:25] | pm_bot | SPAWN | Re-spawning py_bot for task #37 fix — test mocking broken after auth extraction. Converting patch.object to dependency_overrides.
 [2026-04-26 19:45] | py_bot | IMPLEMENTATION_COMPLETE | Task #37: Unified auth check patterns into FastAPI Depends(). Removed _check_admin(), added get_current_user, require_admin, get_current_user_optional to dependencies.py. 637 tests pass.
 [2026-04-26 19:45] | pm_bot | SMOKE_TEST | Task #37 smoke test: 637 pass, 0 fail. black/flake8 clean. py_compile OK.
+[2026-04-27 00:30] | pm_bot | SPAWN | Re-spawning py_bot for task #45 fix v2 — resolved namespace collision approach. Config and services go at project root (like schemas.py), only routers go inside app/. This avoids circular imports.
+[2026-04-27 00:45] | pm_bot | SPAWN | Spawning py_bot for Step 3 only — extract config.py to project root. Surgical approach with exact line ranges.
+[2026-04-27 01:05] | pm_bot | SPAWN | Spawning py_bot for Steps 4-6 — extract auth, pages, and server routes into app/routers/. 80 max turns.
+[2026-04-27 01:30] | pm_bot | SPAWN | Spawning py_bot for Steps 5-6 — extract page routes and server routes. 80 max turns.
+[2026-04-27 01:40] | pm_bot | SMOKE_TEST | Steps 4-5 committed. Step 6 partially done. 635/637 tests pass (2 failures in test_api_connections due to local get_ssh/get_protocol_manager in servers.py). app.py: 2777→1683 (39% reduction). 23 routes extracted to routers.
+
+## Session Summary — April 24, 2026
+
+### PR #100 Merge (Phase 3)
+- Resolved 9 merge conflicts (WORKLOG, requirements, TASKS_OVERVIEW, 5 translation JSON files)
+- Conflicts combined content from both main (Phase 2) and feat/phase3-quick-wins branches
+- Merged via git_bot. Branch deleted. PR #100 closed.
+
+### Post-Deploy Verification
+- Deployed main branch image (SHA 85648ffc) to dev server
+- Found DB permissions issue: panel.db owned by root:root but container runs as appuser (UID 100)
+- Fixed: `chown 100:101 /root/amnezia-panel/panel.db`
+- Ran 49 verification tests: 47 PASS, 0 FAIL, 2 skipped (password change tests)
+- All security checks green: Fernet encryption, CSRF, rate limiting, XSS, input validation, non-root container, template integrity
+- Created VERIFICATION_PLAN.md (92-item manual checklist) and VERIFICATION_REPORT_2026-04-24.md
+
+### E2E Test Task Created
+- Hybrid approach decided: 36 Playwright E2E tests + manual UI checklist
+- Task folder created: tasks/e2e-playwright-suite/
+- GitHub issue #101 opened (closed after task definition)
+- PR #102 merged: verification docs + pytest-asyncio fix + black formatting fix
+
+### CI Fixes
+- pytest-asyncio 0.23.8 -> 1.3.0 (conflicted with pytest 9.0.3)
+- black 26.3.1 formatting on 5 files (awg_manager.py, 4 test files)
+
+## Phase 4 — God File Split (Continued)
+
+[2026-04-27 01:51] | py_bot | IMPLEMENTATION_COMPLETE | Step 7: Extracted 7 user routes from app.py to app/routers/users.py. Lazy imports for perform_delete_user/perform_toggle_user to avoid circular import with app/__init__.py exec shim. app.py: 1680→1372 lines. 637/637 tests pass. black/flake8/py_compile clean. Commit 66d54e3 on feat/phase4-god-file-split.
+| [2026-04-27 02:45] | py_bot | IMPLEMENTATION_COMPLETE | Step 8: Extract connection and share routes from app.py. Created app/routers/connections.py (3 routes, prefix /api/my/connections) and app/routers/share.py (5 routes, no prefix, tags=["share"]). Removed 361 lines from app.py (1372→1011). All 637 tests pass. Updated test mock patches for connections router. |
+| [2026-04-27 02:25] | py_bot | IMPLEMENTATION_COMPLETE | Step 9: Extracted 8 settings routes from app.py to app/routers/settings.py. Settings page, API endpoints, Telegram toggle, Remnawave sync, backup download/restore. APIRouter(tags=["settings"]) with no prefix, full paths preserved. Lazy imports for sync_users_with_remnawave and perform_mass_operations to avoid circular dependency. Removed 179 lines from app.py (1011→832). Cleaned unused imports (json, sys, io, RedirectResponse, StreamingResponse, Response, Query, UploadFile, File, all schemas except ChangePasswordRequest/InstallProtocolRequest for test compat, _sanitize_error, serialize_protocols, _get_lang, templates, tpl, DATA_DIR, DB_PATH, _db_instance, get_current_user_optional, require_admin). Kept TRANSLATIONS import for _t() dynamic import. 637/637 tests pass. black/flake8/py_compile clean. |
+
+## Task #45 God-File Split — April 27, 2026 (continued)
+
+[2026-04-27 01:50] | pm_bot | SMOKE_TEST | Step 6 fix: Updated mock patch targets from app.get_db/app.utils.helpers.get_ssh to app.routers.servers.get_db/get_ssh/get_protocol_manager. 637/637 tests pass. Committed as 7feaad3.
+[2026-04-27 02:00] | pm_bot | SPAWN | Spawning py_bot for Step 7 — extract user routes to app/routers/users.py.
+[2026-04-27 02:15] | py_bot | IMPLEMENTATION_COMPLETE | Step 7: Extracted 7 user routes to app/routers/users.py. app.py: 1680→1372. 637 tests pass. Committed as 66d54e3.
+[2026-04-27 02:20] | pm_bot | SPAWN | Spawning py_bot for Step 8 — extract connection and share routes.
+[2026-04-27 02:35] | py_bot | IMPLEMENTATION_COMPLETE | Step 8: Extracted 3 connection routes to app/routers/connections.py and 5 share routes to app/routers/share.py. app.py: 1372→1011. 637 tests pass. Committed as part of 3ab6f19.
+[2026-04-27 02:40] | pm_bot | SPAWN | Spawning py_bot for Step 9 — extract settings routes.
+[2026-04-27 02:50] | py_bot | IMPLEMENTATION_COMPLETE | Step 9: Extracted 8 settings routes to app/routers/settings.py. app.py: 1011→832. 637 tests pass. Committed as part of 3ab6f19.
+[2026-04-27 02:55] | pm_bot | SMOKE_TEST | Steps 8-9 verified: 637/637 pass, black/flake8 clean. Committed as 3ab6f19.
+[2026-04-27 03:00] | pm_bot | SPAWN | Spawning py_bot for Steps 10-11 — extract leaderboard route and background tasks.
+[2026-04-27 03:20] | py_bot | IMPLEMENTATION_COMPLETE | Steps 10-11: Extracted leaderboard route to app/routers/leaderboard.py and 5 background functions to app/services/background.py. app.py: 832→267. py_bot hit API rate limit on commit step.
+[2026-04-27 03:30] | pm_bot | SMOKE_TEST | Steps 10-11 verified and fixed: Added backward-compat re-exports (ChangePasswordRequest, InstallProtocolRequest, get_leaderboard_entries, background functions) for tests. Fixed flake8 F401/E402 warnings. All 637 tests pass, black/flake8 clean. Committed as b2a7f08.
+[2026-04-27 03:35] | pm_bot | GIT_PUSH | Pushed feat/phase4-god-file-split to origin. 11 commits, app.py reduced from 2777→267 lines (90.4% reduction).
+
+[2026-04-27 04:00] | pm_bot | VERIFY | Full verification against VERIFICATION_PLAN.md completed:
+- 637/637 automated tests pass
+- All 12 router/service/utility modules import cleanly (no circular imports)
+- 58 routes registered in FastAPI app
+- app.py reduced to 267 lines (90.4% reduction from 2777)
+- black/flake8/py_compile all clean
+- Dockerfile fix: added COPY app/ ./app/ (container was crashing without it)
+- Deployed to dev server: container starts, DB writable
+- Live verification: login, dashboard, users, settings, leaderboard, Swagger docs all working
+
+[2026-04-27 04:10] | pm_bot | DEPLOY | Deployed feat/phase4-god-file-split to dev server. PR #108 open. Docker had ModuleNotFoundError for app.utils — fixed by adding COPY app/ ./app/ to Dockerfile.
+
+[2026-04-27 04:30] | pm_bot | FIX | 401 handler: unauthenticated / now redirects to /login for HTML requests. API requests still return JSON 401. Deployed and verified on dev server.
+|[2026-04-27 04:35] | pm_bot | CHORE | Removed E2E test screenshots from git history (git filter-repo), added tests/e2e/screenshots/ to .gitignore. Force-pushed feat/phase4-god-file-split.|
+|[2026-04-27 16:10] | pm_bot | WRAP_UP | Session wrap-up. Task #45 (god-file-app-py) code-complete, deployed, verified. PR #108 open. QA review pending. Updated TASKS_OVERVIEW.md, GitHub issues, WORKLOG.md. |
+
+---
+
+## Session Summary — April 27, 2026 (Task #45 — God File Split)
+
+### Task #45: app.py God File Split into Modular Architecture
+- **Status**: CODE COMPLETE, DEPLOYED, VERIFIED — awaiting QA review before merge
+- **Branch**: feat/phase4-god-file-split (16 commits ahead of main)
+- **PR**: #108 ( https://github.com/devops-igor/amnezia-web-ui/pull/108 )
+- **app.py**: 267 lines (down from 2777, 90.4% reduction)
+
+### Extraction Steps Completed (11 incremental commits):
+1. Created `app/__init__.py` with exec() shim + `app/main.py` thin shell
+2. Moved helpers to `app/utils/helpers.py`
+3. Moved config to project-root `config.py`
+4. Extracted auth routes to `app/routers/auth.py` (6 routes)
+5. Extracted page routes to `app/routers/pages.py` (5 routes)
+6. Extracted server routes to `app/routers/servers.py` (~18 routes)
+7. Extracted user routes to `app/routers/users.py` (7 routes)
+8. Extracted connection routes to `app/routers/connections.py` + share routes to `app/routers/share.py`
+9. Extracted settings routes to `app/routers/settings.py` (8 routes)
+10. Extracted leaderboard route to `app/routers/leaderboard.py`
+11. Moved background tasks to `app/services/background.py`
+
+### New Module Structure:
+```
+app/
+├── __init__.py          (exec() shim loading root app.py)
+├── main.py              (thin shell, not actively used)
+├── routers/
+│   ├── auth.py           (6 routes)
+│   ├── pages.py          (5 routes)
+│   ├── servers.py        (~18 routes)
+│   ├── users.py          (7 routes)
+│   ├── connections.py     (3 routes)
+│   ├── share.py          (5 routes)
+│   ├── settings.py       (8 routes)
+│   └── leaderboard.py    (1 route)
+├── services/
+│   └── background.py     (5 background functions)
+└── utils/
+    ├── helpers.py         (utility functions)
+    ├── rate_limiter.py    (shared Limiter instance)
+    └── templates.py       (shared Jinja2 templates)
+config.py                  (project-root: DB, secrets, translations)
+schemas.py                 (project-root: 25 Pydantic models)
+dependencies.py            (project-root: auth dependencies)
+```
+
+### Bug Fixes During Implementation:
+- Dockerfile: Added `COPY app/ ./app/` — modular package wasn't copied into Docker image
+- 401 handler: Unauthenticated HTML requests to `/` now redirect to `/login` instead of showing JSON 401
+- E2E screenshots: Purged from git history via `git filter-repo`, added to `.gitignore`
+- Mock patch targets: Updated tests to patch where names are USED (not defined) after extraction
+
+### Test Results:
+- 637/637 automated tests pass
+- black/flake8/py_compile all clean
+- Live verification: login, dashboard, users, settings, leaderboard, Swagger docs all working
+
+### Remaining Work:
+1. QA review of Task #45 (mandatory per workflow before merge)
+2. Merge PR #108 after QA approval
+3. Phase 4 remaining: #44 (background-task-monolith), #42 (telegram-bot), #38/#39 (lifespan/supervision)
+
+---
+
+[2026-04-27 16:47] | qa_bot | REVIEW_APPROVED | Task #45 — app.py god file split. 637/637 tests pass. All 16 modules compile. 58 routes registered. No circular imports. No MEDIUM+ security findings. black/flake8 clean. Dockerfile verified. QA_REVIEW.md written. APPROVED for merge.

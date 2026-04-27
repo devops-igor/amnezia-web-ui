@@ -132,11 +132,11 @@ python3 -m pytest tests/e2e/test_auth.py -m e2e -v --tb=short
 
 ### 6. Screenshots on failure
 
-Automatically saved to `tests/e2e/screenshots/` when a test fails:
+Automatically saved to `tests/e2e/screenshots/` when a test fails. This directory is gitignored — screenshots are runtime artifacts, not committed to the repo.
 
 ```bash
 ls tests/e2e/screenshots/
-# e.g., test_login_success.png
+# e.g., test_login_success[chromium].png
 ```
 
 ### 7. Slow motion for debugging
@@ -187,7 +187,7 @@ python3 -m playwright install chromium
 ### Tests timeout / hang
 
 - The dev server may be slow to respond
-- Increase timeout in conftest.py: `p.set_default_timeout(30000)` → `p.set_default_timeout(60000)`
+- Increase wait timeouts in test files or conftest.py (e.g., `timeout=10000` → `timeout=60000`)
 - Or add `--timeout=120` to pytest: `python3 -m pytest tests/e2e/ -m e2e -v --timeout=120`
 
 ### Login tests fail with 400/422

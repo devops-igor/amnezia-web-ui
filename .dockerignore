@@ -16,3 +16,4 @@ build/
 requirements-dev.txt
 .flake8
 .pytest_cache
+tasks/
