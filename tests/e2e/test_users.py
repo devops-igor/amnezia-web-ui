@@ -3,18 +3,15 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_post
+from tests.e2e.conftest import api_get, api_post
 
 
 @pytest.mark.e2e
 def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
-    """Navigate to /users → sees user list."""
+    """Navigate to /users -> sees user list."""
     page = authenticated_page
 
-    result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    result = api_get(page, "/api/users")
 
     # Should return a list of users (may include admin)
     if isinstance(result, dict) and "error" in result:
@@ -26,7 +23,7 @@ def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
 
 @pytest.mark.e2e
 def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Add a new user → appears in user list."""
+    """Add a new user -> appears in user list."""
     page = authenticated_page
 
     add_result = api_post(
@@ -34,7 +31,7 @@ def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> N
         "/api/users/add",
         {
             "username": "e2e_test_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -54,7 +51,7 @@ def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> N
 
 @pytest.mark.e2e
 def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Edit user details → changes saved."""
+    """Edit user details -> changes saved."""
     page = authenticated_page
 
     # Create a test user first
@@ -63,7 +60,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
         "/api/users/add",
         {
             "username": "e2e_edit_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -73,10 +70,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for edit test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     # Find our test user
@@ -108,7 +102,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
 
 @pytest.mark.e2e
 def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Enable/disable a user → status changes."""
+    """Enable/disable a user -> status changes."""
     page = authenticated_page
 
     # Create a test user
@@ -117,7 +111,7 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
         "/api/users/add",
         {
             "username": "e2e_toggle_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -127,10 +121,7 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for toggle test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -156,14 +147,11 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
 
 @pytest.mark.e2e
 def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Add a connection to a user → appears in user's connections."""
+    """Add a connection to a user -> appears in user's connections."""
     page = authenticated_page
 
     # Get servers first
-    servers_result = page.evaluate("""async () => {
-        const res = await fetch('/api/servers');
-        return await res.json();
-    }""")
+    servers_result = api_get(page, "/api/servers")
     servers = servers_result if isinstance(servers_result, list) else []
 
     if not servers:
@@ -175,7 +163,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
         "/api/users/add",
         {
             "username": "e2e_conn_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -185,10 +173,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for connection test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -223,7 +208,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
 
 @pytest.mark.e2e
 def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """Delete a user → removed from list."""
+    """Delete a user -> removed from list."""
     page = authenticated_page
 
     # Create a test user
@@ -232,7 +217,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
         "/api/users/add",
         {
             "username": "e2e_delete_user",
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -242,10 +227,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     if add_result["status"] != 200:
         pytest.skip("Could not create test user for delete test")
 
-    users_result = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_result = api_get(page, "/api/users")
     users = users_result if isinstance(users_result, list) else []
 
     test_user = None
@@ -266,10 +248,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     assert delete_result["body"] is not None
 
     # Verify user no longer exists
-    users_after = page.evaluate("""async () => {
-        const res = await fetch('/api/users');
-        return await res.json();
-    }""")
+    users_after = api_get(page, "/api/users")
     if isinstance(users_after, list):
         user_ids = [u["id"] for u in users_after]
         assert user_id not in user_ids
@@ -277,7 +256,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
 
 @pytest.mark.e2e
 def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
-    """XSS payload in username → payload is escaped, not executed."""
+    """XSS payload in username -> payload is escaped, not executed."""
     page = authenticated_page
 
     xss_payload = '<script>alert("xss")</script>'
@@ -287,7 +266,7 @@ def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str
         "/api/users/add",
         {
             "username": xss_payload,
-            "password": "***",
+            "password": "TestPass123!",
             "role": "user",
             "enabled": True,
         },
@@ -308,10 +287,7 @@ def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str
         assert "<script>alert(" not in content or "&lt;script&gt;" in content
 
         # Clean up
-        users_result = page.evaluate("""async () => {
-            const res = await fetch('/api/users');
-            return await res.json();
-        }""")
+        users_result = api_get(page, "/api/users")
         users = users_result if isinstance(users_result, list) else []
         for u in users:
             if xss_payload in u.get("username", ""):
