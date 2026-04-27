@@ -1,5 +1,7 @@
 """E2E tests for authentication flows."""
 
+import os
+
 import pytest
 from playwright.sync_api import Page
 
@@ -89,6 +91,10 @@ def test_login_failure(page: Page, base_url: str) -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.skipif(
+    os.environ.get("E2E_TESTING", "").lower() == "true",
+    reason="Rate limiting disabled in E2E test mode",
+)
 def test_login_rate_limiting(page: Page, base_url: str) -> None:
     """Rapidly hit login with wrong creds 6 times → 429 on 6th attempt."""
     page.goto(f"{base_url}/login")
