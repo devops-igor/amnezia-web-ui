@@ -390,4 +390,69 @@
 [2026-04-27 04:10] | pm_bot | DEPLOY | Deployed feat/phase4-god-file-split to dev server. PR #108 open. Docker had ModuleNotFoundError for app.utils — fixed by adding COPY app/ ./app/ to Dockerfile.
 
 [2026-04-27 04:30] | pm_bot | FIX | 401 handler: unauthenticated / now redirects to /login for HTML requests. API requests still return JSON 401. Deployed and verified on dev server.
-[2026-04-27 04:35] | pm_bot | CHORE | Removed E2E test screenshots from git history (git filter-repo), added tests/e2e/screenshots/ to .gitignore. Force-pushed feat/phase4-god-file-split.
+|[2026-04-27 04:35] | pm_bot | CHORE | Removed E2E test screenshots from git history (git filter-repo), added tests/e2e/screenshots/ to .gitignore. Force-pushed feat/phase4-god-file-split.|
+|[2026-04-27 16:10] | pm_bot | WRAP_UP | Session wrap-up. Task #45 (god-file-app-py) code-complete, deployed, verified. PR #108 open. QA review pending. Updated TASKS_OVERVIEW.md, GitHub issues, WORKLOG.md. |
+
+---
+
+## Session Summary — April 27, 2026 (Task #45 — God File Split)
+
+### Task #45: app.py God File Split into Modular Architecture
+- **Status**: CODE COMPLETE, DEPLOYED, VERIFIED — awaiting QA review before merge
+- **Branch**: feat/phase4-god-file-split (16 commits ahead of main)
+- **PR**: #108 ( https://github.com/devops-igor/amnezia-web-ui/pull/108 )
+- **app.py**: 267 lines (down from 2777, 90.4% reduction)
+
+### Extraction Steps Completed (11 incremental commits):
+1. Created `app/__init__.py` with exec() shim + `app/main.py` thin shell
+2. Moved helpers to `app/utils/helpers.py`
+3. Moved config to project-root `config.py`
+4. Extracted auth routes to `app/routers/auth.py` (6 routes)
+5. Extracted page routes to `app/routers/pages.py` (5 routes)
+6. Extracted server routes to `app/routers/servers.py` (~18 routes)
+7. Extracted user routes to `app/routers/users.py` (7 routes)
+8. Extracted connection routes to `app/routers/connections.py` + share routes to `app/routers/share.py`
+9. Extracted settings routes to `app/routers/settings.py` (8 routes)
+10. Extracted leaderboard route to `app/routers/leaderboard.py`
+11. Moved background tasks to `app/services/background.py`
+
+### New Module Structure:
+```
+app/
+├── __init__.py          (exec() shim loading root app.py)
+├── main.py              (thin shell, not actively used)
+├── routers/
+│   ├── auth.py           (6 routes)
+│   ├── pages.py          (5 routes)
+│   ├── servers.py        (~18 routes)
+│   ├── users.py          (7 routes)
+│   ├── connections.py     (3 routes)
+│   ├── share.py          (5 routes)
+│   ├── settings.py       (8 routes)
+│   └── leaderboard.py    (1 route)
+├── services/
+│   └── background.py     (5 background functions)
+└── utils/
+    ├── helpers.py         (utility functions)
+    ├── rate_limiter.py    (shared Limiter instance)
+    └── templates.py       (shared Jinja2 templates)
+config.py                  (project-root: DB, secrets, translations)
+schemas.py                 (project-root: 25 Pydantic models)
+dependencies.py            (project-root: auth dependencies)
+```
+
+### Bug Fixes During Implementation:
+- Dockerfile: Added `COPY app/ ./app/` — modular package wasn't copied into Docker image
+- 401 handler: Unauthenticated HTML requests to `/` now redirect to `/login` instead of showing JSON 401
+- E2E screenshots: Purged from git history via `git filter-repo`, added to `.gitignore`
+- Mock patch targets: Updated tests to patch where names are USED (not defined) after extraction
+
+### Test Results:
+- 637/637 automated tests pass
+- black/flake8/py_compile all clean
+- Live verification: login, dashboard, users, settings, leaderboard, Swagger docs all working
+
+### Remaining Work:
+1. QA review of Task #45 (mandatory per workflow before merge)
+2. Merge PR #108 after QA approval
+3. Phase 4 remaining: #44 (background-task-monolith), #42 (telegram-bot), #38/#39 (lifespan/supervision)
