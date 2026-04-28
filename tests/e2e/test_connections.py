@@ -113,14 +113,49 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
     """View connection config -> sees config text and QR code."""
     page = authenticated_page
 
-    # Get connections via user endpoint (server endpoint returns {"clients": []})
-    connections = _get_admin_connections(page)
+    server_id = _get_server_id(page)
+
+    # Create a test user and connection
+    add_result = api_post(
+        page,
+        "/api/users/add",
+        {
+            "username": "e2e_config_test",
+            "password": "TestPass123!",
+            "role": "user",
+            "enabled": True,
+        },
+        csrf_token,
+    )
+
+    if add_result["status"] != 200:
+        pytest.skip("Could not create test user for config test")
+
+    users_result = api_get(page, "/api/users/?size=100")
+    users = users_result if isinstance(users_result, list) else users_result.get("users", [])
+    test_user = next((u for u in users if u.get("username") == "e2e_config_test"), None)
+
+    if not test_user:
+        pytest.skip("Test user not found for config test")
+
+    user_id = test_user["id"]
+
+    conn_result = api_post(
+        page,
+        f"/api/users/{user_id}/connections/add",
+        {"server_id": server_id, "protocol": "awg2", "name": "e2e_config_test"},
+        csrf_token,
+    )
+
+    # Get the user's connections
+    user_conns = api_get(page, f"/api/users/{user_id}/connections/")
+    connections = user_conns if isinstance(user_conns, list) else user_conns.get("connections", [])
 
     if not connections:
-        pytest.skip("No connections available to test config view")
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        pytest.skip("No connection created for config test")
 
     conn = connections[0]
-    server_id = conn["server_id"]
     conn_id = conn["id"]
 
     config_result = api_post(
@@ -133,19 +168,58 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
     # Config endpoint should respond
     assert config_result["body"] is not None
 
+    # Clean up
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+
 
 @pytest.mark.e2e
 def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
     """Enable/disable a connection -> status changes."""
     page = authenticated_page
 
-    connections = _get_admin_connections(page)
+    server_id = _get_server_id(page)
+
+    # Create a test user and connection
+    add_result = api_post(
+        page,
+        "/api/users/add",
+        {
+            "username": "e2e_toggle_test",
+            "password": "TestPass123!",
+            "role": "user",
+            "enabled": True,
+        },
+        csrf_token,
+    )
+
+    if add_result["status"] != 200:
+        pytest.skip("Could not create test user for toggle test")
+
+    users_result = api_get(page, "/api/users/?size=100")
+    users = users_result if isinstance(users_result, list) else users_result.get("users", [])
+    test_user = next((u for u in users if u.get("username") == "e2e_toggle_test"), None)
+
+    if not test_user:
+        pytest.skip("Test user not found for toggle test")
+
+    user_id = test_user["id"]
+
+    conn_result = api_post(
+        page,
+        f"/api/users/{user_id}/connections/add",
+        {"server_id": server_id, "protocol": "awg2", "name": "e2e_toggle_test"},
+        csrf_token,
+    )
+
+    # Get the user's connections
+    user_conns = api_get(page, f"/api/users/{user_id}/connections/")
+    connections = user_conns if isinstance(user_conns, list) else user_conns.get("connections", [])
 
     if not connections:
-        pytest.skip("No connections available to test toggle")
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        pytest.skip("No connection created for toggle test")
 
     conn = connections[0]
-    server_id = conn["server_id"]
     conn_id = conn["id"]
 
     toggle_result = api_post(
@@ -165,6 +239,9 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
         {"connection_id": conn_id},
         csrf_token,
     )
+
+    # Clean up
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
