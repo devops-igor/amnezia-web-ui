@@ -13,7 +13,7 @@ def _get_admin_connections(page: Page) -> list:
     the server-level admin view and may be empty. The actual connections are
     per-user, so we fetch the first non-admin user's connections.
     """
-    users_result = api_get(page, "/api/users/")
+    users_result = api_get(page, "/api/users/?size=100")
     users = users_result if isinstance(users_result, list) else users_result.get("users", [])
 
     # Try each user until we find one with connections
@@ -67,7 +67,7 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
     # Create a test user to add a connection for
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_conn_test",
             "password": "TestPass123!",
@@ -81,7 +81,7 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
         pytest.skip("Could not create test user for connection test")
 
     # Find the newly created user
-    users_result = api_get(page, "/api/users/")
+    users_result = api_get(page, "/api/users/?size=100")
     users = users_result if isinstance(users_result, list) else users_result.get("users", [])
     test_user = None
     for u in users:
@@ -96,7 +96,7 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
 
     add_conn_result = api_post(
         page,
-        f"/api/users/{user_id}/connections/add/",
+        f"/api/users/{user_id}/connections/add",
         {"server_id": server_id, "protocol": "awg2", "name": "e2e_test_connection"},
         csrf_token,
     )
@@ -105,7 +105,7 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
     assert add_conn_result["body"] is not None
 
     # Clean up
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -125,7 +125,7 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
 
     config_result = api_post(
         page,
-        f"/api/servers/{server_id}/connections/config/",
+        f"/api/servers/{server_id}/connections/config",
         {"connection_id": conn_id},
         csrf_token,
     )
@@ -150,7 +150,7 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
 
     toggle_result = api_post(
         page,
-        f"/api/servers/{server_id}/connections/toggle/",
+        f"/api/servers/{server_id}/connections/toggle",
         {"connection_id": conn_id},
         csrf_token,
     )
@@ -161,7 +161,7 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
     # Toggle back to restore original state
     api_post(
         page,
-        f"/api/servers/{server_id}/connections/toggle/",
+        f"/api/servers/{server_id}/connections/toggle",
         {"connection_id": conn_id},
         csrf_token,
     )
@@ -175,7 +175,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     # Create a test user and connection to delete
     add_user_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_delete_conn",
             "password": "TestPass123!",
@@ -188,7 +188,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     if add_user_result["status"] != 200:
         pytest.skip("Could not create test user for delete connection test")
 
-    users_result = api_get(page, "/api/users/")
+    users_result = api_get(page, "/api/users/?size=100")
     users = users_result if isinstance(users_result, list) else users_result.get("users", [])
     test_user = None
     for u in users:
@@ -205,13 +205,13 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     # Add a connection to delete
     conn_result = api_post(
         page,
-        f"/api/users/{user_id}/connections/add/",
+        f"/api/users/{user_id}/connections/add",
         {"server_id": server_id, "protocol": "awg2", "name": "e2e_delete_conn"},
         csrf_token,
     )
 
     if conn_result["status"] != 200:
-        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("Could not create connection for delete test")
 
     # Get the connection ID from user connections
@@ -221,7 +221,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     )
 
     if not user_connections:
-        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("No connection created for delete test")
 
     conn_to_delete = user_connections[0]
@@ -230,7 +230,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
 
     delete_result = api_post(
         page,
-        f"/api/servers/{server_id_conn}/connections/remove/",
+        f"/api/servers/{server_id_conn}/connections/remove",
         {"connection_id": conn_id},
         csrf_token,
     )
@@ -239,4 +239,4 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     assert delete_result["body"] is not None
 
     # Clean up user
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
