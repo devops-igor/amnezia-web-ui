@@ -8,7 +8,7 @@ from tests.e2e.conftest import api_get, api_post
 
 def _find_or_create_user(page: Page, csrf_token: str, username: str = "e2e_share_user") -> dict:
     """Find a user by username, or create one if not found."""
-    users_result = api_get(page, "/api/users/")
+    users_result = api_get(page, "/api/users/?size=100")
     users = users_result if isinstance(users_result, list) else users_result.get("users", [])
 
     for u in users:
@@ -18,7 +18,7 @@ def _find_or_create_user(page: Page, csrf_token: str, username: str = "e2e_share
     # Not found — create one
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": username,
             "password": "TestPass123!",
@@ -32,7 +32,7 @@ def _find_or_create_user(page: Page, csrf_token: str, username: str = "e2e_share
         pytest.skip("Could not create user for share test")
 
     # Re-fetch to get full user record
-    users_result2 = api_get(page, "/api/users/")
+    users_result2 = api_get(page, "/api/users/?size=100")
     users2 = users_result2 if isinstance(users_result2, list) else users_result2.get("users", [])
 
     for u in users2:
@@ -54,7 +54,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
     # Enable sharing via the setup endpoint
     share_result = api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": True, "password": "sharetest123"},
         csrf_token,
     )
@@ -68,7 +68,7 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
     # Clean up — disable sharing
     api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": False},
         csrf_token,
     )
@@ -85,7 +85,7 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
     # Enable sharing
     share_result = api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": True, "password": "sharetest123"},
         csrf_token,
     )
@@ -109,11 +109,11 @@ def test_access_share_link(authenticated_page: Page, base_url: str, csrf_token: 
     # Clean up
     api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": False},
         csrf_token,
     )
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -139,13 +139,13 @@ def test_download_config_from_share(
     # Enable sharing with password
     share_result = api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": True, "password": "sharetest123"},
         csrf_token,
     )
 
     if share_result["status"] != 200:
-        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
         pytest.skip("Could not enable sharing")
 
     share_token = share_result["body"].get("share_token")
@@ -167,8 +167,8 @@ def test_download_config_from_share(
     # Clean up
     api_post(
         page,
-        f"/api/users/{user_id}/share/setup/",
+        f"/api/users/{user_id}/share/setup",
         {"enabled": False},
         csrf_token,
     )
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
