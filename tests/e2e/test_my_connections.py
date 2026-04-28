@@ -12,7 +12,7 @@ def _create_test_user(
     """Helper: create a regular user and return user dict."""
     add_result = api_post(
         page,
-        "/api/users/add",
+        "/api/users/add/",
         {
             "username": username,
             "password": "TestPass123!",
@@ -25,8 +25,9 @@ def _create_test_user(
     if add_result["status"] != 200:
         pytest.skip("Could not create test user")
 
-    users_result = api_get(page, "/api/users")
-    users = users_result if isinstance(users_result, list) else []
+    # Find the newly created user — API returns {"users": [...], "total": N, ...}
+    users_result = api_get(page, "/api/users/")
+    users = users_result if isinstance(users_result, list) else users_result.get("users", [])
 
     for u in users:
         if u.get("username") == username:
@@ -74,7 +75,7 @@ def test_create_connection(
     page = authenticated_page
 
     # Get a server to attach connection to
-    result = api_get(page, "/api/servers")
+    result = api_get(page, "/api/servers/")
     servers = result if isinstance(result, list) else result.get("servers", [])
 
     if not servers:
@@ -88,8 +89,8 @@ def test_create_connection(
 
     conn_result = api_post(
         page,
-        f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg", "name": "e2e_user_conn"},
+        f"/api/users/{user_id}/connections/add/",
+        {"server_id": server_id, "protocol": "awg2", "name": "e2e_user_conn"},
         csrf_token,
     )
 
@@ -99,7 +100,7 @@ def test_create_connection(
         assert conn_result["body"].get("status") == "success" or "id" in conn_result["body"]
 
     # Clean up — delete the test user
-    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -115,13 +116,13 @@ def test_view_connection_config(
     user_id = test_user["id"]
 
     # Get servers to find a connection
-    servers_result = api_get(page, "/api/servers")
+    servers_result = api_get(page, "/api/servers/")
     servers = (
         servers_result if isinstance(servers_result, list) else servers_result.get("servers", [])
     )
 
     if not servers:
-        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
         pytest.skip("No servers available for config test")
 
     server_id = servers[0]["id"]
@@ -129,20 +130,32 @@ def test_view_connection_config(
     # Add a connection for the test user
     conn_result = api_post(
         page,
-        f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg", "name": "e2e_view_conn"},
+        f"/api/users/{user_id}/connections/add/",
+        {"server_id": server_id, "protocol": "awg2", "name": "e2e_view_conn"},
         csrf_token,
     )
 
     if conn_result["status"] != 200:
-        api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
         pytest.skip("Could not create connection for config test")
+
+    # Get the user's connections to find the connection ID
+    user_conns = api_get(page, f"/api/users/{user_id}/connections/")
+    connections = user_conns if isinstance(user_conns, list) else user_conns.get("connections", [])
+
+    if not connections:
+        api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+        pytest.skip("No connections available for config test")
+
+    conn = connections[0]
+    conn_id = conn["id"]
+    server_id_conn = conn["server_id"]
 
     # Fetch the connection config via the server API
     config_result = api_post(
         page,
-        f"/api/servers/{server_id}/connections/config",
-        {"connection_id": conn_result["body"].get("id", "")},
+        f"/api/servers/{server_id_conn}/connections/config/",
+        {"connection_id": conn_id},
         csrf_token,
     )
 
@@ -150,7 +163,7 @@ def test_view_connection_config(
     assert config_result["body"] is not None
 
     # Clean up
-    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
 
 
 @pytest.mark.e2e
