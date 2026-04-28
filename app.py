@@ -2,7 +2,6 @@ import os
 import logging
 import secrets
 import uuid
-import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -47,8 +46,8 @@ from app.services.background import (  # noqa: F401 - re-exports for backward co
     perform_toggle_user,
     perform_mass_operations,
     sync_users_with_remnawave,
-    periodic_background_tasks,
 )
+from app.services.background_orchestrator import BackgroundTaskOrchestrator
 
 # Re-export schemas for backward compatibility (tests import from app)
 from schemas import (  # noqa: F401
@@ -91,8 +90,9 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Existing users found, skipping default admin creation")
 
-    # Start periodic background tasks
-    background_task = asyncio.create_task(periodic_background_tasks())
+    # Start periodic background tasks via orchestrator
+    orchestrator = BackgroundTaskOrchestrator()
+    await orchestrator.start()
 
     # Start Telegram bot if enabled
     tg_cfg = db.get_setting("telegram", {})
@@ -105,12 +105,8 @@ async def lifespan(app: FastAPI):
     # --- Shutdown ---
     logger.info("Shutting down...")
 
-    # Cancel background task
-    background_task.cancel()
-    try:
-        await background_task
-    except asyncio.CancelledError:
-        logger.info("Background task cancelled successfully")
+    # Stop background task orchestrator
+    await orchestrator.stop()
 
     # Stop Telegram bot
     try:
