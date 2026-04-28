@@ -3,6 +3,7 @@ import logging
 import secrets
 import uuid
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi.responses import JSONResponse
@@ -59,7 +60,66 @@ from schemas import (  # noqa: F401
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Amnezia Web Panel")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: startup DB init, admin creation, background tasks, and shutdown cleanup."""
+    # --- Startup ---
+    init_db()
+    db = get_db()
+
+    if not db.get_all_users():
+        temp_password = secrets.token_urlsafe(12)
+        db.create_user(
+            {
+                "id": str(uuid.uuid4()),
+                "username": "admin",
+                "password_hash": hash_password(temp_password),
+                "role": "admin",
+                "enabled": True,
+                "password_change_required": True,
+                "created_at": datetime.now().isoformat(),
+            }
+        )
+        print(f"\n{'=' * 60}")
+        print("  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW")
+        print("  Username: admin")
+        print(f"  Password: {temp_password}")
+        print("  You must change this password on first login.")
+        print(f"{'=' * 60}\n")
+        logger.info("Default admin created with random password (password_change_required=True)")
+    else:
+        logger.info("Existing users found, skipping default admin creation")
+
+    # Start periodic background tasks
+    background_task = asyncio.create_task(periodic_background_tasks())
+
+    # Start Telegram bot if enabled
+    tg_cfg = db.get_setting("telegram", {})
+    if tg_cfg.get("enabled") and tg_cfg.get("token"):
+        logger.info("Starting Telegram bot from saved settings...")
+        tg_bot.launch_bot(tg_cfg["token"], db.load_data, generate_vpn_link)
+
+    yield  # Application runs here
+
+    # --- Shutdown ---
+    logger.info("Shutting down...")
+
+    # Cancel background task
+    background_task.cancel()
+    try:
+        await background_task
+    except asyncio.CancelledError:
+        logger.info("Background task cancelled successfully")
+
+    # Stop Telegram bot
+    try:
+        await tg_bot.stop_bot()
+    except Exception as e:
+        logger.error(f"Error stopping Telegram bot: {e}")
+
+
+app = FastAPI(lifespan=lifespan, title="Amnezia Web Panel")
 
 
 from app.utils.rate_limiter import limiter  # noqa: E402
@@ -197,47 +257,6 @@ app.include_router(settings_router)
 app.include_router(share_router)
 app.include_router(users_router)
 app.include_router(leaderboard_router)
-
-
-# ======================== Startup ========================
-
-
-@app.on_event("startup")
-async def startup():
-    init_db()
-    db = get_db()
-
-    if not db.get_all_users():
-        temp_password = secrets.token_urlsafe(12)
-        db.create_user(
-            {
-                "id": str(uuid.uuid4()),
-                "username": "admin",
-                "password_hash": hash_password(temp_password),
-                "role": "admin",
-                "enabled": True,
-                "password_change_required": True,
-                "created_at": datetime.now().isoformat(),
-            }
-        )
-        print(f"\n{'=' * 60}")
-        print("  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW")
-        print("  Username: admin")
-        print(f"  Password: {temp_password}")
-        print("  You must change this password on first login.")
-        print(f"{'=' * 60}\n")
-        logger.info("Default admin created with random password (password_change_required=True)")
-    else:
-        logger.info("Existing users found, skipping default admin creation")
-
-    # Start periodic background tasks
-    asyncio.create_task(periodic_background_tasks())
-
-    # Start Telegram bot if enabled
-    tg_cfg = db.get_setting("telegram", {})
-    if tg_cfg.get("enabled") and tg_cfg.get("token"):
-        logger.info("Starting Telegram bot from saved settings...")
-        tg_bot.launch_bot(tg_cfg["token"], db.load_data, generate_vpn_link)
 
 
 if __name__ == "__main__":
