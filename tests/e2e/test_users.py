@@ -11,7 +11,7 @@ def _get_users(page: Page) -> list:
 
     The API returns {"users": [...], "total": N, ...} — extract the users list.
     """
-    users_result = api_get(page, "/api/users/")
+    users_result = api_get(page, "/api/users/?size=100")
     if isinstance(users_result, list):
         return users_result
     return users_result.get("users", [])
@@ -39,7 +39,7 @@ def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> N
 
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_test_user",
             "password": "TestPass123!",
@@ -59,7 +59,7 @@ def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> N
         # API returns user_id, not id
         user_id = body.get("user_id")
         if user_id:
-            api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+            api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -70,7 +70,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
     # Create a test user first
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_edit_user",
             "password": "TestPass123!",
@@ -99,7 +99,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
     # Edit the user
     edit_result = api_post(
         page,
-        f"/api/users/{user_id}/update/",
+        f"/api/users/{user_id}/update",
         {"username": "e2e_edit_user_renamed"},
         csrf_token,
     )
@@ -108,7 +108,7 @@ def test_edit_user(authenticated_page: Page, base_url: str, csrf_token: str) -> 
     assert edit_result["body"] is not None
 
     # Clean up
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -119,7 +119,7 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     # Create a test user
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_toggle_user",
             "password": "TestPass123!",
@@ -145,12 +145,12 @@ def test_toggle_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     user_id = test_user["id"]
 
     # Toggle user enabled status
-    toggle_result = api_post(page, f"/api/users/{user_id}/toggle/", {}, csrf_token)
+    toggle_result = api_post(page, f"/api/users/{user_id}/toggle", {}, csrf_token)
     # Should respond
     assert toggle_result["body"] is not None
 
     # Clean up
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -170,7 +170,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     # Create a test user
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_user_conn",
             "password": "TestPass123!",
@@ -199,7 +199,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     # Add connection for user
     conn_result = api_post(
         page,
-        f"/api/users/{user_id}/connections/add/",
+        f"/api/users/{user_id}/connections/add",
         {
             "server_id": server_id,
             "protocol": "awg2",
@@ -211,7 +211,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
     assert conn_result["body"] is not None
 
     # Clean up
-    api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
 
 @pytest.mark.e2e
@@ -222,7 +222,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     # Create a test user
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": "e2e_delete_user",
             "password": "TestPass123!",
@@ -248,7 +248,7 @@ def test_delete_user(authenticated_page: Page, base_url: str, csrf_token: str) -
     user_id = test_user["id"]
 
     # Delete the user
-    delete_result = api_post(page, f"/api/users/{user_id}/delete/", {}, csrf_token)
+    delete_result = api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)
 
     # Should succeed
     assert delete_result["body"] is not None
@@ -268,7 +268,7 @@ def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str
 
     add_result = api_post(
         page,
-        "/api/users/add/",
+        "/api/users/add",
         {
             "username": xss_payload,
             "password": "TestPass123!",
@@ -295,4 +295,4 @@ def test_xss_prevention(authenticated_page: Page, base_url: str, csrf_token: str
         users = _get_users(page)
         for u in users:
             if xss_payload in u.get("username", ""):
-                api_post(page, f"/api/users/{u['id']}/delete/", {}, csrf_token)
+                api_post(page, f"/api/users/{u['id']}/delete", {}, csrf_token)
