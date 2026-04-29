@@ -22,7 +22,10 @@ class TestLifespanAdminCreation:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock) as mock_bg,
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ) as mock_start,
         ):
             async with lifespan(mock_app):
                 pass
@@ -36,7 +39,7 @@ class TestLifespanAdminCreation:
             assert isinstance(created_user["id"], str)
             assert len(created_user["id"]) > 0
             assert created_user["password_hash"] != hash_password("admin")
-            mock_bg.assert_called_once()
+            mock_start.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_startup_skips_admin_when_users_exist(self):
@@ -52,7 +55,10 @@ class TestLifespanAdminCreation:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
         ):
             async with lifespan(mock_app):
                 pass
@@ -79,7 +85,10 @@ class TestLifespanShutdown:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", return_value=bg_mock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.stop_bot", new_callable=AsyncMock),
         ):
             # Should complete without unhandled exceptions
@@ -102,7 +111,10 @@ class TestLifespanShutdown:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.stop_bot", stop_mock),
         ):
             async with lifespan(mock_app):
@@ -126,7 +138,10 @@ class TestLifespanShutdown:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.stop_bot", stop_mock),
         ):
             async with lifespan(mock_app):
@@ -153,7 +168,10 @@ class TestLifespanTelegramBotStartup:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.launch_bot") as mock_launch,
         ):
             async with lifespan(mock_app):
@@ -177,7 +195,10 @@ class TestLifespanTelegramBotStartup:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.launch_bot") as mock_launch,
         ):
             async with lifespan(mock_app):
@@ -199,7 +220,10 @@ class TestLifespanTelegramBotStartup:
         with (
             patch("app.init_db"),
             patch("app.get_db", return_value=mock_db),
-            patch("app.periodic_background_tasks", new_callable=AsyncMock),
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
             patch("app.tg_bot.launch_bot") as mock_launch,
         ):
             async with lifespan(mock_app):
