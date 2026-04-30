@@ -125,3 +125,66 @@ class TestApiListServers:
             assert alpha["protocols"]["awg"]["installed"] is True
         finally:
             app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    def test_api_list_servers_strips_sensitive_fields(self, mock_get_db):
+        """GET /api/servers response has no password or private_key fields."""
+        import app
+
+        srv_db = Database(tempfile.NamedTemporaryFile(suffix=".db", delete=False).name)
+        srv_db.create_user(
+            {
+                "id": "admin-1",
+                "username": "admin",
+                "password_hash": "hashed",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        # Create servers with real credentials so we can verify they get stripped
+        srv_db.create_server(
+            {
+                "name": "Sensitive Server",
+                "host": "sens.example.com",
+                "username": "root",
+                "password": "supersecret",
+                "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...",
+                "protocols": {},
+            }
+        )
+        srv_db.create_server(
+            {
+                "name": "No Creds Server",
+                "host": "nocreds.example.com",
+                "username": "root",
+                "password": "",
+                "private_key": "",
+                "protocols": {},
+            }
+        )
+        mock_get_db.return_value = srv_db
+        app.app.dependency_overrides[get_current_user] = lambda: srv_db.get_user("admin-1")
+        try:
+            client = create_csrf_client()
+            response = client.get("/api/servers")
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data) == 2
+            for server in data:
+                assert (
+                    "password" not in server
+                ), f"Server '{server.get('name')}' leaked password field"
+                assert (
+                    "private_key" not in server
+                ), f"Server '{server.get('name')}' leaked private_key field"
+            # Verify non-sensitive fields are still present
+            assert data[0]["name"] == "Sensitive Server"
+            assert data[0]["host"] == "sens.example.com"
+            assert data[0]["username"] == "root"
+        finally:
+            app.app.dependency_overrides.clear()
+            conn = srv_db._get_conn()
+            conn.close()
+            os.unlink(srv_db.db_path)
