@@ -32,9 +32,13 @@ router = APIRouter(prefix="/api/servers")
 
 @router.get("/")
 async def api_list_servers(request: Request, user: dict = Depends(get_current_user)):
-    """Return all servers as JSON."""
+    """Return all servers as JSON (sensitive fields stripped)."""
     db = get_db()
     servers = db.get_all_servers()
+    # Strip decrypted credentials from API response — they are for SSHManager only
+    for server in servers:
+        server.pop("password", None)
+        server.pop("private_key", None)
     return servers
 
 
