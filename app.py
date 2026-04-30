@@ -48,6 +48,7 @@ from app.services.background import (  # noqa: F401 - re-exports for backward co
     sync_users_with_remnawave,
 )
 from app.services.background_orchestrator import BackgroundTaskOrchestrator
+from app.services.background_supervisor import BackgroundTaskSupervisor
 
 # Re-export schemas for backward compatibility (tests import from app)
 from schemas import (  # noqa: F401
@@ -90,9 +91,10 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Existing users found, skipping default admin creation")
 
-    # Start periodic background tasks via orchestrator
+    # Start periodic background tasks via supervised orchestrator
     orchestrator = BackgroundTaskOrchestrator()
-    await orchestrator.start()
+    supervisor = BackgroundTaskSupervisor(orchestrator)
+    await supervisor.start()
 
     # Start Telegram bot if enabled
     tg_cfg = db.get_setting("telegram", {})
@@ -105,8 +107,8 @@ async def lifespan(app: FastAPI):
     # --- Shutdown ---
     logger.info("Shutting down...")
 
-    # Stop background task orchestrator
-    await orchestrator.stop()
+    # Stop background task supervisor
+    await supervisor.stop()
 
     # Stop Telegram bot
     try:
