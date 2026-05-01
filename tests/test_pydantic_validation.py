@@ -24,7 +24,6 @@ from schemas import (
     SyncSettings,
     CaptchaSettings,
     SSLSettings,
-    TelegramSettings,
     ConnectionLimits,
     ProtocolPaths,
     UpdateUserRequest,
@@ -536,26 +535,6 @@ class TestSSLSettings:
             SSLSettings(panel_port=65536)
 
 
-# ======================== TelegramSettings ========================
-
-
-class TestTelegramSettings:
-    """Tests for TelegramSettings model."""
-
-    def test_defaults(self):
-        req = TelegramSettings()
-        assert req.token == ""
-        assert req.enabled is False
-
-    def test_valid_token(self):
-        req = TelegramSettings(token="123456:ABC-DEF")
-        assert req.token == "123456:ABC-DEF"
-
-    def test_too_long_token(self):
-        with pytest.raises(ValidationError):
-            TelegramSettings(token="a" * 257)
-
-
 # ======================== ConnectionLimits ========================
 
 
@@ -660,7 +639,7 @@ class TestSaveSettingsRequest:
             appearance=AppearanceSettings(),
             sync=SyncSettings(),
             captcha=CaptchaSettings(),
-            telegram=TelegramSettings(),
+            telegram={},
             ssl=SSLSettings(),
         )
         assert req.appearance.title == "Amnezia"
@@ -671,7 +650,7 @@ class TestSaveSettingsRequest:
                 appearance=AppearanceSettings(title=""),
                 sync=SyncSettings(),
                 captcha=CaptchaSettings(),
-                telegram=TelegramSettings(),
+                telegram={},
                 ssl=SSLSettings(),
             )
 
