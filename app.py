@@ -15,7 +15,6 @@ import uvicorn
 from slowapi.errors import RateLimitExceeded
 
 from starlette_csrf import CSRFMiddleware
-import telegram_bot as tg_bot
 
 from app.utils.helpers import (  # noqa: F401 - re-exports for backward compat
     _get_client_ip,
@@ -96,12 +95,6 @@ async def lifespan(app: FastAPI):
     supervisor = BackgroundTaskSupervisor(orchestrator)
     await supervisor.start()
 
-    # Start Telegram bot if enabled
-    tg_cfg = db.get_setting("telegram", {})
-    if tg_cfg.get("enabled") and tg_cfg.get("token"):
-        logger.info("Starting Telegram bot from saved settings...")
-        tg_bot.launch_bot(tg_cfg["token"], db.load_data, generate_vpn_link)
-
     yield  # Application runs here
 
     # --- Shutdown ---
@@ -109,12 +102,6 @@ async def lifespan(app: FastAPI):
 
     # Stop background task supervisor
     await supervisor.stop()
-
-    # Stop Telegram bot
-    try:
-        await tg_bot.stop_bot()
-    except Exception as e:
-        logger.error(f"Error stopping Telegram bot: {e}")
 
 
 app = FastAPI(lifespan=lifespan, title="Amnezia Web Panel")

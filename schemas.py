@@ -408,11 +408,6 @@ class SSLSettings(BaseModel):
         return v
 
 
-class TelegramSettings(BaseModel):
-    token: str = Field(default="", max_length=256)
-    enabled: bool = False
-
-
 class ConnectionLimits(BaseModel):
     max_connections_per_user: int = Field(default=10, ge=1, le=1000)
     connection_rate_limit_count: int = Field(default=5, ge=1, le=1000)
@@ -435,7 +430,7 @@ class SaveSettingsRequest(BaseModel):
     appearance: AppearanceSettings
     sync: SyncSettings
     captcha: CaptchaSettings
-    telegram: TelegramSettings
+    telegram: dict = Field(default_factory=dict)
     ssl: SSLSettings
     limits: ConnectionLimits = ConnectionLimits()
     protocol_paths: ProtocolPaths = ProtocolPaths()
