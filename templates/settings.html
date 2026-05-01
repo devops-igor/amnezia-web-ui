@@ -55,36 +55,6 @@
             </form>
         </div>
 
-        <!-- BLOCK Telegram Bot -->
-        <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('telegram_bot_title') }}</h3>
-            <form id="telegramForm">
-                <div class="form-group">
-                    <label class="form-label">{{ _('bot_token_label') }}</label>
-                    <input type="text" class="form-input" id="tg_token" value="{{ telegram_settings.token or '' }}"
-                        placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
-                </div>
-                <div style="display: flex; align-items: center; gap: var(--space-md); margin-top: var(--space-md);">
-                    <div style="display: flex; align-items: center; gap: var(--space-sm);">
-                        <span style="font-size: 0.85rem; color: var(--text-muted);">{{ _('bot_status') }}:</span>
-                        {% if bot_running %}
-                        <span class="badge badge-success" id="botStatusBadge">{{ _('bot_running') }}</span>
-                        {% else %}
-                        <span class="badge badge-secondary" id="botStatusBadge">{{ _('bot_stopped') }}</span>
-                        {% endif %}
-                    </div>
-                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleBot()" id="toggleBotBtn">
-                        <span id="toggleBotBtnText">{% if bot_running %}{{ _('bot_stop_btn') }}{% else %}{{
-                            _('bot_start_btn') }}{% endif %}</span>
-                        <div class="spinner hidden" id="toggleBotSpinner" style="width:14px;height:14px;"></div>
-                    </button>
-                </div>
-                <p class="form-hint" style="margin-top: var(--space-sm);">
-                    {{ _('bot_hint') }}
-                </p>
-            </form>
-        </div>
-
         <!-- BLOCK 4: API Docs -->
         <div class="card">
             <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('api_docs_title') }}</h3>
@@ -344,7 +314,6 @@
 
 <script>
     const serversData = {{ servers | tojson }};
-    const botCurrentlyRunning = {{ 'true' if bot_running else 'false' }};
 
     function updateProtocolsForSync() {
         const serverIdx = document.querySelector('[name="remnawave_server_id"]').value;
@@ -479,11 +448,6 @@
             enabled: document.getElementById('captcha_enabled').checked
         };
 
-        const telegram = {
-            token: document.getElementById('tg_token').value.trim(),
-            enabled: botCurrentlyRunning
-        };
-
         const ssl = {
             enabled: document.getElementById('ssl_enabled').checked,
             domain: document.getElementById('ssl_domain').value.trim(),
@@ -513,39 +477,13 @@
                     'Content-Type': 'application/json',
                     'X-CSRF-Token': getCsrfToken(),
                 },
-                body: JSON.stringify({ appearance, sync, captcha, telegram, ssl, limits, protocol_paths })
+                body: JSON.stringify({ appearance, sync, captcha, ssl, limits, protocol_paths })
             });
             if (!res.ok) throw new Error(_('error'));
             showToast(_('settings_saved'), 'success');
             setTimeout(() => window.location.reload(), 1000);
         } catch (err) {
             showToast(err.message, 'error');
-        } finally {
-            btn.disabled = false;
-            spinner.classList.add('hidden');
-        }
-    }
-
-    async function toggleBot() {
-        const btn = document.getElementById('toggleBotBtn');
-        const text = document.getElementById('toggleBotBtnText');
-        const spinner = document.getElementById('toggleBotSpinner');
-        btn.disabled = true;
-        spinner.classList.remove('hidden');
-        try {
-            const res = await fetch('/api/settings/telegram/toggle', {
-                method: 'POST',
-                headers: { 'X-CSRF-Token': getCsrfToken() },
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || _('error'));
-            const running = data.bot_running;
-            document.getElementById('botStatusBadge').className = running ? 'badge badge-success' : 'badge badge-secondary';
-            document.getElementById('botStatusBadge').textContent = running ? _('bot_running') : _('bot_stopped');
-            text.textContent = running ? _('bot_stop_btn') : _('bot_start_btn');
-            showToast(running ? _('bot_started') : _('bot_stopped_msg'), 'success');
-        } catch (err) {
-            showToast(`${_('error')}: ` + err.message, 'error');
         } finally {
             btn.disabled = false;
             spinner.classList.add('hidden');
