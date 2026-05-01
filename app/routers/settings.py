@@ -1,13 +1,12 @@
 """Settings routes - settings page and API endpoints."""
 
-import asyncio
 import json
 import logging
 
 from fastapi import APIRouter, Depends, Request, UploadFile, File
 from fastapi.responses import JSONResponse, Response
 
-from app.utils.helpers import _sanitize_error, generate_vpn_link, serialize_protocols
+from app.utils.helpers import _sanitize_error, serialize_protocols
 from app.utils.templates import tpl
 from config import get_db
 from dependencies import require_admin
@@ -40,47 +39,13 @@ async def save_settings(
     db.update_setting("appearance", payload.appearance.model_dump())
     db.update_setting("sync", payload.sync.model_dump())
     db.update_setting("captcha", payload.captcha.model_dump())
-    db.update_setting("telegram", payload.telegram.model_dump())
+    db.update_setting("telegram", payload.telegram)
     db.update_setting("ssl", payload.ssl.model_dump())
     db.update_setting("limits", payload.limits.model_dump())
     db.update_setting("protocol_paths", payload.protocol_paths.model_dump())
-    logger.info("Settings saved (including captcha and telegram)")
+    logger.info("Settings saved")
 
-    # Handle bot start/stop based on new telegram settings
-    import telegram_bot as tg_bot
-
-    tg_cfg = payload.telegram
-    if tg_cfg.enabled and tg_cfg.token:
-        if not tg_bot.is_running():
-            logger.info("Starting Telegram bot (settings save)...")
-            tg_bot.launch_bot(tg_cfg.token, db.load_data, generate_vpn_link)
-    else:
-        if tg_bot.is_running():
-            logger.info("Stopping Telegram bot (settings save)...")
-            asyncio.create_task(tg_bot.stop_bot())
-
-    return {"status": "success", "bot_running": tg_bot.is_running()}
-
-
-@router.post("/api/settings/telegram/toggle")
-async def api_telegram_toggle(request: Request, user: dict = Depends(require_admin)):
-    """Quick enable/disable of the bot without a full settings save."""
-    import telegram_bot as tg_bot
-
-    db = get_db()
-    tg_cfg = db.get_setting("telegram", {})
-    token = tg_cfg.get("token", "")
-    if not token:
-        return JSONResponse({"error": "Telegram token not set in settings"}, status_code=400)
-
-    if tg_bot.is_running():
-        await tg_bot.stop_bot()
-        db.update_setting("telegram", {**tg_cfg, "enabled": False})
-        return {"status": "stopped", "bot_running": False}
-    else:
-        tg_bot.launch_bot(token, db.load_data, generate_vpn_link)
-        db.update_setting("telegram", {**tg_cfg, "enabled": True})
-        return {"status": "started", "bot_running": True}
+    return {"status": "success"}
 
 
 @router.post("/api/settings/sync_now")
