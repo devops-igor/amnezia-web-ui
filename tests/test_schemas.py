@@ -22,7 +22,6 @@ def test_schemas_importable():
         "SyncSettings",
         "CaptchaSettings",
         "SSLSettings",
-        "TelegramSettings",
         "ConnectionLimits",
         "ProtocolPaths",
         "UpdateUserRequest",
