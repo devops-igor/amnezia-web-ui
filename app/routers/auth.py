@@ -2,6 +2,7 @@
 
 import io
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
@@ -37,7 +38,19 @@ async def login_page(request: Request):
 
 @router.get("/set_lang/{lang}")
 async def set_lang(lang: str, request: Request):
+    """Set language preference and redirect back.
+
+    Only redirects to relative (same-origin) paths to prevent open redirect attacks.
+    External URLs in the Referer header are stripped to path+query only.
+    """
     ref = request.headers.get("referer", "/")
+    # Prevent open redirect: only allow relative paths (same-origin)
+    parsed = urlparse(ref)
+    # If there's a scheme/host, it's an external URL — strip to path only
+    if parsed.scheme or parsed.netloc:
+        ref = parsed.path or "/"
+        if parsed.query:
+            ref += "?" + parsed.query
     response = RedirectResponse(url=ref)
     response.set_cookie(key="lang", value=lang, max_age=31536000)
     return response
