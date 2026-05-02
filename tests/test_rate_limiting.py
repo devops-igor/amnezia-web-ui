@@ -21,31 +21,58 @@ class TestGetClientIp:
         assert result == "10.0.0.1"
 
     def test_x_forwarded_for_single(self):
-        """With single X-Forwarded-For, uses that IP."""
+        """With single X-Forwarded-For from a trusted proxy, uses that IP."""
+        from unittest.mock import patch
+        import ipaddress
         from app import _get_client_ip
+        from app.utils import helpers
 
-        request = MagicMock()
-        request.headers.get.return_value = "1.2.3.4"
-        result = _get_client_ip(request)
-        assert result == "1.2.3.4"
+        trusted = {ipaddress.IPv4Address("10.0.0.1")}
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", trusted),
+            patch.object(helpers, "_trusted_proxy_networks", []),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "1.2.3.4"
+            request.client.host = "10.0.0.1"
+            result = _get_client_ip(request)
+            assert result == "1.2.3.4"
 
     def test_x_forwarded_for_chain(self):
         """With chained X-Forwarded-For, uses the first (original client) IP."""
+        from unittest.mock import patch
+        import ipaddress
         from app import _get_client_ip
+        from app.utils import helpers
 
-        request = MagicMock()
-        request.headers.get.return_value = "1.2.3.4, 10.0.0.1, 10.0.0.2"
-        result = _get_client_ip(request)
-        assert result == "1.2.3.4"
+        trusted = {ipaddress.IPv4Address("10.0.0.1")}
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", trusted),
+            patch.object(helpers, "_trusted_proxy_networks", []),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "1.2.3.4, 10.0.0.1, 10.0.0.2"
+            request.client.host = "10.0.0.1"
+            result = _get_client_ip(request)
+            assert result == "1.2.3.4"
 
     def test_x_forwarded_for_with_extra_spaces(self):
         """Handles spaces around commas in X-Forwarded-For."""
+        from unittest.mock import patch
+        import ipaddress
         from app import _get_client_ip
+        from app.utils import helpers
 
-        request = MagicMock()
-        request.headers.get.return_value = "  1.2.3.4 , 10.0.0.1 "
-        result = _get_client_ip(request)
-        assert result == "1.2.3.4"
+        trusted = {ipaddress.IPv4Address("10.0.0.1")}
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", trusted),
+            patch.object(helpers, "_trusted_proxy_networks", []),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "  1.2.3.4 , 10.0.0.1 "
+            request.client.host = "10.0.0.1"
+            result = _get_client_ip(request)
+            assert result == "1.2.3.4"
 
 
 class TestRateLimitExceededHandler:
@@ -174,3 +201,100 @@ class TestSharePageRateLimit:
         # 11th request should hit rate limit
         resp = csrf_client.get("/share/sometoken")
         assert resp.status_code == 429, f"Expected 429, got {resp.status_code}"
+
+
+class TestTrustedProxiesCidr:
+    """Tests for CIDR support in TRUSTED_PROXIES (helpers._get_client_ip)."""
+
+    def test_cidr_match(self):
+        """Peer IP inside a trusted CIDR network gets X-Forwarded-For honoured."""
+        from unittest.mock import patch
+        import ipaddress
+        from app.utils import helpers
+
+        network = ipaddress.ip_network("172.18.0.0/24", strict=False)
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", set()),
+            patch.object(helpers, "_trusted_proxy_networks", [network]),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "1.2.3.4"
+            request.client.host = "172.18.0.5"
+            result = helpers._get_client_ip(request)
+            assert result == "1.2.3.4"
+
+    def test_cidr_no_match(self):
+        """Peer IP outside any trusted network ignores X-Forwarded-For."""
+        from unittest.mock import patch
+        import ipaddress
+        from app.utils import helpers
+
+        network = ipaddress.ip_network("192.168.0.0/24", strict=False)
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", set()),
+            patch.object(helpers, "_trusted_proxy_networks", [network]),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "1.2.3.4"
+            request.client.host = "10.0.0.1"
+            result = helpers._get_client_ip(request)
+            assert result == "10.0.0.1"
+
+    def test_mixed_ip_and_cidr(self):
+        """Mixing exact IPs and CIDR networks both work."""
+        from unittest.mock import patch
+        import ipaddress
+        from app.utils import helpers
+
+        host_ip = ipaddress.IPv4Address("10.0.0.1")
+        network = ipaddress.ip_network("172.18.0.0/24", strict=False)
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", {host_ip}),
+            patch.object(helpers, "_trusted_proxy_networks", [network]),
+        ):
+            # Exact IP match
+            req1 = MagicMock()
+            req1.headers.get.return_value = "1.2.3.4"
+            req1.client.host = "10.0.0.1"
+            assert helpers._get_client_ip(req1) == "1.2.3.4"
+
+            # CIDR match
+            req2 = MagicMock()
+            req2.headers.get.return_value = "5.6.7.8"
+            req2.client.host = "172.18.0.99"
+            assert helpers._get_client_ip(req2) == "5.6.7.8"
+
+            # No match
+            req3 = MagicMock()
+            req3.headers.get.return_value = "9.9.9.9"
+            req3.client.host = "192.168.1.1"
+            assert helpers._get_client_ip(req3) == "192.168.1.1"
+
+    def test_invalid_entry_skipped_with_warning(self):
+        """Invalid TRUSTED_PROXIES entry logs warning, does not crash."""
+        from unittest.mock import patch
+        from app.utils import helpers
+
+        with patch.object(helpers.logger, "warning") as mock_warn:
+            helpers._parse_trusted_proxies("not-an-ip, 10.0.0.1")
+            mock_warn.assert_called_once()
+            args = mock_warn.call_args[0]
+            # The warning should mention the bad entry
+            assert "not-an-ip" in args[0] or "not-an-ip" in str(args)
+
+    def test_ipv6_cidr(self):
+        """IPv6 CIDR network correctly matches IPv6 peer address."""
+        from unittest.mock import patch
+        import ipaddress
+        from app.utils import helpers
+
+        network = ipaddress.ip_network("fd00::/64", strict=False)
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", set()),
+            patch.object(helpers, "_trusted_proxy_networks", [network]),
+        ):
+            request = MagicMock()
+            request.headers.get.return_value = "2001:db8::1"
+            request.client.host = "fd00::1"
+            result = helpers._get_client_ip(request)
+            assert result == "2001:db8::1"
