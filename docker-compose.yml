@@ -22,13 +22,14 @@ services:
       # Mount for persistent data storage across container restarts
       - ./data:/app/data
     environment:
-      # SECRET_KEY should be set in production! Generate with:
+      # Required! SECRET_KEY must be set in production. Generate with:
       # python -c "import secrets; print(secrets.token_hex(32))"
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      # Store in .env file: echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
       # Trusted reverse proxy IPs/CIDRs for X-Forwarded-For header validation.
-      # Supports CIDR notation (e.g. 172.18.0.0/24) and plain IPs.
+      # Supports CIDR notation (e.g. 172.18.0.0/24) and plain IPs (e.g. 10.0.0.1).
       # Use CIDR for Docker networks to survive container IP changes.
-      - TRUSTED_PROXIES=172.18.0.0/24
+      # - TRUSTED_PROXIES=172.18.0.0/24
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()\""]
       interval: 30s
