@@ -25,6 +25,10 @@ services:
       # SECRET_KEY should be set in production! Generate with:
       # python -c "import secrets; print(secrets.token_hex(32))"
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      # Trusted reverse proxy IPs/CIDRs for X-Forwarded-For header validation.
+      # Supports CIDR notation (e.g. 172.18.0.0/24) and plain IPs.
+      # Use CIDR for Docker networks to survive container IP changes.
+      - TRUSTED_PROXIES=172.18.0.0/24
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()\""]
       interval: 30s
