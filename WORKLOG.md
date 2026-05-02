@@ -26,3 +26,15 @@
 [2026-05-01 02:00] | pm_bot | REVIEW | Full Telegram bot review completed. Found 10 issues (2 CRITICAL, 2 HIGH). Decision: remove entirely rather than rework. |
 [2026-05-01 02:15] | pm_bot | PLAN_CREATED | Task #42 scope changed from "optimize telegram bot" to "remove telegram bot entirely". TASK.md, REVIEW.md, WORKLOG.md created. GitHub issue #58 updated. |
 [2026-05-02 01:35] | pm_bot | IMPLEMENTATION_COMPLETE | Removed Telegram bot feature (#42): deleted telegram_bot.py + test, cleaned imports/endpoints/UI/translations/schemas. 688 tests pass, black + flake8 clean.
+[2026-05-02 02:30] | pm_bot | DEPLOY | Deployed feat/remove-telegram-bot to dev server. Image SHA verified. DB writable. Password reset for admin user. All container-level verification passed (6/6 checks).
+[2026-05-02 02:35] | pm_bot | VERIFY | Browser login test: OK. Settings page: Telegram Bot card GONE, all other cards render. Users page: OK. Connections page: OK. JS console errors: 0. Docker-compose tag restored to :main. PR #122: https://github.com/devops-igor/amnezia-web-ui/pull/122
+[2026-05-02 02:40] | pm_bot | PROJECT_COMPLETED | Task #42 remove-telegram-bot DONE-DONE. 52/52 issues complete. Phase 4: 12/12.
+[2026-05-02 02:45] | pm_bot | MERGE | PR #122 merged. Dev server redeployed on :main. Container healthy, DB writable.
+[2026-05-02 02:50] | pm_bot | ARTIFACTS_UPDATED | TASKS_OVERVIEW.md: 52/52 done, Phase 4 12/12 complete. Task folder remove-telegram-bot archived. Superseded folders (telegram-bot-fulldb-rework, telegram-bot-full-db-dump) archived. GitHub #58 closing comment added. GitHub #70 noted python-telegram-bot resolved.
+
+| 2026-05-02 03:20 | pm_bot | PROJECT_START | Issue #123: Monthly leaderboard reset bug. Root cause identified, task artifacts created. |
+|| 2026-05-02 04:00 | py_bot | IMPLEMENTED | Monthly leaderboard reset bug FIXED. Extracted monthly rollover outside `if updates:` gate in background_orchestrator.py. Added 4 regression tests. 692/692 pass. DEV_HANDOVER.md created. Handing off to pm_bot. |
+|| 2026-05-02 03:43 | qa_bot | REVIEW_APPROVED | APPROVED. 54 targeted tests pass, 692/692 full suite pass. black+flake8 clean. No security findings. Fix verified: monthly rollover now runs unconditionally outside `if updates:` gate. QA_REVIEW.md written to tasks/monthly-leaderboard-reset-bug/. |
+|| 2026-05-02 03:46 | git_bot | COMMIT | a0ed11d on fix/monthly-leaderboard-reset: Fix monthly leaderboard reset running inside traffic update gate |
+|| 2026-05-02 03:46 | git_bot | PR_CREATED | PR #124: https://github.com/devops-igor/amnezia-web-ui/pull/124 |
+|| 2026-05-02 03:46 | git_bot | CI_PASSED | Lint: success, Build and Push Docker Image: success, Security Audit: success, Docker Image Security Scan: success |
