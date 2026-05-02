@@ -35,3 +35,6 @@
 | 2026-05-02 03:20 | pm_bot | PROJECT_START | Issue #123: Monthly leaderboard reset bug. Root cause identified, task artifacts created. |
 || 2026-05-02 04:00 | py_bot | IMPLEMENTED | Monthly leaderboard reset bug FIXED. Extracted monthly rollover outside `if updates:` gate in background_orchestrator.py. Added 4 regression tests. 692/692 pass. DEV_HANDOVER.md created. Handing off to pm_bot. |
 || 2026-05-02 03:43 | qa_bot | REVIEW_APPROVED | APPROVED. 54 targeted tests pass, 692/692 full suite pass. black+flake8 clean. No security findings. Fix verified: monthly rollover now runs unconditionally outside `if updates:` gate. QA_REVIEW.md written to tasks/monthly-leaderboard-reset-bug/. |
+|| 2026-05-02 03:46 | git_bot | COMMIT | a0ed11d on fix/monthly-leaderboard-reset: Fix monthly leaderboard reset running inside traffic update gate |
+|| 2026-05-02 03:46 | git_bot | PR_CREATED | PR #124: https://github.com/devops-igor/amnezia-web-ui/pull/124 |
+|| 2026-05-02 03:46 | git_bot | CI_PASSED | Lint: success, Build and Push Docker Image: success, Security Audit: success, Docker Image Security Scan: success |
