@@ -2,7 +2,7 @@
 Tests for rate limiting on login and share endpoints.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
@@ -21,31 +21,59 @@ class TestGetClientIp:
         assert result == "10.0.0.1"
 
     def test_x_forwarded_for_single(self):
-        """With single X-Forwarded-For, uses that IP."""
+        """With X-Forwarded-For but no trusted proxies, uses peer IP."""
         from app import _get_client_ip
 
         request = MagicMock()
+        request.client.host = "5.6.7.8"
         request.headers.get.return_value = "1.2.3.4"
         result = _get_client_ip(request)
-        assert result == "1.2.3.4"
+        # X-Forwarded-For ignored — peer is not a trusted proxy
+        assert result == "5.6.7.8"
 
     def test_x_forwarded_for_chain(self):
-        """With chained X-Forwarded-For, uses the first (original client) IP."""
+        """With chained X-Forwarded-For but no trusted proxies, uses peer IP."""
         from app import _get_client_ip
 
         request = MagicMock()
+        request.client.host = "10.0.0.99"
         request.headers.get.return_value = "1.2.3.4, 10.0.0.1, 10.0.0.2"
         result = _get_client_ip(request)
-        assert result == "1.2.3.4"
+        assert result == "10.0.0.99"
 
     def test_x_forwarded_for_with_extra_spaces(self):
-        """Handles spaces around commas in X-Forwarded-For."""
+        """Handles spaces around commas, but X-Forwarded-For still ignored."""
         from app import _get_client_ip
 
         request = MagicMock()
+        request.client.host = "192.168.1.1"
         request.headers.get.return_value = "  1.2.3.4 , 10.0.0.1 "
         result = _get_client_ip(request)
+        assert result == "192.168.1.1"
+
+    def test_x_forwarded_for_trusted_proxy(self):
+        """When peer is in TRUSTED_PROXIES, X-Forwarded-For is used."""
+        from app.utils import helpers
+
+        request = MagicMock()
+        request.client.host = "172.16.0.1"
+        request.headers.get.return_value = "1.2.3.4"
+
+        with patch.object(helpers, "TRUSTED_PROXIES", {"172.16.0.1"}):
+            result = helpers._get_client_ip(request)
         assert result == "1.2.3.4"
+
+    def test_x_forwarded_for_untrusted_proxy(self):
+        """When peer is NOT in TRUSTED_PROXIES, X-Forwarded-For is ignored."""
+        from app.utils import helpers
+
+        request = MagicMock()
+        request.client.host = "10.0.0.1"
+        request.headers.get.return_value = "1.2.3.4"
+
+        with patch.object(helpers, "TRUSTED_PROXIES", {"172.16.0.1"}):
+            result = helpers._get_client_ip(request)
+        assert result == "10.0.0.1"
 
 
 class TestRateLimitExceededHandler:
@@ -128,7 +156,7 @@ class TestLoginRateLimit:
         for i in range(5):
             resp = csrf_client.post(
                 "/api/auth/login",
-                json={"username": "test", "password": "wrong"},
+                json={"username": "test", "password": "***"},
             )
             # All should be 401 (bad credentials), not 429
             assert resp.status_code in (
@@ -139,7 +167,7 @@ class TestLoginRateLimit:
         # 6th request should hit rate limit
         resp = csrf_client.post(
             "/api/auth/login",
-            json={"username": "test", "password": "wrong"},
+            json={"username": "test", "password": "***"},
         )
         assert resp.status_code == 429, f"Expected 429, got {resp.status_code}"
 
@@ -149,12 +177,12 @@ class TestLoginRateLimit:
         for i in range(5):
             csrf_client.post(
                 "/api/auth/login",
-                json={"username": "test", "password": "wrong"},
+                json={"username": "test", "password": "***"},
             )
 
         resp = csrf_client.post(
             "/api/auth/login",
-            json={"username": "test", "password": "wrong"},
+            json={"username": "test", "password": "***"},
         )
         assert resp.status_code == 429
         data = resp.json()

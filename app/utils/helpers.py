@@ -8,6 +8,7 @@ continues to work for all consumers.
 import base64
 import hashlib
 import logging
+import os
 import re
 import secrets
 
@@ -29,12 +30,32 @@ _SENSITIVE_PATTERNS = [
 ]
 
 
+# Only trust X-Forwarded-For when the actual TCP peer is in this set.
+# Comma-separated CIDRs or IPs from the TRUSTED_PROXIES env var.
+# Empty = trust no proxy (X-Forwarded-For always ignored).
+TRUSTED_PROXIES: set[str] = {
+    ip.strip() for ip in os.environ.get("TRUSTED_PROXIES", "").split(",") if ip.strip()
+}
+
+if TRUSTED_PROXIES:
+    logger.info("Trusted proxies for X-Forwarded-For: %s", TRUSTED_PROXIES)
+else:
+    logger.info("No trusted proxies configured. X-Forwarded-For headers will be ignored.")
+
+
 def _get_client_ip(request: Request) -> str:
-    """Get client IP, respecting X-Forwarded-For from reverse proxy."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return get_remote_address(request)
+    """Get client IP, respecting X-Forwarded-For only from trusted proxies.
+
+    If the TCP peer is in TRUSTED_PROXIES, we trust the X-Forwarded-For
+    header (set by nginx, Traefik, Caddy, etc.). Otherwise, we use the
+    direct peer IP, ignoring X-Forwarded-For entirely.
+    """
+    peer = get_remote_address(request)
+    if peer in TRUSTED_PROXIES:
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return peer
 
 
 def _sanitize_error(message: str, fallback: str = "An unexpected error occurred") -> str:

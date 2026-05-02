@@ -22,9 +22,12 @@ services:
       # Mount for persistent data storage across container restarts
       - ./data:/app/data
     environment:
-      # SECRET_KEY should be set in production! Generate with:
-      # python -c "import secrets; print(secrets.token_hex(32))"
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      # Required! Generate with: python -c "import secrets; print(secrets.token_hex(32))"
+      # Store in .env file: echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
+      - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
+      # Set TRUSTED_PROXIES to the IP of your reverse proxy (e.g., Traefik, nginx).
+      # Multiple entries comma-separated. Leave empty to ignore X-Forwarded-For.
+      # - TRUSTED_PROXIES=172.16.0.1,172.16.0.2
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()\""]
       interval: 30s
