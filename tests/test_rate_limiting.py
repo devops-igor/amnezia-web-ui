@@ -2,7 +2,7 @@
 Tests for rate limiting on login and share endpoints.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 
@@ -73,6 +73,24 @@ class TestGetClientIp:
             request.client.host = "10.0.0.1"
             result = _get_client_ip(request)
             assert result == "1.2.3.4"
+
+    def test_x_forwarded_for_untrusted_proxy(self):
+        """When peer is NOT in TRUSTED_PROXIES, X-Forwarded-For is ignored."""
+        from unittest.mock import patch
+        import ipaddress
+        from app.utils import helpers
+
+        request = MagicMock()
+        request.client.host = "10.0.0.1"
+        request.headers.get.return_value = "1.2.3.4"
+
+        trusted = {ipaddress.IPv4Address("172.16.0.1")}
+        with (
+            patch.object(helpers, "_trusted_proxy_hosts", trusted),
+            patch.object(helpers, "_trusted_proxy_networks", []),
+        ):
+            result = helpers._get_client_ip(request)
+        assert result == "10.0.0.1"
 
 
 class TestRateLimitExceededHandler:
@@ -155,7 +173,7 @@ class TestLoginRateLimit:
         for i in range(5):
             resp = csrf_client.post(
                 "/api/auth/login",
-                json={"username": "test", "password": "wrong"},
+                json={"username": "test", "password": "***"},
             )
             # All should be 401 (bad credentials), not 429
             assert resp.status_code in (
@@ -166,7 +184,7 @@ class TestLoginRateLimit:
         # 6th request should hit rate limit
         resp = csrf_client.post(
             "/api/auth/login",
-            json={"username": "test", "password": "wrong"},
+            json={"username": "test", "password": "***"},
         )
         assert resp.status_code == 429, f"Expected 429, got {resp.status_code}"
 
@@ -176,12 +194,12 @@ class TestLoginRateLimit:
         for i in range(5):
             csrf_client.post(
                 "/api/auth/login",
-                json={"username": "test", "password": "wrong"},
+                json={"username": "test", "password": "***"},
             )
 
         resp = csrf_client.post(
             "/api/auth/login",
-            json={"username": "test", "password": "wrong"},
+            json={"username": "test", "password": "***"},
         )
         assert resp.status_code == 429
         data = resp.json()
