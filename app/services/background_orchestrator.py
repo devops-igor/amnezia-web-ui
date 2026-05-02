@@ -120,11 +120,59 @@ class BackgroundTaskOrchestrator:
             finally:
                 if ssh:
                     await asyncio.to_thread(ssh.disconnect)
-        to_disable_uids: List[str] = []
-        if updates:
-            now = datetime.now()
-            users_map = {u["id"]: u for u in db.get_all_users()}
+        now = datetime.now()
+        users_map = {u["id"]: u for u in db.get_all_users()}
 
+        to_disable_uids: List[str] = []
+
+        # === MONTHLY ROLLOVER: Runs unconditionally every cycle ===
+        for uid, u in users_map.items():
+            monthly_reset_iso = u.get("monthly_reset_at", "")
+            if not monthly_reset_iso:
+                db.update_user(
+                    uid,
+                    {
+                        "monthly_rx": 0,
+                        "monthly_tx": 0,
+                        "monthly_reset_at": now.isoformat(),
+                    },
+                )
+                u["monthly_rx"] = 0
+                u["monthly_tx"] = 0
+                u["monthly_reset_at"] = now.isoformat()
+                logger.debug(
+                    "Initialized monthly traffic for user %s",
+                    u["username"],
+                )
+            else:
+                try:
+                    monthly_last = datetime.fromisoformat(monthly_reset_iso)
+                    if now.month != monthly_last.month or now.year != monthly_last.year:
+                        db.update_user(
+                            uid,
+                            {
+                                "monthly_rx": 0,
+                                "monthly_tx": 0,
+                                "monthly_reset_at": now.isoformat(),
+                            },
+                        )
+                        logger.info(
+                            "Monthly rollover for user %s (reset from %s)",
+                            u["username"],
+                            monthly_reset_iso,
+                        )
+                        u["monthly_rx"] = 0
+                        u["monthly_tx"] = 0
+                        u["monthly_reset_at"] = now.isoformat()
+                except Exception:
+                    logger.warning(
+                        "Invalid monthly_reset_at for user %s: %s",
+                        u.get("username", "?"),
+                        monthly_reset_iso,
+                    )
+
+        # === TRAFFIC DELTA PROCESSING: Only when there are updates ===
+        if updates:
             for uc_id, rx_delta, tx_delta, curr_rx, curr_tx in updates:
                 uc = db.get_connection_by_id(uc_id)
                 if uc:
@@ -168,44 +216,6 @@ class BackgroundTaskOrchestrator:
                             )
                             u["traffic_used"] = 0
                             u["last_reset_at"] = now.isoformat()
-
-                        # Monthly rollover for monthly_rx and monthly_tx
-                        monthly_reset_iso = u.get("monthly_reset_at", "")
-                        if not monthly_reset_iso:
-                            db.update_user(
-                                uid,
-                                {
-                                    "monthly_rx": 0,
-                                    "monthly_tx": 0,
-                                    "monthly_reset_at": now.isoformat(),
-                                },
-                            )
-                            logger.debug(
-                                "Initialized monthly traffic for user %s",
-                                u["username"],
-                            )
-                        else:
-                            try:
-                                monthly_last = datetime.fromisoformat(monthly_reset_iso)
-                                if now.month != monthly_last.month or now.year != monthly_last.year:
-                                    db.update_user(
-                                        uid,
-                                        {
-                                            "monthly_rx": 0,
-                                            "monthly_tx": 0,
-                                            "monthly_reset_at": now.isoformat(),
-                                        },
-                                    )
-                                    u["monthly_rx"] = 0
-                                    u["monthly_tx"] = 0
-                                    u["monthly_reset_at"] = now.isoformat()
-                                    logger.debug(
-                                        "Monthly rollover for user %s (was %s)",
-                                        u["username"],
-                                        monthly_reset_iso,
-                                    )
-                            except Exception:
-                                pass
 
                         # Update both resettable and total traffic (combined RX+TX)
                         delta = rx_delta + tx_delta
