@@ -7,7 +7,9 @@ continues to work for all consumers.
 
 import base64
 import hashlib
+import ipaddress
 import logging
+import os
 import re
 import secrets
 
@@ -20,6 +22,60 @@ from slowapi.util import get_remote_address
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# TRUSTED_PROXIES — env-driven, CIDR-aware trusted proxy detection
+# ---------------------------------------------------------------------------
+
+_trusted_proxy_hosts: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
+_trusted_proxy_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+
+
+def _parse_trusted_proxies(env_value: str) -> None:
+    """Parse ``TRUSTED_PROXIES`` env var into *_hosts* and *_networks*.
+
+    Entries are comma-separated.  Each one is tried as ``ip_network`` first
+    (with *strict=False* so that bare host addresses like ``172.16.0.1`` are
+    accepted as ``/32`` networks).  Networks are stored in
+    ``_trusted_proxy_networks`` while plain addresses (no netmask after the
+    network-then-address parse) are stored in ``_trusted_proxy_hosts``.
+
+    Invalid entries are logged as warnings and silently skipped — the env
+    var is never allowed to crash the application.
+    """
+    _trusted_proxy_hosts.clear()
+    _trusted_proxy_networks.clear()
+
+    for entry in env_value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        try:
+            net = ipaddress.ip_network(entry, strict=False)
+        except ValueError:
+            logger.warning("Invalid TRUSTED_PROXIES entry %r — skipping", entry)
+            continue
+
+        # Distinguish CIDR networks from bare addresses
+        if net.prefixlen == net.max_prefixlen:
+            # /32 (IPv4) or /128 (IPv6) — treat as a host address
+            _trusted_proxy_hosts.add(net.network_address)
+        else:
+            _trusted_proxy_networks.append(net)
+
+
+# Eagerly parse the env var at import time
+_raw_proxies = os.environ.get("TRUSTED_PROXIES", "").strip()
+if _raw_proxies:
+    _parse_trusted_proxies(_raw_proxies)
+    logger.info(
+        "TRUSTED_PROXIES configured: %d host(s), %d network(s)",
+        len(_trusted_proxy_hosts),
+        len(_trusted_proxy_networks),
+    )
+else:
+    logger.info("TRUSTED_PROXIES not set — X-Forwarded-For will NOT be trusted")
+
+
 # Patterns to strip from error messages shown to users (security)
 _SENSITIVE_PATTERNS = [
     re.compile(r"/[\w/.-]+"),  # File paths
@@ -30,11 +86,23 @@ _SENSITIVE_PATTERNS = [
 
 
 def _get_client_ip(request: Request) -> str:
-    """Get client IP, respecting X-Forwarded-For from reverse proxy."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return get_remote_address(request)
+    """Get client IP, respecting X-Forwarded-For from trusted reverse proxies.
+
+    Only honours ``X-Forwarded-For`` when the direct peer is listed in
+    ``TRUSTED_PROXIES`` (exact IP or CIDR network match).  Otherwise the
+    header is ignored and the direct peer address is returned.
+    """
+    peer = get_remote_address(request)
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return peer
+
+    if peer_ip in _trusted_proxy_hosts or any(peer_ip in net for net in _trusted_proxy_networks):
+        forwarded = request.headers.get("X-Forwarded-For")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return peer
 
 
 def _sanitize_error(message: str, fallback: str = "An unexpected error occurred") -> str:
