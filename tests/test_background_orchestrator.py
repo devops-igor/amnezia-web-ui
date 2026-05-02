@@ -268,7 +268,127 @@ class TestSyncRemnawave:
 
 
 # ---------------------------------------------------------------------------
-# 7. check_expiry
+# 7. Monthly Rollover Unconditional — REGRESSION TEST
+# ---------------------------------------------------------------------------
+
+
+class TestMonthlyRolloverUnconditional:
+    """Regression: monthly rollover MUST happen even with zero traffic updates.
+
+    Bug: rollover was gated behind `if updates:` (line 124). When no traffic
+    deltas existed in a sync cycle, the entire block — including monthly
+    rollover — was skipped, so the leaderboard never reset.
+    """
+
+    @pytest.mark.asyncio
+    async def test_monthly_rollover_without_traffic(self, orchestrator):
+        """When sync_traffic() has zero updates, monthly rollover still runs."""
+        from datetime import datetime
+        from datetime import timedelta
+
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = []  # no connections → updates stays empty
+
+        # User has monthly_reset_at from last month — needs rollover
+        last_month = datetime.now() - timedelta(days=40)
+        mock_user = {
+            "id": "user1",
+            "username": "quiet_user",
+            "enabled": True,
+            "monthly_rx": 5000,
+            "monthly_tx": 3000,
+            "monthly_reset_at": last_month.isoformat(),
+        }
+        mock_db.get_all_users.return_value = [mock_user]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            # KEY ASSERTION: update_user MUST have been called (old code skipped)
+            assert mock_db.update_user.called, (
+                "update_user should have been called for monthly rollover "
+                "even when updates list is empty"
+            )
+
+            # Find the call that reset monthly counters
+            reset_found = False
+            for call in mock_db.update_user.call_args_list:
+                args, _ = call
+                uid = args[0]
+                fields = args[1]
+                if (
+                    uid == "user1"
+                    and fields.get("monthly_rx") == 0
+                    and fields.get("monthly_tx") == 0
+                ):
+                    reset_found = True
+                    break
+
+            assert reset_found, (
+                "update_user should have been called for user1 with "
+                "monthly_rx=0 and monthly_tx=0"
+            )
+
+    @pytest.mark.asyncio
+    async def test_monthly_initialization_without_traffic(self, orchestrator):
+        """Users with no monthly_reset_at get initialized even with zero traffic."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = []
+
+        mock_user = {
+            "id": "user2",
+            "username": "new_user",
+            "enabled": True,
+            "monthly_reset_at": "",  # empty: needs initialization
+        }
+        mock_db.get_all_users.return_value = [mock_user]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            init_found = False
+            for call in mock_db.update_user.call_args_list:
+                args, _ = call
+                uid = args[0]
+                fields = args[1]
+                if (
+                    uid == "user2"
+                    and fields.get("monthly_rx") == 0
+                    and fields.get("monthly_tx") == 0
+                    and isinstance(fields.get("monthly_reset_at"), str)
+                ):
+                    init_found = True
+                    break
+
+            assert init_found, "update_user should have initialized monthly_reset_at for user2"
+
+
+# ---------------------------------------------------------------------------
+# 8. check_expiry
 # ---------------------------------------------------------------------------
 
 
