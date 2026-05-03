@@ -92,19 +92,19 @@ Archived task folders in `_archive/`.
 
 | # | Slug | Title | Category | Priority | Issue | Status |
 |---|------|-------|----------|----------|-------|--------|
-| 1 | default-secret-key-exposed | Default SECRET_KEY publicly committed | Security | P0 | #125 | ✅ DONE (PR #151) |
-| 2 | x-forwarded-for-spoofing-rate-limit-bypass | X-Forwarded-For bypasses rate limiting | Security | P0 | #126 | ✅ DONE (PR #151) |
-| 3 | open-redirect-set-lang | Open redirect in set_lang via Referer | Security | P0 | #127 | ✅ DONE (PR #151) |
+| 1 | default-secret-key-exposed | Default SECRET_KEY publicly committed | Security | P0 | #125 | ✅ DONE (PR #154) |
+| 2 | x-forwarded-for-spoofing-rate-limit-bypass | X-Forwarded-For bypasses rate limiting | Security | P0 | #126 | ✅ DONE (PR #154) |
+| 3 | open-redirect-set-lang | Open redirect in set_lang via Referer | Security | P0 | #127 | ✅ DONE (PR #154) |
 
-### Phase 5B — High Priority Bugs & Security (P1)
+### Phase 5B — High Priority Bugs & Security (P1): ✅ COMPLETE (4/4)
 
 | # | Slug | Title | Category | Priority | Issue | Status |
 |---|------|-------|----------|----------|-------|--------|
-| 4 | ssh-host-key-tofu-no-confirmation | SSH TOFU with no admin confirmation | Security | P1 | #128 | 🔴 Open |
-| 6 | api-add-server-race-condition | api_add_server returns wrong ID | Bug | P1 | #130 | 🔴 Open |
-| 7 | bcrypt-imported-not-used-handrolled-pbkdf2 | bcrypt imported but PBKDF2 used | Bug | P1 | #131 | 🔴 Open |
-| 21 | bcrypt-unused-dependency | bcrypt declared but never called | Tech Debt | P1 | #145 | 🔴 Open |
-| — | trusted-proxies-cidr-not-implemented | TRUSTED_PROXIES CIDR not implemented | Bug/Security | P1 | #152 | 🔴 Open |
+| 4 | ssh-host-key-tofu-no-confirmation | SSH TOFU with no admin confirmation | Security | P1 | #128 | ✅ DONE (PR #155) |
+| 6 | api-add-server-race-condition | api_add_server returns wrong ID | Bug | P1 | #130 | ✅ DONE (PR #155) |
+| 7 | bcrypt-imported-not-used-handrolled-pbkdf2 | bcrypt imported but PBKDF2 used | Bug | P1 | #131 | ✅ DONE (PR #155) |
+| 21 | bcrypt-unused-dependency | bcrypt declared but never called | Tech Debt | P1 | #145 | ✅ DONE (PR #155) |
+| — | trusted-proxies-cidr-not-implemented | TRUSTED_PROXIES CIDR not implemented | Bug/Security | P1 | #152 | ✅ DONE (PR #153) |
 
 ### Phase 5C — Medium Priority Fixes (P2)
 
@@ -189,16 +189,55 @@ Phase 5D (P3):
 | Testing | 1 | 0 | 0 | 1 | 0 |
 | **Total** | **27** | **3** | **5** | **12** | **7** |
 
+Done: P0 3/3, P1 5/5.
+
 ---
 
 ## Overall Progress
 
 **Previous Phases 1-4 + E2E:** 53/53 issues DONE-DONE.
-**Phase 5A:** 3/3 DONE (PR #151). 24 remaining open (GitHub #128–#150, #152).
+**Phase 5B:** 4/4 DONE (PR #155 merged to main).
+**Phase 5A:** 3/3 DONE (PR #154). **Phase 5B:** 5/5 DONE (all P1 issues resolved). 19 remaining open (GitHub #129, #132–#150, P2+P3).
 
 ---
 
 ## Deploy & Verification History
+
+### 2026-05-03 — Phase 5B: P1 High Priority Fixes (Issues #128, #130, #131, #145)
+- #128: SSH host key TOFU — two-phase admin confirmation flow (pending_fingerprint_confirmation + confirm-fingerprint)
+- #130: api_add_server race condition — use lastrowid instead of server_count-1
+- #131: bcrypt password hashing migration — hash_password uses bcrypt.hashpw, verify_password has dual path (bcrypt primary + PBKDF2 legacy), hmac.compare_digest for constant-time comparison
+- #145: bcrypt unused dependency — now actually used, stays in requirements.txt
+- Additional fix: 72-byte password truncation in bcrypt (prevents ValueError on long passwords)
+- Branch: feat/phase5b-high-priority
+- 733 tests pass (26 new), black + flake8 clean
+- QA APPROVED after timing side-channel fix and frontend two-phase flow
+- Live verified on dev server: bcrypt format, PBKDF2 compat, edge cases, two-phase API, browser login
+- PR #155: https://github.com/devops-igor/amnezia-web-ui/pull/155 (MERGED to main)
+
+### 2026-05-04 — Issue #152 TRUSTED_PROXIES CIDR Support
+- Bug: TRUSTED_PROXIES claimed CIDR support but `peer in TRUSTED_PROXIES` did exact string match — CIDR strings never matched peer IPs
+- Fix: ipaddress-based CIDR parsing — `_trusted_proxy_hosts` (set) + `_trusted_proxy_networks` (list). `_get_client_ip()` checks both. Invalid entries logged as warnings, never crash.
+- 5 new tests (TestTrustedProxiesCidr). 697→704 tests pass, black + flake8 clean
+- QA APPROVED by qa_bot
+- PR #153 merged to main: https://github.com/devops-igor/amnezia-web-ui/pull/153
+- Deployed to dev server. Live verified: 172.18.0.5 in 172.18.0.0/24 = True.
+
+### 2026-05-04 — Phase 5A Rebase & PR #154
+- PR #151 had merge conflicts after CIDR fix merged to main
+- Rebased feat/phase5a-critical-security onto main → feat/phase5a-v2 branch
+- Resolved 4 conflicts (helpers.py, test_rate_limiting.py, docker-compose.yml, WORKLOG.md)
+- 704/704 tests pass, all CI green
+- PR #154: https://github.com/devops-igor/amnezia-web-ui/pull/154
+
+### 2026-05-04 — PROD SECRET_KEY Rotation
+- Old state: SECRET_KEY auto-generated at first boot, stored in /app/.secret_key inside container (NOT on host volume — lost on container rebuild)
+- New state: 64-char hex SECRET_KEY set as env var in docker-compose.yaml (persists across rebuilds)
+- DB backed up: /root/amnezia-panel/panel.db.backup-20260502-*
+- Decrypted "Sweden" server SSH key with old SECRET_KEY, re-encrypted with new key
+- Round-trip verification passed: decrypt(new_key, encrypt(new_key, plaintext)) == plaintext
+- Container recreated. Login page loads. SSH key decrypts correctly from DB.
+- Sessions invalidated (expected — users re-login required)
 
 ### 2026-05-03 — Phase 5A: P0 Critical Security Fixes (Issues #125, #126, #127)
 - #125: SECRET_KEY now uses `${SECRET_KEY:?}` syntax in docker-compose.yml (fails if unset), .env.example added
@@ -209,7 +248,7 @@ Phase 5D (P3):
 - QA APPROVED by qa_bot (all acceptance criteria met)
 - Container verification: SECRET_KEY=*** chars from env, TRUSTED_PROXIES=empty (secure default), open redirect strips external URLs, DB writable
 - Browser login test: admin login OK, dashboard, users, settings pages functional
-- PR #151: https://github.com/devops-igor/amnezia-web-ui/pull/151
+- PR #154: https://github.com/devops-igor/amnezia-web-ui/pull/154 (rebased from #151 after CIDR merge conflict)
 - **NOTE:** TRUSTED_PROXIES CIDR support not implemented (#152) — only exact IP matching works, CIDR strings documented but not parsed
 
 ### 2026-05-02 — Issue #123 Monthly Leaderboard Reset
