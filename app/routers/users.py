@@ -310,7 +310,7 @@ async def api_add_user_connection(
         else:
             # API call failed — do not write to data.json
             error_msg = result.get("error", "Failed to create connection")
-            logger.error(f"Failed to create user connection for {req.name}: {error_msg}")
+            logger.error("Failed to create user connection for %s: %s", req.name, error_msg)
             resp = {"status": "error", "error": error_msg}
         return resp
     except Exception as e:
