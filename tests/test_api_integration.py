@@ -155,18 +155,24 @@ class TestApiIntegration:
     @patch("app.routers.auth.get_db")
     @patch("app.routers.servers.get_db")
     def test_login_add_server_check_server(self, mock_servers_db, mock_auth_db):
-        """Admin logs in, adds server, verifies in listing."""
+        """Admin logs in, adds server (two-phase), verifies in listing."""
         mock_auth_db.return_value = self.db
         mock_servers_db.return_value = self.db
         import app
 
         mock_ssh = MagicMock()
         mock_ssh.connect.return_value = None
-        mock_ssh.test_connection.return_value = {
-            "os": "Ubuntu 22.04",
-            "cpu": "4 cores",
-        }
+        mock_ssh.test_connection.return_value = "Ubuntu 22.04 x86_64"
         mock_ssh.disconnect.return_value = None
+
+        # Wire transport for fingerprint extraction in api_add_server
+        mock_host_key = MagicMock()
+        mock_host_key.get_fingerprint.return_value = b"\xde\xad\xbe\xef" * 8
+        mock_transport = MagicMock()
+        mock_transport.get_remote_server_key.return_value = mock_host_key
+        mock_client = MagicMock()
+        mock_client.get_transport.return_value = mock_transport
+        mock_ssh.client = mock_client
 
         client = create_csrf_client()
 
@@ -183,19 +189,38 @@ class TestApiIntegration:
 
         app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("admin-1")
         try:
+            # Phase 1: add server — now returns pending_fingerprint_confirmation
             with patch("app.routers.servers.SSHManager", return_value=mock_ssh):
                 add_resp = client.post(
                     "/api/servers/add",
                     json={
                         "host": "10.0.0.50",
                         "username": "root",
-                        "password": "ServerPass123",
+                        "password": "pass123",
                         "ssh_port": 22,
                         "name": "Production VPN",
                     },
                 )
-            assert add_resp.status_code == 200, f"Server creation failed: {add_resp.status_code}"
-            assert add_resp.json()["status"] == "success"
+            assert add_resp.status_code == 200, f"Add failed: {add_resp.status_code}"
+            add_data = add_resp.json()
+            assert add_data["status"] == "pending_fingerprint_confirmation"
+            fingerprint = add_data["fingerprint"]
+
+            # Phase 2: confirm fingerprint to save
+            confirm_resp = client.post(
+                "/api/servers/confirm-fingerprint",
+                json={
+                    "host": "10.0.0.50",
+                    "username": "root",
+                    "password": "pass123",
+                    "ssh_port": 22,
+                    "name": "Production VPN",
+                    "server_info": add_data["server_info"],
+                    "fingerprint": fingerprint,
+                },
+            )
+            assert confirm_resp.status_code == 200, f"Confirm failed: {confirm_resp.status_code}"
+            assert confirm_resp.json()["status"] == "success"
 
             list_resp = client.get("/api/servers")
             assert list_resp.status_code == 200
