@@ -14,6 +14,7 @@ from dependencies import get_current_user, require_admin
 from schemas import (
     AddConnectionRequest,
     AddServerRequest,
+    ConfirmFingerprintRequest,
     ConnectionActionRequest,
     EditConnectionRequest,
     InstallProtocolRequest,
@@ -22,7 +23,7 @@ from schemas import (
     ToggleConnectionRequest,
 )
 from awg_manager import AWGManager
-from ssh_manager import SSHManager
+from ssh_manager import SSHManager, SSHHostKeyError
 from xray_manager import XrayManager
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,12 @@ CONTAINER_NAMES = {
 async def api_add_server(
     request: Request, req: AddServerRequest, user: dict = Depends(require_admin)
 ):
+    """Phase 1: test SSH connection and return host key fingerprint for admin confirmation.
+
+    The server is NOT persisted to the database at this stage. The frontend must
+    display the fingerprint and call /api/servers/confirm-fingerprint to complete
+    the save.
+    """
     try:
         host = req.host.strip()
         username = req.username.strip()
@@ -69,11 +76,55 @@ async def api_add_server(
         try:
             await asyncio.to_thread(ssh.connect)
             server_info = await asyncio.to_thread(ssh.test_connection)
+
+            # Extract fingerprint from the transport — paramiko has already
+            # accepted the key (SSHManager uses RejectPolicy with no DB, so
+            # any key is accepted on first connect).
+            transport = ssh.client.get_transport()
+            host_key = transport.get_remote_server_key()
+            fingerprint = host_key.get_fingerprint()
+            if isinstance(fingerprint, bytes):
+                fingerprint = fingerprint.hex()
+
             await asyncio.to_thread(ssh.disconnect)
+        except SSHHostKeyError as e:
+            return JSONResponse({"error": _sanitize_error(str(e))}, status_code=400)
         except Exception as e:
             return JSONResponse(
                 {"error": f"Connection failed: {_sanitize_error(str(e))}"}, status_code=400
             )
+
+        # Return fingerprint for admin confirmation — do NOT save server yet
+        return {
+            "status": "pending_fingerprint_confirmation",
+            "fingerprint": fingerprint,
+            "server_info": server_info,
+        }
+    except Exception as e:
+        logger.exception("Error adding server")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/confirm-fingerprint")
+async def api_confirm_server_fingerprint(
+    request: Request,
+    req: ConfirmFingerprintRequest,
+    user: dict = Depends(require_admin),
+):
+    """Phase 2: persist server and fingerprint after admin confirmation.
+
+    This endpoint receives the full server data (re-sent by the frontend) plus
+    the fingerprint the admin confirmed, persists the server, and stores the
+    fingerprint in known_hosts for future connection verification.
+    """
+    try:
+        host = req.host.strip()
+        username = req.username.strip()
+        name = req.name.strip() or host
+        if not host or not username:
+            return JSONResponse({"error": "Host and username are required"}, status_code=400)
+        if not req.password and not req.private_key:
+            return JSONResponse({"error": "Password or SSH key is required"}, status_code=400)
 
         server = {
             "name": name,
@@ -82,19 +133,25 @@ async def api_add_server(
             "username": username,
             "password": req.password,
             "private_key": req.private_key,
-            "server_info": server_info,
+            "server_info": req.server_info,
             "protocols": {},
         }
         db = get_db()
-        db.create_server(server)
-        server_count = db.get_server_count()
+        server_id = db.create_server(server)
+        db.save_known_host_fingerprint(server_id, req.fingerprint)
+
+        logger.info(
+            "Server %s (id=%s) saved with fingerprint %s",
+            name,
+            server_id,
+            req.fingerprint[:16],
+        )
         return {
             "status": "success",
-            "server_id": server_count - 1,
-            "server_info": server_info,
+            "server_id": server_id,
         }
     except Exception as e:
-        logger.exception("Error adding server")
+        logger.exception("Error confirming server fingerprint")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 

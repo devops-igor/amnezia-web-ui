@@ -118,6 +118,44 @@ class ServerConfigSaveRequest(BaseModel):
         return v
 
 
+class ConfirmFingerprintRequest(BaseModel):
+    """Request body for confirming SSH host key fingerprint after initial connection test.
+
+    All fields needed to create the server are re-sent by the frontend so that
+    the add-server endpoint never persists anything before the admin confirms
+    the host key.
+    """
+
+    host: str = Field(default="", min_length=0, max_length=255)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(default="", min_length=0, max_length=255)
+    password: str = Field(default="", min_length=0, max_length=4096)
+    private_key: str = Field(default="", min_length=0, max_length=16384)
+    name: str = Field(default="", min_length=0, max_length=255)
+    server_info: str = Field(default="", min_length=0, max_length=16384)
+    fingerprint: str = Field(min_length=1, max_length=256)
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, v: str) -> str:
+        """Validate host: must be a valid IPv4 or hostname if non-empty."""
+        if not v:
+            return v
+        ipv4_pattern = re.compile(
+            r"^(?:(?:25[0-5]|2[0-4]\d|[01]?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d?\d)$"
+        )
+        hostname_pattern = re.compile(
+            r"^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,253}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$"
+        )
+        if ipv4_pattern.match(v):
+            return v
+        if hostname_pattern.match(v):
+            return v
+        raise ValueError(
+            "host must be a valid IPv4 address or hostname (alphanumeric, dots, hyphens only)"
+        )
+
+
 # ===== Connections =====
 
 
