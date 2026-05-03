@@ -167,6 +167,35 @@
             };
 
             const result = await apiCall('/api/servers/add', 'POST', data);
+
+            if (result.status === 'pending_fingerprint_confirmation') {
+                btn.disabled = false;
+                btnText.textContent = 'Подключить';
+                spinner.classList.add('hidden');
+
+                const msg = 'SSH host key fingerprint:\n\n' + result.fingerprint +
+                    '\n\nVerify this matches the server\'s key, then confirm to add.';
+                if (!confirm(msg)) return;
+
+                btn.disabled = true;
+                btnText.textContent = _('connecting');
+                spinner.classList.remove('hidden');
+
+                const confirmData = {
+                    host: data.host,
+                    ssh_port: data.ssh_port,
+                    username: data.username,
+                    password: data.password,
+                    private_key: data.private_key,
+                    name: data.name,
+                    server_info: result.server_info || '',
+                    fingerprint: result.fingerprint,
+                };
+                const confirmResult = await apiCall('/api/servers/confirm-fingerprint', 'POST', confirmData);
+                showToast(_('server_added'), 'success');
+                setTimeout(() => window.location.reload(), 800);
+                return;
+            }
             showToast(_('server_added'), 'success');
             setTimeout(() => window.location.reload(), 800);
 
