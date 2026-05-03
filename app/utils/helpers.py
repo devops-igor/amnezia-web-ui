@@ -7,12 +7,13 @@ continues to work for all consumers.
 
 import base64
 import hashlib
+import hmac
 import ipaddress
 import logging
 import os
 import re
-import secrets
 
+import bcrypt
 import credential_crypto
 from ssh_manager import SSHManager
 from xray_manager import XrayManager
@@ -137,16 +138,27 @@ def generate_vpn_link(config_text):
 
 
 def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
-    return f"{salt}${h.hex()}"
+    """Hash a password using bcrypt.
+
+    bcrypt truncates passwords at 72 bytes. We truncate explicitly
+    to avoid ValueError on passwords longer than 72 bytes.
+    """
+    return bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    """Verify a password against a hash (bcrypt or legacy PBKDF2)."""
+    # Legacy PBKDF2 hashes use '$' separator with hex salt
+    if "$" in password_hash and not password_hash.startswith("$2"):
+        try:
+            salt, h = password_hash.split("$", 1)
+            new_h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
+            return hmac.compare_digest(new_h.hex(), h)
+        except Exception:
+            return False
+    # bcrypt hashes start with $2a$, $2b$, or $2y$
     try:
-        salt, h = password_hash.split("$", 1)
-        new_h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
-        return new_h.hex() == h
+        return bcrypt.checkpw(password.encode()[:72], password_hash.encode())
     except Exception:
         return False
 
@@ -217,15 +229,25 @@ def _get_lang(request: Request) -> str:
     return request.cookies.get("lang", _get_default_lang())
 
 
-def get_ssh(server):
-    """Create an SSHManager instance from a server dict."""
-    return SSHManager(
-        host=server["host"],
-        port=server.get("ssh_port", 22),
-        username=server["username"],
-        password=server.get("password"),
-        private_key=server.get("private_key"),
-    )
+def get_ssh(server, db=None):
+    """Create an SSHManager instance from a server dict.
+
+    Args:
+        server: Dict with host, ssh_port, username, password, private_key keys.
+        db: Optional Database instance for host key verification. When provided,
+            SSHManager will use the stored fingerprint for subsequent connections.
+    """
+    kwargs = {
+        "host": server["host"],
+        "port": server.get("ssh_port", 22),
+        "username": server["username"],
+        "password": server.get("password"),
+        "private_key": server.get("private_key"),
+    }
+    if db is not None:
+        kwargs["database"] = db
+        kwargs["server_id"] = server.get("id")
+    return SSHManager(**kwargs)
 
 
 def get_protocol_manager(ssh, protocol: str):
