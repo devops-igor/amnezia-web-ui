@@ -34,7 +34,9 @@ async def perform_delete_user(user_id: str):
                 await asyncio.to_thread(manager.remove_client, uc["protocol"], uc["client_id"])
                 await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
-            logger.warning(f"Failed to remove connection {uc['client_id']} during user delete: {e}")
+            logger.warning(
+                "Failed to remove connection %s during user delete: %s", uc["client_id"], e
+            )
     db.delete_user(user_id)
     return True
 
@@ -125,7 +127,7 @@ async def perform_mass_operations(
 
             await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
-            logger.error(f"Mass ops failed for server {srv_id}: {e}")
+            logger.error("Mass ops failed for server %s: %s", srv_id, e)
 
     # Run all servers in parallel
     tasks = [run_server_ops(sid, ops) for sid, ops in server_ops.items()]
@@ -180,7 +182,7 @@ async def sync_users_with_remnawave():
                     break
 
                 rw_users.extend(page_users)
-                logger.info(f"Fetched {len(rw_users)} / {total_count} users from Remnawave...")
+                logger.info("Fetched %s / %s users from Remnawave...", len(rw_users), total_count)
 
                 if len(rw_users) >= total_count or len(page_users) == 0:
                     break
@@ -197,7 +199,7 @@ async def sync_users_with_remnawave():
                     to_delete_ids.append(u["id"])
 
             if to_delete_ids:
-                logger.info(f"Removing {len(to_delete_ids)} users deleted in Remnawave")
+                logger.info("Removing %s users deleted in Remnawave", len(to_delete_ids))
                 await perform_mass_operations(delete_uids=to_delete_ids)
 
             # 2. Sync / Create users
@@ -264,7 +266,9 @@ async def sync_users_with_remnawave():
             # Execute all collected mass operations
             if to_toggle or to_create_conns:
                 logger.info(
-                    f"Executing mass ops for Remnawave sync: toggle={len(to_toggle)}, create={len(to_create_conns)}"
+                    "Executing mass ops for Remnawave sync: toggle=%s, create=%s",
+                    len(to_toggle),
+                    len(to_create_conns),
                 )
                 await perform_mass_operations(toggle_uids=to_toggle, create_conns=to_create_conns)
 

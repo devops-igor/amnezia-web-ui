@@ -45,7 +45,7 @@ class BackgroundTaskOrchestrator:
                     )
                     if uid not in to_disable_uids:
                         to_disable_uids.append(uid)
-            except Exception:
+            except (ValueError, TypeError):
                 pass
 
     async def sync_traffic(self) -> None:
@@ -164,7 +164,7 @@ class BackgroundTaskOrchestrator:
                         u["monthly_rx"] = 0
                         u["monthly_tx"] = 0
                         u["monthly_reset_at"] = now.isoformat()
-                except Exception:
+                except (ValueError, TypeError):
                     logger.warning(
                         "Invalid monthly_reset_at for user %s: %s",
                         u.get("username", "?"),
@@ -198,9 +198,8 @@ class BackgroundTaskOrchestrator:
                                     )
                                 elif strategy == "monthly":
                                     reset_needed = now.month != last.month or now.year != last.year
-                            except Exception:
+                            except (ValueError, TypeError):
                                 pass
-
                         if reset_needed:
                             logger.info(
                                 "Resetting traffic for user %s (strategy: %s)",
