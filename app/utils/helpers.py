@@ -154,12 +154,12 @@ def verify_password(password: str, password_hash: str) -> bool:
             salt, h = password_hash.split("$", 1)
             new_h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100000)
             return hmac.compare_digest(new_h.hex(), h)
-        except Exception:
+        except (ValueError, TypeError):
             return False
     # bcrypt hashes start with $2a$, $2b$, or $2y$
     try:
         return bcrypt.checkpw(password.encode()[:72], password_hash.encode())
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -220,7 +220,7 @@ def _get_default_lang() -> str:
         db = get_db()
         appearance = db.get_setting("appearance", {})
         return appearance.get("language", "en")
-    except Exception:
+    except (ValueError, KeyError, TypeError):
         return "en"
 
 

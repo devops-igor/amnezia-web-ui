@@ -5,6 +5,7 @@ import logging
 import uuid
 from datetime import datetime
 
+import paramiko
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
@@ -178,12 +179,12 @@ async def api_reboot_server(request: Request, server_id: int, user: dict = Depen
         await asyncio.to_thread(ssh.connect)
         try:
             await asyncio.to_thread(ssh.run_sudo_command, "nohup reboot > /dev/null 2>&1 &")
-        except Exception:
+        except (paramiko.SSHException, OSError):
             pass
         try:
             await asyncio.to_thread(ssh.disconnect)
-        except:
-            pass
+        except (paramiko.SSHException, OSError) as e:
+            logger.debug("Disconnect after reboot failed (expected): %s", e)
         return {"status": "success"}
     except Exception as e:
         logger.exception("Error rebooting server")
@@ -621,7 +622,7 @@ async def api_add_connection(
         else:
             # API call failed — do not write to data.json, return error
             error_msg = result.get("error", "Failed to create connection")
-            logger.error(f"Failed to add connection for {req.name}: {error_msg}")
+            logger.error("Failed to add connection for %s: %s", req.name, error_msg)
             return JSONResponse({"error": error_msg}, status_code=500)
 
         # Link connection to user if specified

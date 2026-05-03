@@ -60,7 +60,7 @@ async def api_my_add_connection(
             exp_date = datetime.fromisoformat(exp_str)
             if datetime.now() > exp_date:
                 return JSONResponse({"error": "Account expired"}, status_code=403)
-        except Exception:
+        except (ValueError, TypeError):
             pass  # Invalid date format, ignore
 
     # Check traffic limit
@@ -110,7 +110,7 @@ async def api_my_add_connection(
         try:
             oldest_ts = datetime.fromisoformat(oldest["created_at"])
             retry_after = int(rate_limit_window - (now - oldest_ts).total_seconds()) + 1
-        except Exception:
+        except (ValueError, TypeError):
             retry_after = rate_limit_window
         logger.warning(
             f"Rate limit triggered (sliding window): user_id={user['id']}, "

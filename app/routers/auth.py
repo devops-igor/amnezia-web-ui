@@ -136,5 +136,5 @@ async def api_change_password(
             "password_change_required": False,
         },
     )
-    logger.info(f"User '{user['username']}' changed their password")
+    logger.info("User '%s' changed their password", user["username"])
     return {"status": "success"}
