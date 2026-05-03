@@ -138,8 +138,12 @@ def generate_vpn_link(config_text):
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    """Hash a password using bcrypt.
+
+    bcrypt truncates passwords at 72 bytes. We truncate explicitly
+    to avoid ValueError on passwords longer than 72 bytes.
+    """
+    return bcrypt.hashpw(password.encode()[:72], bcrypt.gensalt()).decode()
 
 
 def verify_password(password: str, password_hash: str) -> bool:
@@ -154,7 +158,7 @@ def verify_password(password: str, password_hash: str) -> bool:
             return False
     # bcrypt hashes start with $2a$, $2b$, or $2y$
     try:
-        return bcrypt.checkpw(password.encode(), password_hash.encode())
+        return bcrypt.checkpw(password.encode()[:72], password_hash.encode())
     except Exception:
         return False
 
