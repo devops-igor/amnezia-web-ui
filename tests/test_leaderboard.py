@@ -242,6 +242,87 @@ class TestGetLeaderboardEntries:
         assert entries[0]["total"] == 5000
 
 
+# ---------- TestLeaderboardSQLAggregation ----------
+
+
+class TestLeaderboardSQLAggregation:
+    """Test Database.get_leaderboard() uses correct SQL aggregation."""
+
+    def test_all_time_period_uses_total_columns(self, temp_db):
+        """SQL query for all-time should use traffic_total_tx/rx columns."""
+        _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
+        entries = temp_db.get_leaderboard("all-time")
+        assert len(entries) == 1
+        assert entries[0]["download"] == 500
+        assert entries[0]["upload"] == 1000
+        assert entries[0]["total"] == 1500
+
+    def test_monthly_period_uses_monthly_columns(self, temp_db):
+        """SQL query for monthly should use monthly_tx/rx columns."""
+        _make_user(temp_db, "alice", monthly_rx=300, monthly_tx=150)
+        entries = temp_db.get_leaderboard("monthly")
+        assert len(entries) == 1
+        assert entries[0]["download"] == 150
+        assert entries[0]["upload"] == 300
+        assert entries[0]["total"] == 450
+
+    def test_disabled_users_excluded_from_sql(self, temp_db):
+        """Disabled users must not appear in SQL query results."""
+        _make_user(temp_db, "enabled", traffic_total_rx=1000, traffic_total_tx=500, enabled=True)
+        _make_user(temp_db, "disabled", traffic_total_rx=3000, traffic_total_tx=1000, enabled=False)
+        entries = temp_db.get_leaderboard("all-time")
+        assert len(entries) == 1
+        assert entries[0]["username"] == "enabled"
+
+    def test_zero_traffic_users_excluded_from_sql(self, temp_db):
+        """Users with zero total traffic must not appear in SQL results."""
+        _make_user(temp_db, "active", traffic_total_rx=500, traffic_total_tx=500)
+        _make_user(temp_db, "inactive", traffic_total_rx=0, traffic_total_tx=0)
+        entries = temp_db.get_leaderboard("all-time")
+        assert len(entries) == 1
+        assert entries[0]["username"] == "active"
+
+    def test_rank_assignment_sequential(self, temp_db):
+        """Ranks must be 1-based and sequential after SQL ORDER BY."""
+        _make_user(temp_db, "first", traffic_total_rx=500, traffic_total_tx=500)
+        _make_user(temp_db, "second", traffic_total_rx=300, traffic_total_tx=300)
+        _make_user(temp_db, "third", traffic_total_rx=100, traffic_total_tx=100)
+        entries = temp_db.get_leaderboard("all-time")
+        assert [e["rank"] for e in entries] == [1, 2, 3]
+        assert [e["username"] for e in entries] == ["first", "second", "third"]
+
+    def test_sorting_total_desc_username_asc(self, temp_db):
+        """Results must be sorted by total DESC, then username ASC (case-insensitive)."""
+        _make_user(temp_db, "user1", traffic_total_rx=500, traffic_total_tx=500)
+        _make_user(temp_db, "user2", traffic_total_rx=1000, traffic_total_tx=1000)
+        _make_user(temp_db, "user3", traffic_total_rx=200, traffic_total_tx=200)
+        entries = temp_db.get_leaderboard("all-time")
+        assert entries[0]["username"] == "user2"
+        assert entries[1]["username"] == "user1"
+        assert entries[2]["username"] == "user3"
+
+    def test_case_insensitive_username_sorting(self, temp_db):
+        """Username sort must be case-insensitive per SQL LOWER()."""
+        _make_user(temp_db, "ALICE", traffic_total_rx=1000, traffic_total_tx=0)
+        _make_user(temp_db, "bob", traffic_total_rx=1000, traffic_total_tx=0)
+        _make_user(temp_db, "Charlie", traffic_total_rx=1000, traffic_total_tx=0)
+        entries = temp_db.get_leaderboard("all-time")
+        assert entries[0]["username"] == "ALICE"
+        assert entries[1]["username"] == "bob"
+        assert entries[2]["username"] == "Charlie"
+
+    def test_empty_database_returns_empty_list(self, temp_db):
+        """Empty users table returns an empty list, not an error."""
+        entries = temp_db.get_leaderboard("all-time")
+        assert entries == []
+
+    def test_invalid_period_defaults_to_all_time(self, temp_db):
+        """Invalid period values fall back to all-time columns."""
+        _make_user(temp_db, "alice", traffic_total_tx=100, monthly_rx=999)
+        entries = temp_db.get_leaderboard("invalid-period")
+        assert entries[0]["download"] == 100  # all-time field
+
+
 # ---------- format_bytes Tests ----------
 
 

@@ -176,33 +176,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
     from config import get_db
 
     db = get_db()
-    users = db.get_all_users()
-    entries = []
-    for u in users:
-        if u.get("enabled", True) is not True:
-            continue
-        if period == "monthly":
-            download = u.get("monthly_tx", 0)
-            upload = u.get("monthly_rx", 0)
-        else:
-            download = u.get("traffic_total_tx", 0)
-            upload = u.get("traffic_total_rx", 0)
-        total = download + upload
-        if total == 0:
-            continue
-        entries.append(
-            {
-                "rank": 0,
-                "username": u.get("username", ""),
-                "download": download,
-                "upload": upload,
-                "total": total,
-            }
-        )
-    entries.sort(key=lambda e: (-e["total"], e["username"].lower()))
-    for i, e in enumerate(entries):
-        e["rank"] = i + 1
-    return entries
+    return db.get_leaderboard(period)
 
 
 def _t(text_id, lang="en"):
