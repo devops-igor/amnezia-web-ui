@@ -12,7 +12,7 @@ class TestGetClientIp:
 
     def test_direct_connection(self):
         """Without X-Forwarded-For, falls back to remote address."""
-        from app import _get_client_ip
+        from app.utils.helpers import _get_client_ip
 
         request = MagicMock()
         request.headers.get.return_value = None
@@ -24,7 +24,7 @@ class TestGetClientIp:
         """With single X-Forwarded-For from a trusted proxy, uses that IP."""
         from unittest.mock import patch
         import ipaddress
-        from app import _get_client_ip
+        from app.utils.helpers import _get_client_ip
         from app.utils import helpers
 
         trusted = {ipaddress.IPv4Address("10.0.0.1")}
@@ -42,7 +42,7 @@ class TestGetClientIp:
         """With chained X-Forwarded-For, uses the first (original client) IP."""
         from unittest.mock import patch
         import ipaddress
-        from app import _get_client_ip
+        from app.utils.helpers import _get_client_ip
         from app.utils import helpers
 
         trusted = {ipaddress.IPv4Address("10.0.0.1")}
@@ -60,7 +60,7 @@ class TestGetClientIp:
         """Handles spaces around commas in X-Forwarded-For."""
         from unittest.mock import patch
         import ipaddress
-        from app import _get_client_ip
+        from app.utils.helpers import _get_client_ip
         from app.utils import helpers
 
         trusted = {ipaddress.IPv4Address("10.0.0.1")}

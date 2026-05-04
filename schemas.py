@@ -373,7 +373,7 @@ class AppearanceSettings(BaseModel):
     def validate_language(cls, v: str) -> str:
         """Validate language against available translations."""
         if v:  # Skip if empty (default)
-            from app import TRANSLATIONS
+            from config import TRANSLATIONS
 
             v = v.strip().lower()
             if v not in TRANSLATIONS:

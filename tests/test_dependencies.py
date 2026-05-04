@@ -76,7 +76,7 @@ class TestGetCurrentUser:
             }
         )
         request = _make_request(session_data={"user_id": "user-1"})
-        with patch("app.get_db", return_value=temp_db):
+        with patch("config.get_db", return_value=temp_db):
             user = await get_current_user(request)
         assert user["id"] == "user-1"
         assert user["username"] == "alice"
@@ -154,7 +154,7 @@ class TestGetCurrentUserOptional:
             }
         )
         request = _make_request(session_data={"user_id": "user-2"})
-        with patch("app.get_db", return_value=temp_db):
+        with patch("config.get_db", return_value=temp_db):
             result = get_current_user_optional(request)
         assert result["id"] == "user-2"
         assert result["username"] == "bob"
@@ -172,7 +172,7 @@ class TestDependencyOverrides:
         fake_user = {"id": "fake-1", "username": "fake", "role": "user"}
         app.app.dependency_overrides[get_current_user] = lambda: fake_user
         try:
-            with patch.object(app, "get_db", return_value=temp_db):
+            with patch("config.get_db", return_value=temp_db):
                 response = client.get("/api/leaderboard")
             assert response.status_code == 200
             assert response.json()["current_user_rank"] is None
@@ -207,6 +207,6 @@ class TestDependencyOverrides:
             "role": "user",
         }
         app.app.dependency_overrides.clear()
-        with patch.object(app, "get_db", return_value=temp_db):
+        with patch("config.get_db", return_value=temp_db):
             response = client.get("/api/leaderboard")
         assert response.status_code == 401

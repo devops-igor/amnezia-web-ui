@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 from integrity import IntegrityError
 from telemt_manager import TelemtManager
-from app import InstallProtocolRequest
+from schemas import InstallProtocolRequest
 
 
 class TestTelemtManagerInit:

@@ -16,20 +16,8 @@ from slowapi.errors import RateLimitExceeded
 
 from starlette_csrf import CSRFMiddleware
 
-from app.utils.helpers import (  # noqa: F401 - re-exports for backward compat
-    _get_client_ip,
-    generate_vpn_link,
-    get_leaderboard_entries,
-    hash_password,
-    _t,
-)
-from config import (  # noqa: F401 - re-exports for backward compat
-    TRANSLATIONS,
-    _get_secret_key,
-    load_translations,
-    get_db,
-    init_db,
-)
+from app.utils.helpers import _get_client_ip, _t, hash_password
+from config import _get_secret_key, load_translations, get_db, init_db
 
 from app.routers.auth import router as auth_router
 from app.routers.connections import router as connections_router
@@ -40,20 +28,8 @@ from app.routers.share import router as share_router
 from app.routers.users import router as users_router
 from app.routers.leaderboard import router as leaderboard_router
 
-from app.services.background import (  # noqa: F401 - re-exports for backward compat
-    perform_delete_user,
-    perform_toggle_user,
-    perform_mass_operations,
-    sync_users_with_remnawave,
-)
 from app.services.background_orchestrator import BackgroundTaskOrchestrator
 from app.services.background_supervisor import BackgroundTaskSupervisor
-
-# Re-export schemas for backward compatibility (tests import from app)
-from schemas import (  # noqa: F401
-    ChangePasswordRequest,
-    InstallProtocolRequest,
-)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

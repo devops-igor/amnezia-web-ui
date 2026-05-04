@@ -212,7 +212,7 @@ async def api_update_user(
                 and user.get("traffic_used", 0) < new_limit
                 and not user.get("enabled", True)
             ):
-                from app import perform_toggle_user
+                from app.services.background import perform_toggle_user
 
                 await perform_toggle_user(user_id, True)
 
@@ -228,7 +228,7 @@ async def api_delete_user(request: Request, user_id: str, user: dict = Depends(r
     if user["id"] == user_id:
         return JSONResponse({"error": _t("cannot_delete_self", lang)}, status_code=400)
     try:
-        from app import perform_delete_user
+        from app.services.background import perform_delete_user
 
         success = await perform_delete_user(user_id)
         if not success:
@@ -244,7 +244,7 @@ async def api_toggle_user(
     request: Request, user_id: str, req: ToggleUserRequest, user: dict = Depends(require_admin)
 ):
     try:
-        from app import perform_toggle_user
+        from app.services.background import perform_toggle_user
 
         success = await perform_toggle_user(user_id, req.enabled)
         if not success:

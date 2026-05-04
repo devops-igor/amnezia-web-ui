@@ -3,6 +3,7 @@
 | 2026-04-29 03:53 | pm_bot | REVIEW_APPROVED | qa_bot approved task #44 behavioral equivalence verified line-for-line. |
 | 2026-04-29 03:53 | git_bot | COMMIT | b03e378 on feat/background-task-monolith: refactor: split PBT monolith into BackgroundTaskOrchestrator |
 | 2026-04-29 03:53 | git_bot | PR_CREATED | PR #119: https://github.com/devops-igor/amnezia-web-ui/pull/119 |
+| 2026-05-03 18:41 | py_bot | IMPLEMENTATION_COMPLETE | Issue #133: Removed 4 re-export shim blocks from app.py. Updated 10 caller files. 742/743 tests pass (1 pre-existing failure). black/flake8 clean. |
 | 2026-04-29 03:53 | pm_bot | DEPLOYED | Deployed feat-background-task-monolith to dev server via docker compose. Browser login verified. |
 | 2026-04-29 03:53 | pm_bot | ISSUE_CLOSED | GitHub issue #52 closed. |
 | 2026-04-29 03:53 | pm_bot | PROJECT_COMPLETED | Task #44 background-task-monolith done-done. |
@@ -80,3 +81,12 @@
  [2026-05-03 03:30] | pm_bot | MERGE | PR #155 merged to main. Phase 5B complete. Issues #128, #130, #131, #145 closed.
  [2026-05-03 04:25] | py_bot | IMPLEMENTATION_COMPLETE | Task #12: bare-except-pass. Replaced 1 bare except: + 9 except Exception: with specific exception types across 4 files. Added test_reboot_disconnect_failure_returns_success. 734 tests pass. black + flake8 clean. No bare except: remains.
 || 2026-05-03 04:33 | py_bot | IMPLEMENTATION_COMPLETE | Task #11 f-string-logging: Converted 8 f-string logger calls to lazy %s formatting across 4 files. Zero f-string logger calls remain. 734/734 tests pass. black + flake8 clean. DEV_HANDOVER.md written.
+
+[2026-05-03 18:00] | pm_bot | PROJECT_START | Batch 5C-B: Issues #132 (perform_delete_user SSH inefficiency) + #133 (re-export shim in app.py). Branch: feat/phase5c-batch-b. TASK_PROMPT.md and VERIFICATION_PLAN.md created for both issues.
+[2026-05-03 18:00] | pm_bot | SPAWN | Spawned py_bot for #132 perform_delete_user SSH inefficiency. Background proc_25270def7aa6.
+[2026-05-03 18:24] | py_bot | IMPLEMENTATION_COMPLETE | #132: Refactored perform_delete_user to batch connections by server_id. Old code opened one SSH session per connection; now opens one per unique server. Tests: 9 new (test_perform_delete_user_batching.py). Full suite: 743 passed. black + flake8 clean. DEV_HANDOVER.md written to tasks/perform-delete-user-ssh-inefficiency/.
+
+[2026-05-04 03:15] | pm_bot | QA_ASSIGNED | Spawned qa_bot for Issue #132 (perform-delete-user-ssh-inefficiency). Session: proc_0072df6f7a01
+[2026-05-04 03:15] | pm_bot | QA_ASSIGNED | Spawned qa_bot for Issue #133 (re-export-shim-app-py). Session: proc_a8c4ec8a122a
+[2026-05-04 03:21] | qa_bot | REVIEW_APPROVED | Issue #132 perform-delete-user: Code correctness verified (groups by server_id, one ssh.connect per server, disconnect before delete_user). 9/9 batching tests pass. Full suite 743/743 pass. black + flake8 clean. No security issues. QA_REVIEW.md written.
+\n\n| 2026-05-04 04:02 | qa_bot | REVIEW_APPROVED | Issue #133: Re-export shim removal. 743 tests pass. black/flake8 clean. No circular imports. QA_REVIEW.md written. |

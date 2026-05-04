@@ -240,8 +240,10 @@ class TestApiIntegration:
 
     @patch("app.routers.auth.get_db")
     @patch("app.get_db")
-    def test_password_change_required_flow(self, mock_app_db, mock_auth_db):
+    @patch("config.get_db")
+    def test_password_change_required_flow(self, mock_config_db, mock_app_db, mock_auth_db):
         """New user with pw_change_required must change pw before API access."""
+        mock_config_db.return_value = self.db
         mock_auth_db.return_value = self.db
         mock_app_db.return_value = self.db
         import app

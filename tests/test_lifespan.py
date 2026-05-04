@@ -11,7 +11,8 @@ class TestLifespanAdminCreation:
     @pytest.mark.asyncio
     async def test_startup_creates_admin_when_no_users_exist(self):
         """Lifespan startup creates default admin when no users exist."""
-        from app import lifespan, hash_password
+        from app import lifespan
+        from app.utils.helpers import hash_password
 
         mock_app = MagicMock()
 
