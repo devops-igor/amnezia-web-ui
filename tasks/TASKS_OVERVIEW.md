@@ -111,11 +111,11 @@ Archived task folders in `_archive/`.
 | # | Slug | Title | Category | Priority | Issue | Status |
 |---|------|-------|----------|----------|-------|--------|
 | 5 | ssl-private-key-in-db | SSL private key stored in DB | Security | P2 | #129 | 🔴 Open |
-| 8 | perform-delete-user-ssh-inefficiency | SSH connection per VPN record | Bug | P2 | #132 | ✅ DONE (QA APPROVED, PR pending) |
-| 9 | re-export-shim-app-py | Re-export shim locks backward-compat | Tech Debt | P2 | #133 | ✅ DONE (QA APPROVED, PR pending) |
+| 8 | perform-delete-user-ssh-inefficiency | SSH connection per VPN record | Bug | P2 | #132 | ✅ DONE (PR #158, merged) |
+| 9 | re-export-shim-app-py | Re-export shim locks backward-compat | Tech Debt | P2 | #133 | ✅ DONE (PR #158, merged) |
 | 10 | root-level-manager-modules | Root-level managers bypass package | Tech Debt | P2 | #134 | 🔴 Open |
-| 11 | f-string-logging | f-string logging overhead | Tech Debt | P2 | #135 | 🔴 Open |
-| 12 | bare-except-pass | Bare except:pass swallows errors | Bug | P2 | #136 | 🔴 Open |
+| 11 | f-string-logging | f-string logging overhead | Tech Debt | P2 | #135 | ✅ DONE (PR #157, merged) |
+| 12 | bare-except-pass | Bare except:pass swallows errors | Bug | P2 | #136 | ✅ DONE (PR #157, merged) |
 | 15 | leaderboard-aggregation-in-python | Leaderboard fetches all users | Tech Debt | P2 | #139 | 🔴 Open |
 | 16 | thread-local-sqlite-churn | SQLite connection churn | Tech Debt | P2 | #140 | 🔴 Open |
 | 18 | no-test-for-open-redirect | No test for open redirect | Bug | P2 | #142 | 🔴 Open |
@@ -189,15 +189,14 @@ Phase 5D (P3):
 | Testing | 1 | 0 | 0 | 1 | 0 |
 | **Total** | **27** | **3** | **5** | **12** | **7** |
 
-Done: P0 3/3, P1 5/5.
+Done: P0 3/3, P1 5/5, P2 4/12 (PR #157: #135, #136; PR #158: #132, #133).
 
 ---
 
 ## Overall Progress
 
 **Previous Phases 1-4 + E2E:** 53/53 issues DONE-DONE.
-**Phase 5B:** 4/4 DONE (PR #155 merged to main).
-**Phase 5A:** 3/3 DONE (PR #154). **Phase 5B:** 5/5 DONE (all P1 issues resolved). 19 remaining open (GitHub #129, #132–#150, P2+P3).
+**Phase 5A:** 3/3 DONE (PR #154). **Phase 5B:** 5/5 DONE (PR #155). **Phase 5C** (in progress): 4/12 P2 done. Remaining open: #129, #134, #139, #140, #142, #143, #146, #148 (P2) + all P3 issues.
 
 ---
 
