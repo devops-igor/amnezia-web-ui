@@ -469,6 +469,50 @@ class Database:
         rows = conn.execute("SELECT * FROM users").fetchall()
         return [self._user_row_to_dict(r) for r in rows]
 
+    def get_leaderboard(self, period: str) -> List[Dict[str, Any]]:
+        """Return leaderboard entries aggregated via SQL.
+
+        Args:
+            period: "monthly" or "all-time". Invalid values default to "all-time".
+
+        Returns:
+            List of dicts with rank, username, download, upload, total.
+            Disabled users and users with zero total traffic are excluded.
+            Results are sorted by total DESC, username ASC (case-insensitive).
+        """
+        if period == "monthly":
+            download_col = "monthly_tx"
+            upload_col = "monthly_rx"
+        else:
+            download_col = "traffic_total_tx"
+            upload_col = "traffic_total_rx"
+
+        conn = self._get_conn()
+        # f-strings are safe here: column names are hardcoded above and validated
+        # against ALLOWED_USER_COLUMNS at class definition time.
+        rows = conn.execute(f"""
+            SELECT username,
+                   {download_col} AS download,
+                   {upload_col} AS upload,
+                   ({download_col} + {upload_col}) AS total
+            FROM users
+            WHERE enabled = 1 AND ({download_col} + {upload_col}) > 0
+            ORDER BY total DESC, LOWER(username) ASC
+            """).fetchall()
+
+        entries = []
+        for i, row in enumerate(rows):
+            entries.append(
+                {
+                    "rank": i + 1,
+                    "username": row["username"],
+                    "download": row["download"],
+                    "upload": row["upload"],
+                    "total": row["total"],
+                }
+            )
+        return entries
+
     def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Return a user by id, or None."""
         conn = self._get_conn()
