@@ -111,8 +111,8 @@ Archived task folders in `_archive/`.
 | # | Slug | Title | Category | Priority | Issue | Status |
 |---|------|-------|----------|----------|-------|--------|
 | 5 | ssl-private-key-in-db | SSL private key stored in DB | Security | P2 | #129 | 🔴 Open |
-| 8 | perform-delete-user-ssh-inefficiency | SSH connection per VPN record | Bug | P2 | #132 | 🔴 Open |
-| 9 | re-export-shim-app-py | Re-export shim locks backward-compat | Tech Debt | P2 | #133 | 🔴 Open |
+| 8 | perform-delete-user-ssh-inefficiency | SSH connection per VPN record | Bug | P2 | #132 | ✅ DONE (QA APPROVED, PR pending) |
+| 9 | re-export-shim-app-py | Re-export shim locks backward-compat | Tech Debt | P2 | #133 | ✅ DONE (QA APPROVED, PR pending) |
 | 10 | root-level-manager-modules | Root-level managers bypass package | Tech Debt | P2 | #134 | 🔴 Open |
 | 11 | f-string-logging | f-string logging overhead | Tech Debt | P2 | #135 | 🔴 Open |
 | 12 | bare-except-pass | Bare except:pass swallows errors | Bug | P2 | #136 | 🔴 Open |
