@@ -15,7 +15,7 @@ async def get_current_user(request: Request) -> dict:
     Raises:
         HTTPException: 401 if not authenticated
     """
-    from app import get_db
+    from config import get_db
 
     user_id = request.session.get("user_id")
     if not user_id:
@@ -52,7 +52,7 @@ def get_current_user_optional(request: Request) -> dict | None:
 
     For template routes that need to render differently for guests.
     """
-    from app import get_db
+    from config import get_db
 
     user_id = request.session.get("user_id")
     if not user_id:

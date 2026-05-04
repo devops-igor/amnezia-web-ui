@@ -173,7 +173,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
         list of dicts with rank, username, download, upload, total.
         Users with zero total traffic or disabled accounts are excluded.
     """
-    from app import get_db
+    from config import get_db
 
     db = get_db()
     users = db.get_all_users()
@@ -206,7 +206,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
 
 
 def _t(text_id, lang="en"):
-    from app import TRANSLATIONS
+    from config import TRANSLATIONS
 
     lang_batch = TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))
     return lang_batch.get(text_id, text_id)
@@ -214,7 +214,7 @@ def _t(text_id, lang="en"):
 
 def _get_default_lang() -> str:
     """Read the default language from appearance settings, fall back to 'en'."""
-    from app import get_db
+    from config import get_db
 
     try:
         db = get_db()

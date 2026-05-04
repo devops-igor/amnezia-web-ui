@@ -287,7 +287,7 @@ class TestPasswordChangeValidation:
 
     def test_change_password_request_model_valid(self):
         """ChangePasswordRequest should accept valid input."""
-        from app import ChangePasswordRequest
+        from schemas import ChangePasswordRequest
 
         req = ChangePasswordRequest(
             current_password="oldpass",
@@ -302,7 +302,7 @@ class TestPasswordChangeValidation:
         """ChangePasswordRequest should reject missing fields."""
         from pydantic import ValidationError
 
-        from app import ChangePasswordRequest
+        from schemas import ChangePasswordRequest
 
         import pytest
 
@@ -344,7 +344,7 @@ class TestPasswordChangeIntegration:
         self.db = Database(self.tmp_db_path)
 
         # Create a test user with password_change_required=True
-        from app import hash_password
+        from app.utils.helpers import hash_password
 
         self.test_password = "TestPass123!"
         self.test_user_id = "test-user-integration"
@@ -565,7 +565,7 @@ class TestPasswordChangeIntegration:
     def test_user_without_flag_not_blocked(self):
         """User without password_change_required flag should access API normally."""
         # Create user without the flag
-        from app import hash_password
+        from app.utils.helpers import hash_password
 
         self.db.create_user(
             {

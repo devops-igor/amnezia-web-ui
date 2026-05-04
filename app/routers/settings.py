@@ -50,7 +50,7 @@ async def save_settings(
 
 @router.post("/api/settings/sync_now")
 async def api_sync_now(request: Request, user: dict = Depends(require_admin)):
-    from app import sync_users_with_remnawave
+    from app.services.background import sync_users_with_remnawave
 
     count, msg = await sync_users_with_remnawave()
     return {"status": "success", "count": count, "message": msg}
@@ -58,7 +58,7 @@ async def api_sync_now(request: Request, user: dict = Depends(require_admin)):
 
 @router.post("/api/settings/sync_delete")
 async def api_sync_delete(request: Request, user: dict = Depends(require_admin)):
-    from app import perform_mass_operations
+    from app.services.background import perform_mass_operations
 
     db = get_db()
     all_users = db.get_all_users()
