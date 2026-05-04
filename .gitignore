@@ -46,6 +46,8 @@ telemt_task_*/
 leaderboard/
 screen/
 WORKLOG.md
+VERIFICATION_PLAN.md
+VERIFICATION_REPORT*.md
 .secret_key
 =0.9.0
 tests/e2e/screenshots/
