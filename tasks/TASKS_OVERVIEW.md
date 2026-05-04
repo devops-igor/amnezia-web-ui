@@ -118,8 +118,8 @@ Archived task folders in `_archive/`.
 | 12 | bare-except-pass | Bare except:pass swallows errors | Bug | P2 | #136 | ✅ DONE (PR #157, merged) |
 | 15 | leaderboard-aggregation-in-python | Leaderboard fetches all users | Tech Debt | P2 | #139 | 🔴 Open |
 | 16 | thread-local-sqlite-churn | SQLite connection churn | Tech Debt | P2 | #140 | 🔴 Open |
-| 18 | no-test-for-open-redirect | No test for open redirect | Bug | P2 | #142 | 🔴 Open |
-| 19 | no-test-for-ssh-inefficiency | No test for SSH batching | Bug | P2 | #143 | 🔴 Open |
+| 18 | no-test-for-open-redirect | No test for open redirect | Bug | P2 | #142 | ✅ DONE (PR #154, 6 tests) |
+| 19 | no-test-for-ssh-inefficiency | No test for SSH batching | Bug | P2 | #143 | ✅ DONE (PR #158, 9 tests) |
 | 22 | pip-audit-production-dependency | pip_audit in production deps | Tech Debt | P2 | #146 | 🔴 Open |
 | 24 | internal-project-files-public | Internal files in public repo | Security | P2 | #148 | 🔴 Open |
 
@@ -189,14 +189,14 @@ Phase 5D (P3):
 | Testing | 1 | 0 | 0 | 1 | 0 |
 | **Total** | **27** | **3** | **5** | **12** | **7** |
 
-Done: P0 3/3, P1 5/5, P2 4/12 (PR #157: #135, #136; PR #158: #132, #133).
+Done: P0 3/3, P1 5/5, P2 6/12 (PR #154: #142; PR #157: #135, #136; PR #158: #132, #133, #143).
 
 ---
 
 ## Overall Progress
 
 **Previous Phases 1-4 + E2E:** 53/53 issues DONE-DONE.
-**Phase 5A:** 3/3 DONE (PR #154). **Phase 5B:** 5/5 DONE (PR #155). **Phase 5C** (in progress): 4/12 P2 done. Remaining open: #129, #134, #139, #140, #142, #143, #146, #148 (P2) + all P3 issues.
+**Phase 5A:** 3/3 DONE (PR #154). **Phase 5B:** 5/5 DONE (PR #155). **Phase 5C** (in progress): 6/12 P2 done. Remaining open: #129, #134, #139, #140, #146, #148 (P2) + all P3 issues.
 
 ---
 
