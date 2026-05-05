@@ -119,14 +119,16 @@ async def api_change_password(
     Clears password_change_required flag on success.
     """
 
+    lang = _get_lang(request)
+
     if not verify_password(req.current_password, user["password_hash"]):
-        return JSONResponse({"error": "Current password is incorrect"}, status_code=400)
+        return JSONResponse({"error": _t("current_password_incorrect", lang)}, status_code=400)
 
     if req.new_password != req.confirm_password:
-        return JSONResponse({"error": "New passwords do not match"}, status_code=400)
+        return JSONResponse({"error": _t("passwords_dont_match", lang)}, status_code=400)
 
     if len(req.new_password) < 8:
-        return JSONResponse({"error": "Password must be at least 8 characters"}, status_code=400)
+        return JSONResponse({"error": _t("password_too_short", lang)}, status_code=400)
 
     db = get_db()
     db.update_user(
