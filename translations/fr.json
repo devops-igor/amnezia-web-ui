@@ -282,5 +282,15 @@
     "telemt_config_dir": "Répertoire de configuration Telemt",
     "rate_limit_exceeded": "Trop de requêtes. Veuillez réessayer plus tard.",
     "telemt_config_dir_hint": "Répertoire sur le serveur distant où Telemt stocke ses fichiers de configuration.",
-    "language_label": "Langue par défaut"
+    "language_label": "Langue par défaut",
+    "setup_title": "Initial Setup",
+    "setup_subtitle": "Create admin account",
+    "setup_username": "Username",
+    "setup_password": "Password",
+    "setup_confirm_password": "Confirm Password",
+    "setup_btn": "Create Account",
+    "setup_complete": "Setup complete! Redirecting...",
+    "setup_already_done": "Setup already completed",
+    "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
+    "setting_up": "Setting up..."
 }

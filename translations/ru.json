@@ -320,5 +320,15 @@
     "password_min_length_hint": "Минимум 8 символов",
     "password_too_short": "Пароль должен содержать не менее 8 символов",
     "passwords_dont_match": "Новые пароли не совпадают",
-    "current_password_incorrect": "Текущий пароль неверен"
+    "current_password_incorrect": "Текущий пароль неверен",
+    "setup_title": "Первоначальная настройка",
+    "setup_subtitle": "Создайте учетную запись администратора",
+    "setup_username": "Имя пользователя",
+    "setup_password": "Пароль",
+    "setup_confirm_password": "Подтвердите пароль",
+    "setup_btn": "Создать аккаунт",
+    "setup_complete": "Настройка завершена! Перенаправление...",
+    "setup_already_done": "Настройка уже завершена",
+    "setup_username_invalid": "Имя пользователя должно быть 3-32 символа (буквы, цифры, подчеркивания)",
+    "setting_up": "Настройка..."
 }

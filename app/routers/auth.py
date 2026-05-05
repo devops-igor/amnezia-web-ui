@@ -1,7 +1,9 @@
-"""Auth routes — login page, logout, language switching, CAPTCHA, and password change."""
+"""Auth routes — login page, logout, language switching, CAPTCHA, password change, and first-run setup."""
 
 import io
 import logging
+import uuid
+from datetime import datetime
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
@@ -11,7 +13,7 @@ from app.utils.helpers import hash_password, verify_password, _get_lang, _t
 from app.utils.templates import tpl
 from config import get_db
 from dependencies import get_current_user, get_current_user_optional
-from schemas import ChangePasswordRequest, LoginRequest
+from schemas import ChangePasswordRequest, LoginRequest, SetupRequest
 
 try:
     from multicolorcaptcha import CaptchaGenerator
@@ -140,3 +142,45 @@ async def api_change_password(
     )
     logger.info("User '%s' changed their password", user["username"])
     return {"status": "success"}
+
+
+@router.post("/api/auth/setup")
+@limiter.limit("5/minute")
+async def api_setup(request: Request, req: SetupRequest):
+    """First-run setup endpoint — creates the initial admin user.
+
+    Only works when zero users exist. On success, creates user and
+    auto-logs them in via session.
+    """
+    db = get_db()
+    lang = _get_lang(request)
+
+    if db.get_all_users():
+        return JSONResponse({"error": _t("setup_already_done", lang)}, status_code=409)
+
+    if req.password != req.confirm_password:
+        return JSONResponse({"error": _t("passwords_dont_match", lang)}, status_code=400)
+
+    user_id = str(uuid.uuid4())
+    db.create_user(
+        {
+            "id": user_id,
+            "username": req.username,
+            "password_hash": hash_password(req.password),
+            "role": "admin",
+            "enabled": True,
+            "password_change_required": False,
+            "created_at": datetime.now().isoformat(),
+        }
+    )
+    logger.info("Setup wizard: admin user '%s' created", req.username)
+
+    # Invalidate the setup redirect middleware cache
+    from app import SetupRedirectMiddleware
+
+    SetupRedirectMiddleware.invalidate_cache()
+
+    # Auto-login: set session user_id
+    request.session["user_id"] = user_id
+
+    return {"status": "success", "role": "admin"}
