@@ -306,5 +306,15 @@
     "telemt_config_dir": "Telemt Config Directory",
     "rate_limit_exceeded": "Too many requests. Please try again later.",
     "telemt_config_dir_hint": "Directory on the remote server where Telemt stores its configuration files.",
-    "language_label": "Default Language"
+    "language_label": "Default Language",
+    "change_password_title": "Change Password",
+    "current_password": "Current Password",
+    "new_password": "New Password",
+    "confirm_new_password": "Confirm New Password",
+    "change_password_btn": "Change Password",
+    "changing_password": "Changing...",
+    "change_password_error": "Password change failed",
+    "password_changed_success": "Password changed successfully! Redirecting...",
+    "password_change_required_msg": "You must change your password before continuing.",
+    "skip_change_password": "Skip for now"
 }
