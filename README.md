@@ -122,11 +122,22 @@ The panel will be available at `http://localhost:5000`.
 
 ### First Login
 
+On first startup with an empty database, the panel creates an admin account with a **randomly generated password** and prints it to the console:
+
+```
+============================================================
+  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW
+  Username: admin
+  Password: <random-password>
+  You must change this password on first login.
+============================================================
+```
+
 - **Username**: `admin`
-- **Password**: `admin`
+- **Password**: printed to console on first startup (check Docker logs if running in a container)
 
 > [!IMPORTANT]
-> Change the default `admin` password immediately after first login.
+> You must change this password on first login. The initial password is temporary and should not be reused.
 
 ---
 
