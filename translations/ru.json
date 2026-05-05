@@ -316,5 +316,9 @@
     "change_password_error": "Ошибка смены пароля",
     "password_changed_success": "Пароль успешно изменён! Перенаправление...",
     "password_change_required_msg": "Вы должны сменить пароль перед продолжением работы.",
-    "skip_change_password": "Пропустить"
+    "skip_change_password": "Пропустить",
+    "password_min_length_hint": "Минимум 8 символов",
+    "password_too_short": "Пароль должен содержать не менее 8 символов",
+    "passwords_dont_match": "Новые пароли не совпадают",
+    "current_password_incorrect": "Текущий пароль неверен"
 }
