@@ -285,6 +285,17 @@
             const res = await fetch(url, opts);
 
             if (res.status === 401 || res.status === 403) {
+                // Check if this is a password_change_required response before redirecting to login
+                try {
+                    const clone = res.clone();
+                    const body = await clone.json();
+                    if (body.password_change_required) {
+                        window.location.href = '/change-password?forced=1';
+                        throw new Error('Password change required');
+                    }
+                } catch (parseErr) {
+                    // Response body wasn't JSON or wasn't password_change_required — proceed to redirect
+                }
                 window.location.href = '/login';
                 throw new Error('Session expired');
             }

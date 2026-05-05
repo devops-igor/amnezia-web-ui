@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from app.utils.helpers import get_leaderboard_entries
 from app.utils.templates import tpl
 from config import get_db
-from dependencies import get_current_user
+from dependencies import get_current_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,16 @@ async def index(request: Request, user: dict = Depends(get_current_user)):
     db = get_db()
     servers = db.get_all_servers()
     return tpl(request, "index.html", servers=servers)
+
+
+@router.get("/change-password", response_class=HTMLResponse)
+async def change_password_page(request: Request):
+    """Render the password change page. Supports ?forced=1 for mandatory changes."""
+    user = get_current_user_optional(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=302)
+    forced = request.query_params.get("forced", "0") == "1"
+    return tpl(request, "change_password.html", forced=forced)
 
 
 @router.get("/server/{server_id}", response_class=HTMLResponse)

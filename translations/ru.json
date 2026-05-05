@@ -306,5 +306,15 @@
     "telemt_config_dir": "Директория конфигурации Telemt",
     "rate_limit_exceeded": "Слишком много запросов. Попробуйте позже.",
     "telemt_config_dir_hint": "Директория на удалённом сервере, где Telemt хранит файлы конфигурации.",
-    "language_label": "Язык по умолчанию"
+    "language_label": "Язык по умолчанию",
+    "change_password_title": "Смена пароля",
+    "current_password": "Текущий пароль",
+    "new_password": "Новый пароль",
+    "confirm_new_password": "Подтверждение пароля",
+    "change_password_btn": "Сменить пароль",
+    "changing_password": "Смена...",
+    "change_password_error": "Ошибка смены пароля",
+    "password_changed_success": "Пароль успешно изменён! Перенаправление...",
+    "password_change_required_msg": "Вы должны сменить пароль перед продолжением работы.",
+    "skip_change_password": "Пропустить"
 }
