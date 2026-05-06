@@ -53,16 +53,19 @@ Full i18n support: **English**, **Russian**, **French**, **Chinese**, **Persian*
 ## Architecture
 
 ```
-app.py                  # FastAPI/Starlette application, all routes and business logic
+app.py                  # FastAPI/Starlette application, lifespan, middleware
+app/routers/            # Route handlers (auth, pages, servers, users, connections, settings, share, leaderboard)
+app/utils/              # Helpers, templates, rate limiter
+app/services/           # Background task orchestrator, supervisor
 database.py             # SQLite (WAL mode) database wrapper — replaces data.json
-schema.sql              # SQLite schema definitions
-ssh_manager.py          # SSH connection manager (Paramiko)
+schemas.py              # Pydantic request/response models
+dependencies.py         # Auth dependencies (get_current_user, etc.)
+config.py               # Configuration, translations, DB init
+ssh_manager.py           # SSH connection manager (Paramiko)
 awg_manager.py           # AmneziaWG protocol manager
 xray_manager.py          # Xray (XTLS-Reality) protocol manager
 telemt_manager.py        # Telemt (MTProto) protocol manager
 dns_manager.py           # AmneziaDNS protocol manager
-telegram_bot.py          # Optional Telegram bot notifications
-migrate_to_sqlite.py     # One-time migration script from data.json to SQLite
 ```
 
 ### Database
@@ -122,7 +125,13 @@ The panel will be available at `http://localhost:5000`.
 
 ### First Login
 
-On first startup with an empty database, visit `/setup` in your browser to create the admin account. You'll choose your own username and password — no random credentials to find in logs.
+On first startup with an empty database, the panel redirects all requests to the **Setup Wizard** at `/setup`. You choose your own username and password — no random credentials in logs, no forced password change.
+
+![Setup Wizard — create admin account](docs/setup-wizard.png)
+
+After creating the account, you're automatically logged in and taken to the dashboard:
+
+![Dashboard after setup](docs/dashboard-after-setup.png)
 
 ---
 
@@ -175,8 +184,8 @@ Admins can set per-user traffic limits (bytes). When a user hits their limit, th
 - **Frontend**: Vanilla JS, Jinja2 templates, custom CSS (glassmorphism design, dark/light mode)
 - **Database**: SQLite (WAL mode) — threaded, concurrent-safe
 - **SSH**: Paramiko
-- **Telegram Bot**: python-telegram-bot
-- **Testing**: pytest
+- **Security**: bcrypt password hashing, CSRF protection, rate limiting (slowapi)
+- **Testing**: pytest (765+ tests), Playwright E2E
 
 ---
 
@@ -186,6 +195,7 @@ Admins can set per-user traffic limits (bytes). When a user hits their limit, th
 - Set a strong `SECRET_KEY` environment variable in production
 - Prefer SSH keys over passwords for server connections
 - Restrict access to the panel via firewall/network segmentation
+- The first-run setup wizard ensures no credentials are exposed in container logs
 
 ---
 
