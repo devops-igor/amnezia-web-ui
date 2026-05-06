@@ -292,5 +292,10 @@
     "setup_complete": "Setup complete! Redirecting...",
     "setup_already_done": "Setup already completed",
     "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
-    "setting_up": "Setting up..."
+    "setting_up": "Setting up...",
+    "loading_connections_error": "خطا در بارگذاری اتصالات",
+    "connection_updated": "اتصال به‌روز شد",
+    "connection_enabled_disabled": "اتصال {status}",
+    "enabled": "فعال",
+    "edit_connection": "ویرایش اتصال"
 }
