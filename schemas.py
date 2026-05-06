@@ -482,6 +482,116 @@ class SaveSettingsRequest(BaseModel):
     protocol_paths: ProtocolPaths = ProtocolPaths()
 
 
+# ===== Response Models (Phase 5D) =====
+
+
+class ServerStatsResponse(BaseModel):
+    """Server resource usage stats returned by POST /api/servers/{id}/stats."""
+
+    model_config = {"extra": "allow"}
+
+    cpu: float = 0.0
+    ram_used: int = 0
+    ram_total: int = 0
+    ram_percent: float = 0.0
+    disk_used: int = 0
+    disk_total: int = 0
+    disk_percent: float = 0.0
+    net_rx: int = 0
+    net_tx: int = 0
+    uptime: str = ""
+
+
+class ServerCheckResponse(BaseModel):
+    """Server health-check result from POST /api/servers/{id}/check."""
+
+    model_config = {"extra": "allow"}
+
+    connection: str = "ok"
+    docker_installed: bool = False
+    protocols: dict = Field(default_factory=dict)
+
+
+class UserItemResponse(BaseModel):
+    """Single user entry in the paginated user list."""
+
+    model_config = {"extra": "allow"}
+
+    id: str
+    username: str
+    role: str = "user"
+    enabled: bool = True
+    created_at: str = ""
+    telegramId: Optional[str] = None
+    email: Optional[str] = None
+    description: Optional[str] = None
+    connections_count: int = 0
+    traffic_used: int = 0
+    traffic_total: int = 0
+    traffic_limit: int = 0
+    traffic_reset_strategy: str = "never"
+    last_reset_at: Optional[str] = None
+    share_enabled: bool = False
+    share_token: Optional[str] = None
+    has_share_password: bool = False
+    source: str = "Local"
+
+
+class PaginatedUsersResponse(BaseModel):
+    """Paginated user list returned by GET /api/users."""
+
+    model_config = {"extra": "allow"}
+
+    users: list[UserItemResponse] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    size: int = 10
+    pages: int = 0
+
+
+class LeaderboardEntryResponse(BaseModel):
+    """Single leaderboard entry with rank and traffic stats."""
+
+    model_config = {"extra": "allow"}
+
+    rank: int
+    username: str
+    download: int = 0
+    upload: int = 0
+    total: int = 0
+
+
+class LeaderboardResponse(BaseModel):
+    """Leaderboard data returned by GET /api/leaderboard."""
+
+    model_config = {"extra": "allow"}
+
+    period: str = "all-time"
+    entries: list[LeaderboardEntryResponse] = Field(default_factory=list)
+    current_user_rank: Optional[int] = None
+    monthly_label: Optional[str] = None
+
+
+class SettingsResponse(BaseModel):
+    """Settings dict returned by GET /api/settings (dynamic keys)."""
+
+    model_config = {"extra": "allow"}
+
+
+class ServerItemResponse(BaseModel):
+    """Server entry returned by GET /api/servers (credentials stripped)."""
+
+    model_config = {"extra": "allow"}
+
+    id: int
+    name: str = ""
+    host: str = ""
+    ssh_port: int = 22
+    username: str = ""
+    server_info: str = ""
+    protocols: dict = Field(default_factory=dict)
+
+
 # ===== Sharing =====
 
 
