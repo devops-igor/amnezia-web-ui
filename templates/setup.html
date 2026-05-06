@@ -275,9 +275,12 @@
                     throw new Error(_('passwords_dont_match'));
                 }
 
+                const meta = document.querySelector('meta[name="csrf-token"]');
+                const csrfToken = meta ? meta.getAttribute('content') : (document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '');
+
                 const res = await fetch('/api/auth/setup', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({
                         username: username,
                         password: password,
@@ -294,7 +297,7 @@
 
                 // Redirect to dashboard after short delay
                 setTimeout(() => {
-                    window.location.href = '/';
+                    window.location.href = '/login';
                 }, 1500);
             } catch (err) {
                 errEl.textContent = err.message;
