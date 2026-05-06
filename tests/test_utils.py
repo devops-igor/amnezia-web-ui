@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from utils import format_bytes
+from app.utils.helpers import format_bytes
 
 
 class TestFormatBytes:

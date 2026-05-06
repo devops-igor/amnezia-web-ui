@@ -1,17 +1,29 @@
-# Amnezia Web Panel
-FROM python:3.13-slim
+# Stage 1: Build dependencies (contains build tools)
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies
+# Install build tools needed for C extensions (cffi, bcrypt, cryptography)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+
+# Stage 2: Production (no build tools — lean image)
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Copy installed site-packages from builder stage
+COPY --from=builder /usr/local/lib/python3.13/site-packages/ /usr/local/lib/python3.13/site-packages/
+
+# Copy pip entry-points / scripts from builder (gunicorn, uvicorn, etc.)
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
 
 # Create non-root user for security
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
