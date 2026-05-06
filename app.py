@@ -120,7 +120,7 @@ class SetupRedirectMiddleware:
     @classmethod
     def invalidate_cache(cls) -> None:
         """Clear the cached user-existence flag — called after successful setup."""
-        cls._has_users = None
+        SetupRedirectMiddleware._has_users = None
 
     def __init__(self, app):
         self.app = app
@@ -139,15 +139,15 @@ class SetupRedirectMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if self._has_users is None:
+        if SetupRedirectMiddleware._has_users is None:
             try:
                 db = get_db()
-                self._has_users = bool(db.get_all_users())
+                SetupRedirectMiddleware._has_users = bool(db.get_all_users())
             except Exception:
                 await self.app(scope, receive, send)
                 return
 
-        if not self._has_users:
+        if not SetupRedirectMiddleware._has_users:
             from starlette.responses import RedirectResponse
 
             response = RedirectResponse(url="/setup", status_code=302)

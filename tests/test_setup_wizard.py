@@ -432,3 +432,57 @@ class TestSetupRedirectMiddleware:
         # It may return 302 to /login (if unauthenticated), but not /setup
         if response.status_code == 302:
             assert response.headers.get("location") != "/setup"
+
+    def test_invalidate_cache_clears_state(self):
+        """invalidate_cache() must actually clear the cached _has_users state.
+
+        Regression test for the class/instance attribute shadowing bug (#185):
+        Previously, __call__ used self._has_users = ... which created an instance
+        attribute shadowing the class attribute. After invalidate_cache() set
+        cls._has_users = None, the instance attribute still held the old value
+        (e.g. False), causing the middleware to never re-query the DB and
+        triggering a redirect loop on / when users existed.
+
+        The test:
+        1. Empty DB → middleware caches _has_users = False → redirects to /setup
+        2. User created in DB
+        3. invalidate_cache() called → _has_users reset to None
+        4. Next request re-queries DB → sees user → passes through (no /setup redirect)
+        """
+        from app import app, SetupRedirectMiddleware
+
+        client = TestClient(app)
+
+        # Step 1: Empty DB — verify redirect to /setup
+        SetupRedirectMiddleware.invalidate_cache()
+        response_empty = client.get("/servers", follow_redirects=False)
+        assert response_empty.status_code == 302
+        assert response_empty.headers.get("location") == "/setup"
+
+        # Step 2: Create user directly in DB (simulates user created while app was running)
+        self.db.create_user(
+            {
+                "id": "post-startup-user",
+                "username": "alice",
+                "password_hash": "hash",
+                "role": "admin",
+                "enabled": True,
+            }
+        )
+
+        # Step 3: invalidate_cache() must clear the cached state so next request
+        # re-queries the DB and sees the new user
+        SetupRedirectMiddleware.invalidate_cache()
+
+        # Step 4: Request should now pass through middleware (no redirect to /setup)
+        response_with_user = client.get("/servers", follow_redirects=False)
+        # Expect 401 (unauthenticated) or 200 or 302 to somewhere OTHER than /setup
+        if response_with_user.status_code == 302:
+            assert (
+                response_with_user.headers.get("location") != "/setup"
+            ), "invalidate_cache() did not clear the redirect state — redirect loop bug still present"
+        # If it's a 401, the middleware let the request through to the auth check,
+        # which is the correct behavior (no /setup redirect).
+        assert (
+            response_with_user.status_code != 500
+        ), f"Unexpected 500 after invalidate_cache(): {response_with_user.text}"
