@@ -10,7 +10,7 @@ from app.utils.helpers import _sanitize_error, serialize_protocols
 from app.utils.templates import tpl
 from config import get_db
 from dependencies import require_admin
-from schemas import SaveSettingsRequest
+from schemas import SaveSettingsRequest, SettingsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ async def settings_page(request: Request, user: dict = Depends(require_admin)):
     )
 
 
-@router.get("/api/settings")
+@router.get("/api/settings", response_model=SettingsResponse)
 async def api_get_settings(request: Request, user: dict = Depends(require_admin)):
     db = get_db()
     settings = db.get_all_settings()

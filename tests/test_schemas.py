@@ -32,6 +32,15 @@ def test_schemas_importable():
         "ShareSetupRequest",
         "ShareAuthRequest",
         "MyAddConnectionRequest",
+        # Response models (Phase 5D)
+        "ServerStatsResponse",
+        "ServerCheckResponse",
+        "UserItemResponse",
+        "PaginatedUsersResponse",
+        "LeaderboardEntryResponse",
+        "LeaderboardResponse",
+        "ServerItemResponse",
+        "SettingsResponse",
     ]
     for name in model_names:
         assert hasattr(schemas, name), f"Missing: {name}"
