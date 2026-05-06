@@ -26,7 +26,7 @@ multicolorcaptcha==1.2.0
 packaging==26.0
 paramiko==3.5.1
 pillow==12.2.0
-platformdirs==4.9.4
+platformdirs==4.9.6
 py-serializable==2.1.0
 pycparser==3.0
 pydantic==2.12.5
