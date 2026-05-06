@@ -330,42 +330,42 @@ class TestFormatBytes:
     """Test the format_bytes helper function (now in utils.py)."""
 
     def test_bytes(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(500) == "500 B"
 
     def test_kilobytes(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(1024) == "1.00 KB"
 
     def test_megabytes(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(1024 * 1024) == "1.00 MB"
 
     def test_gigabytes(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(1024 * 1024 * 1024) == "1.00 GB"
 
     def test_terabytes(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(1024 * 1024 * 1024 * 1024) == "1.00 TB"
 
     def test_zero(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(0) == "0 B"
 
     def test_none_becomes_zero(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         assert format_bytes(None) == "0 B"
 
     def test_large_number(self):
-        from utils import format_bytes
+        from app.utils.helpers import format_bytes
 
         result = format_bytes(1234567890)
         assert "GB" in result or "TB" in result
