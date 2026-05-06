@@ -168,9 +168,8 @@ Note: API authentication is session-based (cookie). A dedicated public REST API 
 
 ### Rate Limiting
 
-Connection rate limits are configurable per-user and globally via **Settings → Connection Limits**:
-- Maximum connections per user
-- Connection rate limit (connections per time window)
+Connection rate limits are configurable globally via **Settings → Connection Limits**:
+- Connection rate limit (requests per time window)
 
 ### Traffic Limits
 
