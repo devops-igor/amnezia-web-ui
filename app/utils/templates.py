@@ -34,4 +34,4 @@ def tpl(request, template, **kwargs):
         "csrf_token": request.cookies.get("csrftoken", ""),
     }
     ctx.update(kwargs)
-    return templates.TemplateResponse(template, ctx)
+    return templates.TemplateResponse(request, template, ctx)
