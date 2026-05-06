@@ -66,13 +66,13 @@ class TestSSHConnectPerServer:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
-            patch("app.services.background.get_ssh", return_value=mock_ssh),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_ssh", return_value=mock_ssh),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             result = await perform_delete_user("u1")
 
@@ -117,16 +117,16 @@ class TestSSHConnectPerServer:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
             patch(
-                "app.services.background.get_ssh",
+                "app.services.user_operations.get_ssh",
                 side_effect=[mock_ssh1, mock_ssh2],
             ),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             result = await perform_delete_user("u1")
 
@@ -180,16 +180,16 @@ class TestErrorIsolationPerServer:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
             patch(
-                "app.services.background.get_ssh",
+                "app.services.user_operations.get_ssh",
                 side_effect=[mock_ssh1, mock_ssh2],
             ),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             result = await perform_delete_user("u1")
 
@@ -226,13 +226,13 @@ class TestErrorIsolationPerServer:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
-            patch("app.services.background.get_ssh", return_value=mock_ssh),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_ssh", return_value=mock_ssh),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             result = await perform_delete_user("u1")
 
@@ -254,7 +254,7 @@ class TestReturnValues:
 
         from app.services.background import perform_delete_user
 
-        with patch("app.services.background.get_db", return_value=mock_db):
+        with patch("app.services.user_operations.get_db", return_value=mock_db):
             result = await perform_delete_user("u1")
 
         assert result is True
@@ -267,7 +267,7 @@ class TestReturnValues:
 
         from app.services.background import perform_delete_user
 
-        with patch("app.services.background.get_db", return_value=mock_db):
+        with patch("app.services.user_operations.get_db", return_value=mock_db):
             result = await perform_delete_user("nonexistent")
 
         assert result is False
@@ -315,13 +315,13 @@ class TestDBCleanupOrdering:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
-            patch("app.services.background.get_ssh", return_value=mock_ssh),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_ssh", return_value=mock_ssh),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             await perform_delete_user("u1")
 
@@ -343,7 +343,7 @@ class TestEdgeCases:
 
         from app.services.background import perform_delete_user
 
-        with patch("app.services.background.get_db", return_value=mock_db):
+        with patch("app.services.user_operations.get_db", return_value=mock_db):
             result = await perform_delete_user("u1")
 
         assert result is True
@@ -374,13 +374,13 @@ class TestEdgeCases:
         from app.services.background import perform_delete_user
 
         with (
-            patch("app.services.background.get_db", return_value=mock_db),
-            patch("app.services.background.get_ssh", return_value=mock_ssh),
+            patch("app.services.user_operations.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_ssh", return_value=mock_ssh),
             patch(
-                "app.services.background.get_protocol_manager",
+                "app.services.user_operations.get_protocol_manager",
                 return_value=mock_manager,
             ),
-            patch("app.services.background.asyncio.to_thread", side_effect=_fake_to_thread),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
         ):
             result = await perform_delete_user("u1")
 

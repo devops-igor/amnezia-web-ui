@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime
 
@@ -22,6 +23,9 @@ from schemas import (
     ProtocolRequest,
     ServerConfigSaveRequest,
     ToggleConnectionRequest,
+    ServerStatsResponse,
+    ServerCheckResponse,
+    ServerItemResponse,
 )
 from app.managers import AWGManager, SSHManager, SSHHostKeyError, XrayManager
 
@@ -30,7 +34,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/servers")
 
 
-@router.get("/")
+@router.get("/", response_model=list[ServerItemResponse])
 async def api_list_servers(request: Request, user: dict = Depends(get_current_user)):
     """Return all servers as JSON (sensitive fields stripped)."""
     db = get_db()
@@ -220,7 +224,7 @@ async def api_clear_server(request: Request, server_id: int, user: dict = Depend
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
-@router.post("/{server_id}/stats")
+@router.post("/{server_id}/stats", response_model=ServerStatsResponse)
 async def api_server_stats(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -229,23 +233,45 @@ async def api_server_stats(request: Request, server_id: int, user: dict = Depend
             return JSONResponse({"error": "Server not found"}, status_code=404)
         ssh = get_ssh(server)
         await asyncio.to_thread(ssh.connect)
-        stats = {}
-        out, _, _ = await asyncio.to_thread(
-            ssh.run_command,
+
+        # Single SSH round-trip: combine all 5 stat commands into one
+        combined_cmd = (
+            "echo '===CPU==='; "
             "top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || "
             'awk \'{u=$2+$4; t=$2+$4+$5; if(NR==1){pu=u;pt=t} else printf "%.1f", '
             "(u-pu)/(t-pt)*100}' "
-            "<(grep 'cpu ' /proc/stat) <(sleep 0.5 && grep 'cpu ' /proc/stat) 2>/dev/null",
+            "<(grep 'cpu ' /proc/stat) <(sleep 0.5 && grep 'cpu ' /proc/stat) 2>/dev/null; "
+            "echo ''; "
+            "echo '===RAM==='; "
+            "free -b | awk 'NR==2{printf \"%d %d\", $3, $2}'; "
+            "echo ''; "
+            "echo '===DISK==='; "
+            "df -B1 / | awk 'NR==2{printf \"%d %d\", $3, $2}'; "
+            "echo ''; "
+            "echo '===NET==='; "
+            "DEV=$(ip route | awk '/default/ {print $5}' | head -1); "
+            'cat /proc/net/dev | awk -v dev="$DEV:" '
+            "'$1==dev{printf \"%d %d\", $2, $10}'; "
+            "echo ''; "
+            "echo '===UPTIME==='; "
+            "uptime -p 2>/dev/null || uptime"
         )
+        out, _, _ = await asyncio.to_thread(ssh.run_command, combined_cmd)
+        await asyncio.to_thread(ssh.disconnect)
+
+        # Parse combined output by ===SECTION=== delimiters
+        stats = {}
+        sections = _parse_combined_stats(out)
+
+        cpu_val = sections.get("CPU", "")
         try:
-            stats["cpu"] = round(float(out.strip().split("\n")[0]), 1)
+            stats["cpu"] = round(float(cpu_val), 1)
         except (ValueError, IndexError):
             stats["cpu"] = 0
-        out, _, _ = await asyncio.to_thread(
-            ssh.run_command, "free -b | awk 'NR==2{printf \"%d %d\", $3, $2}'"
-        )
+
+        ram_val = sections.get("RAM", "")
         try:
-            parts = out.strip().split()
+            parts = ram_val.split()
             used, total = int(parts[0]), int(parts[1])
             stats.update(
                 ram_used=used,
@@ -254,11 +280,10 @@ async def api_server_stats(request: Request, server_id: int, user: dict = Depend
             )
         except (ValueError, IndexError):
             stats.update(ram_used=0, ram_total=0, ram_percent=0)
-        out, _, _ = await asyncio.to_thread(
-            ssh.run_command, "df -B1 / | awk 'NR==2{printf \"%d %d\", $3, $2}'"
-        )
+
+        disk_val = sections.get("DISK", "")
         try:
-            parts = out.strip().split()
+            parts = disk_val.split()
             used, total = int(parts[0]), int(parts[1])
             stats.update(
                 disk_used=used,
@@ -267,26 +292,23 @@ async def api_server_stats(request: Request, server_id: int, user: dict = Depend
             )
         except (ValueError, IndexError):
             stats.update(disk_used=0, disk_total=0, disk_percent=0)
-        out, _, _ = await asyncio.to_thread(
-            ssh.run_command,
-            "DEV=$(ip route | awk '/default/ {print $5}' | head -1); "
-            'cat /proc/net/dev | awk -v dev="$DEV:" \'$1==dev{printf "%d %d", $2, $10}\'',
-        )
+
+        net_val = sections.get("NET", "")
         try:
-            parts = out.strip().split()
+            parts = net_val.split()
             stats["net_rx"], stats["net_tx"] = int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
             stats["net_rx"] = stats["net_tx"] = 0
-        out, _, _ = await asyncio.to_thread(ssh.run_command, "uptime -p 2>/dev/null || uptime")
-        stats["uptime"] = out.strip()
-        await asyncio.to_thread(ssh.disconnect)
+
+        stats["uptime"] = sections.get("UPTIME") or ""
+
         return stats
     except Exception as e:
         logger.exception("Error getting server stats")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
-@router.post("/{server_id}/check")
+@router.post("/{server_id}/check", response_model=ServerCheckResponse)
 async def api_check_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -801,3 +823,24 @@ async def api_get_server_clients(
     except Exception as e:
         logger.exception("Error getting server clients")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+def _parse_combined_stats(raw: str) -> dict:
+    """Parse combined server stats output into a dict keyed by section name.
+
+    Input uses ===NAME=== delimiters. Returns {name: value_stripped} for each section.
+    Value is the text between the section marker and the next marker (or end of string).
+    """
+    sections: dict = {}
+    pattern = re.compile(r"===(CPU|RAM|DISK|NET|UPTIME)===")
+    matches = list(pattern.finditer(raw))
+    for i, match in enumerate(matches):
+        name = match.group(1)
+        value_start = match.end()
+        if i + 1 < len(matches):
+            value_end = matches[i + 1].start()
+        else:
+            value_end = len(raw)
+        value = raw[value_start:value_end].strip()
+        sections[name] = value
+    return sections
