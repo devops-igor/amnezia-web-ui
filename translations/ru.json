@@ -330,5 +330,10 @@
     "setup_complete": "Настройка завершена! Перенаправление...",
     "setup_already_done": "Настройка уже завершена",
     "setup_username_invalid": "Имя пользователя должно быть 3-32 символа (буквы, цифры, подчеркивания)",
-    "setting_up": "Настройка..."
+    "setting_up": "Настройка...",
+    "loading_connections_error": "Ошибка загрузки подключений",
+    "connection_updated": "Подключение обновлено",
+    "connection_enabled_disabled": "Подключение {status}",
+    "enabled": "Включено",
+    "edit_connection": "Редактировать подключение"
 }

@@ -292,5 +292,10 @@
     "setup_complete": "Setup complete! Redirecting...",
     "setup_already_done": "Setup already completed",
     "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
-    "setting_up": "Setting up..."
+    "setting_up": "Setting up...",
+    "loading_connections_error": "加载连接失败",
+    "connection_updated": "连接已更新",
+    "connection_enabled_disabled": "连接{status}",
+    "enabled": "已启用",
+    "edit_connection": "编辑连接"
 }
