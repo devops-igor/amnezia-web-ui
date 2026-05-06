@@ -28,7 +28,14 @@ async def settings_page(request: Request, user: dict = Depends(require_admin)):
 @router.get("/api/settings")
 async def api_get_settings(request: Request, user: dict = Depends(require_admin)):
     db = get_db()
-    return db.get_all_settings()
+    settings = db.get_all_settings()
+    # Strip sensitive SSL key/cert text from API response
+    ssl = settings.get("ssl", {})
+    if isinstance(ssl, dict):
+        ssl["key_text"] = ""
+        ssl["cert_text"] = ""
+        settings["ssl"] = ssl
+    return settings
 
 
 @router.post("/api/settings/save")

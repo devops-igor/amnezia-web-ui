@@ -4,8 +4,8 @@ Unit tests for awg_manager.py
 
 import pytest
 from unittest.mock import MagicMock, patch
-from awg_manager import AWGManager, generate_wg_keypair, generate_psk, generate_awg_params
-import awg_manager
+from app.managers import AWGManager, generate_wg_keypair, generate_psk, generate_awg_params
+import app.managers.awg_manager as awg_manager
 
 
 class TestAWGKeyGeneration:
@@ -156,7 +156,9 @@ class TestAWGManager:
     def test_get_next_ip_exhausted_subnet_raises(self):
         """When all IPs in subnet are used, should raise RuntimeError."""
         # Temporarily change to /30 subnet (only 2 usable + gateway)
-        with patch("awg_manager.AWG_DEFAULTS", {**awg_manager.AWG_DEFAULTS, "subnet_cidr": 30}):
+        with patch(
+            "app.managers.awg_manager.AWG_DEFAULTS", {**awg_manager.AWG_DEFAULTS, "subnet_cidr": 30}
+        ):
             with patch.object(
                 self.manager,
                 "_get_used_ips",

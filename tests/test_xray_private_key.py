@@ -170,7 +170,7 @@ class TestXrayManagerStatus:
         from unittest.mock import patch
 
         # Create a mock XrayManager instance
-        with patch("xray_manager.XrayManager") as MockXrayManager:
+        with patch("app.managers.xray_manager.XrayManager") as MockXrayManager:
             mgr = MockXrayManager.return_value
             # Simulate the real method: it calls _get_meta_json and
             # should strip private_key from the meta dict

@@ -13,7 +13,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from integrity import IntegrityError
-from telemt_manager import TelemtManager
+from app.managers import TelemtManager
 from schemas import InstallProtocolRequest
 
 
@@ -137,7 +137,7 @@ class TestApiRequest:
         self.mock_ssh = MagicMock()
         self.manager = TelemtManager(self.mock_ssh)
 
-    @patch("telemt_manager.httpx.Client")
+    @patch("app.managers.telemt_manager.httpx.Client")
     def test_api_request_get_success(self, mock_client_class):
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__.return_value = mock_client
@@ -153,7 +153,7 @@ class TestApiRequest:
         assert call_args[0][0] == "GET"
         assert call_args[0][1] == "http://telemt:9091/v1/users"
 
-    @patch("telemt_manager.httpx.Client")
+    @patch("app.managers.telemt_manager.httpx.Client")
     def test_api_request_post_with_data(self, mock_client_class):
         mock_client = MagicMock()
         mock_client_class.return_value.__enter__.return_value = mock_client
@@ -170,7 +170,7 @@ class TestApiRequest:
         assert call_args[0][0] == "POST"
         assert call_args[1]["json"] == {"username": "test", "secret": "abc123"}
 
-    @patch("telemt_manager.httpx.Client")
+    @patch("app.managers.telemt_manager.httpx.Client")
     def test_api_request_connection_error(self, mock_client_class):
         import httpx
 
@@ -181,7 +181,7 @@ class TestApiRequest:
         result = self.manager._api_request("GET", "/v1/users")
         assert result is None
 
-    @patch("telemt_manager.httpx.Client")
+    @patch("app.managers.telemt_manager.httpx.Client")
     def test_api_request_invalid_json(self, mock_client_class):
         import json
 
@@ -994,8 +994,8 @@ class TestInstallProtocolIntegrityChecks:
         self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
         self.manager = TelemtManager(self.mock_ssh)
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_integrity_checks_pass(self, mock_load_hash, mock_verify_file):
         """install_protocol succeeds when all integrity checks pass."""
         result = self.manager.install_protocol("telemt", port="443")
@@ -1005,15 +1005,15 @@ class TestInstallProtocolIntegrityChecks:
         # Should have called verify_integrity for 3 template files
         assert mock_verify_file.call_count == 3
 
-    @patch("telemt_manager.verify_integrity", return_value=False)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=False)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_config_tampered_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when config.toml template is tampered."""
         with pytest.raises(IntegrityError, match="Config template integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity")
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity")
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_compose_tampered_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when docker-compose.yml template is tampered."""
         # config.toml passes, docker-compose.yml fails
@@ -1021,8 +1021,8 @@ class TestInstallProtocolIntegrityChecks:
         with pytest.raises(IntegrityError, match="Docker Compose template integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity")
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity")
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_dockerfile_tampered_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when Dockerfile template is tampered."""
         # config.toml and docker-compose.yml pass, Dockerfile fails
@@ -1030,24 +1030,24 @@ class TestInstallProtocolIntegrityChecks:
         with pytest.raises(IntegrityError, match="Dockerfile template integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash")
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash")
     def test_install_protocol_missing_hash_file_raises(self, mock_load_hash, mock_verify):
         """FileNotFoundError raised when .sha256 file is missing."""
         mock_load_hash.side_effect = FileNotFoundError("config.toml.sha256 not found")
         with pytest.raises(FileNotFoundError):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash")
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash")
     def test_install_protocol_empty_hash_file_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when .sha256 file is empty."""
         mock_load_hash.side_effect = IntegrityError("Hash file is empty")
         with pytest.raises(IntegrityError, match="empty"):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_remote_config_verification(self, mock_load_hash, mock_verify):
         """Verify remote hash check after config.toml upload passes when hashes match."""
         # Read the actual template and compute what the patched hash will be
@@ -1079,8 +1079,8 @@ class TestInstallProtocolIntegrityChecks:
         result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_remote_config_mismatch_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when remote config.toml hash doesn't match after upload."""
         # Set up mock to return different hash for remote config check
@@ -1098,19 +1098,19 @@ class TestInstallProtocolIntegrityChecks:
         with pytest.raises(IntegrityError, match="Remote config.toml integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_remote_hash_check_skipped_if_empty(self, mock_load_hash, mock_verify):
         """Remote hash check is skipped gracefully if sha256sum returns empty."""
         # Default mock returns empty string for run_command
         result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
 
-    @patch("telemt_manager.verify_integrity", return_value=True)
-    @patch("telemt_manager.load_expected_hash", return_value="a" * 64)
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_patched_hash_logged(self, mock_load_hash, mock_verify):
         """Patched config.toml SHA256 hash is logged for audit trail."""
-        with patch("telemt_manager.logger") as mock_logger:
+        with patch("app.managers.telemt_manager.logger") as mock_logger:
             self.manager.install_protocol("telemt", port="443")
             # Check that logger.info was called with patched hash
             logged_messages = [call.args[0] for call in mock_logger.info.call_args_list]
