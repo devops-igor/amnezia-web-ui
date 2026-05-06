@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 from app.utils.helpers import hash_password
 from database import Database
 from dependencies import get_current_user
-from ssh_manager import SSHHostKeyError
+from app.managers import SSHHostKeyError
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-fingerprint-conf-key"
