@@ -11,7 +11,13 @@ from fastapi.responses import JSONResponse
 
 from config import get_db
 from dependencies import require_admin, get_current_user
-from schemas import AddUserRequest, UpdateUserRequest, ToggleUserRequest, AddUserConnectionRequest
+from schemas import (
+    AddUserRequest,
+    UpdateUserRequest,
+    ToggleUserRequest,
+    AddUserConnectionRequest,
+    PaginatedUsersResponse,
+)
 from app.utils.helpers import (
     _sanitize_error,
     generate_vpn_link,
@@ -26,7 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users")
 
 
-@router.get("")
+@router.get("", response_model=PaginatedUsersResponse)
 async def api_list_users(
     request: Request,
     search: str = "",
