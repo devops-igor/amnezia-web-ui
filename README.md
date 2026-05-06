@@ -36,10 +36,6 @@ Regular (non-admin) users get their own **My Connections** page at `/my`:
 - Traffic usage leaderboard
 - Generate password-protected share links for configs
 
-### Internationalization
-
-Full i18n support: **English**, **Russian**, **French**, **Chinese**, **Persian** (with RTL).
-
 ### Security
 
 - Role-based access: Admin, Support, Regular User
@@ -47,44 +43,6 @@ Full i18n support: **English**, **Russian**, **French**, **Chinese**, **Persian*
 - Per-user traffic limits with auto-disable on exhaustion
 - Account expiration enforcement
 - SSH keys preferred over passwords
-
----
-
-## Architecture
-
-```
-app.py                  # FastAPI/Starlette application, lifespan, middleware
-app/routers/            # Route handlers (auth, pages, servers, users, connections, settings, share, leaderboard)
-app/utils/              # Helpers, templates, rate limiter
-app/services/           # Background task orchestrator, supervisor
-database.py             # SQLite (WAL mode) database wrapper — replaces data.json
-schemas.py              # Pydantic request/response models
-dependencies.py         # Auth dependencies (get_current_user, etc.)
-config.py               # Configuration, translations, DB init
-ssh_manager.py           # SSH connection manager (Paramiko)
-awg_manager.py           # AmneziaWG protocol manager
-xray_manager.py          # Xray (XTLS-Reality) protocol manager
-telemt_manager.py        # Telemt (MTProto) protocol manager
-dns_manager.py           # AmneziaDNS protocol manager
-```
-
-### Database
-
-Originally this project stored all data in a `data.json` flat file. It has been migrated to **SQLite (WAL mode)** for ACID compliance, concurrent safety, and reliable storage. Migration is handled by `migrate_to_sqlite.py`.
-
-### Tests
-
-A full pytest suite covers all protocol managers and API endpoints:
-
-```
-tests/
-  test_api_connections.py
-  test_awg_manager.py
-  test_dns_manager.py
-  test_leaderboard.py
-  test_telemt_manager.py
-  test_traffic_rxtx.py
-```
 
 ---
 
