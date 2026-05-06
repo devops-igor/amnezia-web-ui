@@ -359,6 +359,14 @@ class ChangePasswordRequest(BaseModel):
         return v
 
 
+class SetupRequest(BaseModel):
+    """Request model for the first-run setup wizard — creates the initial admin user."""
+
+    username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
+    password: str = Field(min_length=8, max_length=4096)
+    confirm_password: str = Field(min_length=1, max_length=4096)
+
+
 # ===== Settings =====
 
 

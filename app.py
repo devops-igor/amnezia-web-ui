@@ -1,9 +1,6 @@
 import os
 import logging
-import secrets
-import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from starlette_csrf import CSRFMiddleware
 
-from app.utils.helpers import _get_client_ip, _t, hash_password
+from app.utils.helpers import _get_client_ip, _t
 from config import _get_secret_key, load_translations, get_db, init_db
 
 from app.routers.auth import router as auth_router
@@ -44,25 +41,7 @@ async def lifespan(app: FastAPI):
     db = get_db()
 
     if not db.get_all_users():
-        temp_password = secrets.token_urlsafe(12)
-        db.create_user(
-            {
-                "id": str(uuid.uuid4()),
-                "username": "admin",
-                "password_hash": hash_password(temp_password),
-                "role": "admin",
-                "enabled": True,
-                "password_change_required": True,
-                "created_at": datetime.now().isoformat(),
-            }
-        )
-        print(f"\n{'=' * 60}")
-        print("  INITIAL ADMIN CREDENTIALS — SAVE THIS NOW")
-        print("  Username: admin")
-        print(f"  Password: {temp_password}")
-        print("  You must change this password on first login.")
-        print(f"{'=' * 60}\n")
-        logger.info("Default admin created with random password (password_change_required=True)")
+        logger.info("No users found — setup wizard required at /setup")
     else:
         logger.info("Existing users found, skipping default admin creation")
 
@@ -117,6 +96,68 @@ async def _unauthorized_handler(request: Request, exc):
 
 
 app.add_exception_handler(401, _unauthorized_handler)
+
+# Setup redirect middleware — redirects all requests to /setup when no users exist.
+# Placed outermost (added last) so it intercepts before anything else.
+_SETUP_ALLOWED_PATHS = {
+    "/setup",
+    "/api/auth/setup",
+    "/login",
+    "/logout",
+}
+
+
+class SetupRedirectMiddleware:
+    """ASGI middleware that redirects to /setup when the database has zero users.
+
+    Lets through: /static/, /set_lang/, /setup, /api/auth/setup, /login, /logout.
+    Caches the "has users" state to avoid DB queries on every request.
+    Clears cache on /api/auth/setup POST success (handled in the route).
+    """
+
+    _has_users: bool | None = None
+
+    @classmethod
+    def invalidate_cache(cls) -> None:
+        """Clear the cached user-existence flag — called after successful setup."""
+        cls._has_users = None
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if (
+            path.startswith("/static/")
+            or path.startswith("/set_lang/")
+            or path in _SETUP_ALLOWED_PATHS
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        if self._has_users is None:
+            try:
+                db = get_db()
+                self._has_users = bool(db.get_all_users())
+            except Exception:
+                await self.app(scope, receive, send)
+                return
+
+        if not self._has_users:
+            from starlette.responses import RedirectResponse
+
+            response = RedirectResponse(url="/setup", status_code=302)
+            await response(scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(SetupRedirectMiddleware)
 
 # Password change required middleware
 # Blocks all /api/ requests (except auth endpoints) for users who must change their password

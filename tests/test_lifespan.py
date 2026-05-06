@@ -9,10 +9,9 @@ class TestLifespanAdminCreation:
     """Tests for admin creation during lifespan startup."""
 
     @pytest.mark.asyncio
-    async def test_startup_creates_admin_when_no_users_exist(self):
-        """Lifespan startup creates default admin when no users exist."""
+    async def test_startup_no_admin_created_when_no_users_exist(self):
+        """Lifespan startup NO LONGER creates a default admin — setup wizard handles this."""
         from app import lifespan
-        from app.utils.helpers import hash_password
 
         mock_app = MagicMock()
 
@@ -31,15 +30,7 @@ class TestLifespanAdminCreation:
             async with lifespan(mock_app):
                 pass
 
-            assert mock_db.create_user.call_count == 1
-            created_user = mock_db.create_user.call_args[0][0]
-            assert created_user["username"] == "admin"
-            assert created_user["role"] == "admin"
-            assert created_user["enabled"] is True
-            assert created_user["password_change_required"] is True
-            assert isinstance(created_user["id"], str)
-            assert len(created_user["id"]) > 0
-            assert created_user["password_hash"] != hash_password("admin")
+            mock_db.create_user.assert_not_called()
             mock_start.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -65,6 +56,31 @@ class TestLifespanAdminCreation:
                 pass
 
             mock_db.create_user.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_startup_logs_setup_required_when_no_users(self):
+        """Lifespan startup logs the setup wizard message when no users exist."""
+        from app import lifespan
+
+        mock_app = MagicMock()
+
+        mock_db = MagicMock()
+        mock_db.get_all_users.return_value = []
+        mock_db.get_setting.return_value = {}
+
+        with (
+            patch("app.init_db"),
+            patch("app.get_db", return_value=mock_db),
+            patch("app.logger") as mock_logger,
+            patch(
+                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                new_callable=AsyncMock,
+            ),
+        ):
+            async with lifespan(mock_app):
+                pass
+
+            mock_logger.info.assert_any_call("No users found — setup wizard required at /setup")
 
 
 class TestLifespanShutdown:
