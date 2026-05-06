@@ -23,9 +23,7 @@ from schemas import (
     ServerConfigSaveRequest,
     ToggleConnectionRequest,
 )
-from awg_manager import AWGManager
-from ssh_manager import SSHManager, SSHHostKeyError
-from xray_manager import XrayManager
+from app.managers import AWGManager, SSHManager, SSHHostKeyError, XrayManager
 
 logger = logging.getLogger(__name__)
 
@@ -491,7 +489,7 @@ async def api_server_config(
 
             config = _json.dumps(data_json, indent=2, ensure_ascii=False) if data_json else ""
         elif req.protocol == "telemt":
-            from telemt_manager import TelemtManager
+            from app.managers import TelemtManager
 
             mgr = TelemtManager(ssh)
             config = await asyncio.to_thread(mgr._get_server_config)
@@ -531,7 +529,7 @@ async def api_server_config_save(
                 return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
             await asyncio.to_thread(mgr._save_server_json, data_json)
         elif req.protocol == "telemt":
-            from telemt_manager import TelemtManager
+            from app.managers import TelemtManager
 
             mgr = TelemtManager(ssh)
             await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)

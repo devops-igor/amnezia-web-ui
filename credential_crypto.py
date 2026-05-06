@@ -96,6 +96,19 @@ def decrypt_credential(value: str) -> str:
         )
 
 
+def decrypt_credential_safe(value: str) -> str:
+    """Decrypt a credential, returning empty string on failure instead of raising.
+
+    Use this for SSL key/cert decryption where SECRET_KEY rotation should not
+    crash the app — keys can be re-entered by the admin.
+    """
+    try:
+        return decrypt_credential(value)
+    except (ValueError, InvalidToken):
+        logger.warning("Failed to decrypt credential — returning empty string")
+        return ""
+
+
 def _looks_like_fernet_token(value: str) -> bool:
     """Heuristic: does *value* look like a Fernet ciphertext?
 

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import paramiko
 import pytest
 
-from ssh_manager import SSHManager, SSHHostKeyError
+from app.managers import SSHManager, SSHHostKeyError
 
 
 class TestSSHManagerConnect:
@@ -21,7 +21,7 @@ class TestSSHManagerConnect:
         self.mock_db = MagicMock()
         self.server_id = 1
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_first_time_stores_fingerprint(self, mock_ssh_class):
         """First connection with no known fingerprint uses AutoAddPolicy and stores."""
         mock_client = MagicMock()
@@ -64,7 +64,7 @@ class TestSSHManagerConnect:
         final_policy_call = mock_client.set_missing_host_key_policy.call_args_list[-1]
         assert isinstance(final_policy_call[0][0], paramiko.RejectPolicy)
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_subsequent_matching_fingerprint(self, mock_ssh_class):
         """Subsequent connection with matching fingerprint uses RejectPolicy."""
         mock_client = MagicMock()
@@ -101,7 +101,7 @@ class TestSSHManagerConnect:
         # Should have called connect
         mock_client.connect.assert_called_once()
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_fingerprint_mismatch_raises_error(self, mock_ssh_class):
         """Connection with mismatched fingerprint raises SSHHostKeyError."""
         mock_client = MagicMock()
@@ -135,7 +135,7 @@ class TestSSHManagerConnect:
         # Should have closed the connection on mismatch
         mock_client.close.assert_called_once()
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_no_database(self, mock_ssh_class):
         """Connect without database — uses RejectPolicy, no fingerprint logic."""
         mock_client = MagicMock()
@@ -164,7 +164,7 @@ class TestSSHManagerConnect:
         # Should still connect
         mock_client.connect.assert_called_once()
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_uses_autoadd_then_restores_reject(self, mock_ssh_class):
         """First connect sets AutoAddPolicy, then restores RejectPolicy after."""
         mock_client = MagicMock()
@@ -197,7 +197,7 @@ class TestSSHManagerConnect:
         assert isinstance(policy_calls[1][0][0], paramiko.AutoAddPolicy)
         assert isinstance(policy_calls[2][0][0], paramiko.RejectPolicy)
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_stores_hex_fingerprint(self, mock_ssh_class):
         """Fingerprint stored as hex string (not raw bytes)."""
         mock_client = MagicMock()
@@ -227,7 +227,7 @@ class TestSSHManagerConnect:
         assert isinstance(saved_fp, str), f"Expected str, got {type(saved_fp)}"
         assert saved_fp == raw_fingerprint.hex()
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_no_invalid_kwargs(self, mock_ssh_class):
         """Verify connect() only passes valid paramiko kwargs."""
         mock_client = MagicMock()
@@ -262,7 +262,7 @@ class TestSSHManagerConnect:
 class TestSSHManagerConnectAuth:
     """Tests for connect() auth method selection."""
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_with_password(self, mock_ssh_class):
         """Password auth: password passed to connect()."""
         mock_client = MagicMock()
@@ -280,7 +280,7 @@ class TestSSHManagerConnectAuth:
         connect_kwargs = mock_client.connect.call_args[1]
         assert connect_kwargs["password"] == "pass"
 
-    @patch("ssh_manager.paramiko.SSHClient")
+    @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_with_private_key(self, mock_ssh_class):
         """Key auth: pkey passed to connect()."""
         mock_client = MagicMock()
@@ -293,7 +293,7 @@ class TestSSHManagerConnectAuth:
         mock_client.get_transport.return_value = mock_transport
 
         # Patch RSAKey to avoid real key parsing
-        with patch("ssh_manager.paramiko.RSAKey") as mock_rsa:
+        with patch("app.managers.ssh_manager.paramiko.RSAKey") as mock_rsa:
             mock_rsa.from_private_key.return_value = MagicMock()
             mgr = SSHManager(
                 host="host",

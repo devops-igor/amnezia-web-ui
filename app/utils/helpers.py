@@ -15,8 +15,7 @@ import re
 
 import bcrypt
 import credential_crypto
-from ssh_manager import SSHManager
-from xray_manager import XrayManager
+from app.managers import SSHManager, XrayManager
 from fastapi import Request
 from slowapi.util import get_remote_address
 
@@ -229,7 +228,7 @@ def get_protocol_manager(ssh, protocol: str):
     if protocol == "xray":
         return XrayManager(ssh)
     elif protocol == "telemt":
-        from telemt_manager import TelemtManager
+        from app.managers import TelemtManager
         from config import get_db
 
         db = get_db()
@@ -241,6 +240,6 @@ def get_protocol_manager(ssh, protocol: str):
         from dns_manager import DNSManager
 
         return DNSManager(ssh)
-    from awg_manager import AWGManager
+    from app.managers import AWGManager
 
     return AWGManager(ssh)
