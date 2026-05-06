@@ -13,7 +13,7 @@ from slowapi.errors import RateLimitExceeded
 
 from starlette_csrf import CSRFMiddleware
 
-from app.utils.helpers import _get_client_ip, _t
+from app.utils.helpers import _get_client_ip, _t, _get_default_lang
 from config import _get_secret_key, load_translations, get_db, init_db
 
 from app.routers.auth import router as auth_router
@@ -69,7 +69,7 @@ app.state.limiter = limiter
 
 async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
     """Custom rate limit exceeded handler with i18n and logging."""
-    lang = request.cookies.get("lang", "ru")
+    lang = request.cookies.get("lang", _get_default_lang())
     logger.warning(
         "Rate limit exceeded: %s %s from %s",
         request.method,
