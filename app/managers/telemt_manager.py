@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import httpx
 from integrity import IntegrityError, load_expected_hash, verify_integrity
-from ssh_manager import SSHManager
+from app.managers.ssh_manager import SSHManager
 from docker_utils import check_docker_installed
 
 logger = logging.getLogger(__name__)
@@ -182,7 +182,9 @@ class TelemtManager:
             self.ssh.run_sudo_command("yum install -y docker-buildx-plugin docker-compose-plugin")
 
         results.append("Uploading Telemt files...")
-        local_dir = os.path.join(os.path.dirname(__file__), "protocol_telemt")
+        local_dir = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "protocol_telemt")
+        )
         remote_dir = self._config_dir()
         self.ssh.run_sudo_command(f"mkdir -p {remote_dir}")
         self.ssh.run_sudo_command(f"chmod 755 {remote_dir}")

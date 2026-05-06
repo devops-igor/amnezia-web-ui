@@ -11,8 +11,8 @@ import io
 import re
 from unittest.mock import MagicMock, mock_open, patch
 
-from telemt_manager import TelemtManager
-from xray_manager import XRAY_VERSION, XrayManager
+from app.managers import TelemtManager
+from app.managers import XRAY_VERSION, XrayManager
 
 # ----------------------------------------------------------------
 # #72: XRAY_VERSION constant
@@ -95,7 +95,7 @@ class TestNoBareHardcodedVersion:
     """Source file should not contain bare '1.8.4'."""
 
     def test_no_bare_184_in_xray_manager(self):
-        with open("xray_manager.py", "r") as f:
+        with open("app/managers/xray_manager.py", "r") as f:
             content = f.read()
         assert "1.8.4" not in content
 
@@ -162,10 +162,12 @@ class TestInstallProtocolWithPackageManager:
         """Helper to run install_protocol with a given package manager and return sudo calls."""
         with (
             patch.object(self.manager, "_detect_package_manager", return_value=pkg_mgr),
-            patch("telemt_manager.check_docker_installed", return_value=docker_installed),
+            patch(
+                "app.managers.telemt_manager.check_docker_installed", return_value=docker_installed
+            ),
             patch.object(self.manager, "check_protocol_installed", return_value=False),
-            patch("telemt_manager.verify_integrity", return_value=True),
-            patch("telemt_manager.load_expected_hash", return_value="abc123"),
+            patch("app.managers.telemt_manager.verify_integrity", return_value=True),
+            patch("app.managers.telemt_manager.load_expected_hash", return_value="abc123"),
             patch(
                 "builtins.open",
                 mock_open(
@@ -239,10 +241,10 @@ class TestInstallProtocolWithPackageManager:
         mock_detect = MagicMock(return_value="apt")
         with (
             patch.object(self.manager, "_detect_package_manager", mock_detect),
-            patch("telemt_manager.check_docker_installed", return_value=False),
+            patch("app.managers.telemt_manager.check_docker_installed", return_value=False),
             patch.object(self.manager, "check_protocol_installed", return_value=False),
-            patch("telemt_manager.verify_integrity", return_value=True),
-            patch("telemt_manager.load_expected_hash", return_value="abc123"),
+            patch("app.managers.telemt_manager.verify_integrity", return_value=True),
+            patch("app.managers.telemt_manager.load_expected_hash", return_value="abc123"),
         ):
             file_contents = {
                 "config.toml": _FAKE_CONFIG,
@@ -274,6 +276,6 @@ class TestNoBareAptGetWithoutDetection:
     """Source file should not contain the old 'apt-get || yum' fallback pattern."""
 
     def test_no_apt_get_or_yum_fallback(self):
-        with open("telemt_manager.py", "r") as f:
+        with open("app/managers/telemt_manager.py", "r") as f:
             content = f.read()
         assert "|| yum install" not in content
