@@ -400,11 +400,10 @@ class TestSetupRedirectMiddleware:
         os.unlink(self.tmp_db_path)
 
     def test_setup_redirect_middleware_no_users(self):
-        """Middleware class has correct allowed paths and cache attribute."""
+        """Middleware class has correct allowed paths and backward-compatible invalidate_cache."""
         from app import SetupRedirectMiddleware
 
-        # Verify the middleware class exists and has the cache mechanism
-        assert hasattr(SetupRedirectMiddleware, "_has_users")
+        # Verify the middleware class exists and has the backward-compatible no-op
         assert hasattr(SetupRedirectMiddleware, "invalidate_cache")
 
     def test_setup_redirect_middleware_with_users(self):
@@ -432,3 +431,46 @@ class TestSetupRedirectMiddleware:
         # It may return 302 to /login (if unauthenticated), but not /setup
         if response.status_code == 302:
             assert response.headers.get("location") != "/setup"
+
+    def test_middleware_queries_db_fresh(self):
+        """SetupRedirectMiddleware queries DB on every request (no caching).
+
+        Regression test for the redirect loop bug (#185):
+        Previously the middleware cached _has_users as a class/instance attribute.
+        Stale cached state caused a 3-way redirect loop:
+          /setup → /login → / → /setup → ... (infinite)
+        The cache was removed entirely — the DB is now queried every request.
+        This test verifies that creating a user mid-session is immediately visible.
+        """
+        from app import app, SetupRedirectMiddleware
+
+        client = TestClient(app)
+
+        # Step 1: Empty DB — verify redirect to /setup
+        SetupRedirectMiddleware.invalidate_cache()
+        response_empty = client.get("/servers", follow_redirects=False)
+        assert response_empty.status_code == 302
+        assert response_empty.headers.get("location") == "/setup"
+
+        # Step 2: Create user directly in DB (simulates user created while app was running)
+        self.db.create_user(
+            {
+                "id": "post-startup-user",
+                "username": "alice",
+                "password_hash": "hash",
+                "role": "admin",
+                "enabled": True,
+            }
+        )
+
+        # Step 3: Next request queries DB directly — sees new user → passes through
+        # No invalidate_cache() needed because there's no cache.
+        response_with_user = client.get("/servers", follow_redirects=False)
+        # Expect 401 (unauthenticated) or 200 or 302 to somewhere OTHER than /setup
+        if response_with_user.status_code == 302:
+            assert (
+                response_with_user.headers.get("location") != "/setup"
+            ), "Middleware stale state — redirect loop bug still present"
+        # If it's a 401, the middleware let the request through to the auth check,
+        # which is the correct behavior (no /setup redirect).
+        assert response_with_user.status_code != 500, f"Unexpected 500: {response_with_user.text}"
