@@ -16,6 +16,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+@router.get("/setup", response_class=HTMLResponse)
+async def setup_page(request: Request):
+    """First-run setup wizard page — only accessible when no users exist."""
+    db = get_db()
+    if db.get_all_users():
+        return RedirectResponse(url="/login", status_code=302)
+    return tpl(request, "setup.html")
+
+
 @router.get("/", response_class=HTMLResponse)
 async def index(request: Request, user: dict = Depends(get_current_user)):
     if user["role"] == "user":

@@ -7,7 +7,16 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limiter():
-    """Reset slowapi rate limiter storage before each test to avoid cross-test pollution."""
+    """Reset slowapi rate limiter storage and setup middleware cache before each test."""
+    try:
+        from app import app, SetupRedirectMiddleware
+
+        SetupRedirectMiddleware._has_users = None
+        limiter = getattr(app.state, "limiter", None)
+        if limiter is not None:
+            limiter.reset()
+    except Exception:
+        pass
     yield
     try:
         from app import app
@@ -36,7 +45,7 @@ def csrf_client():
 
     # Make initial GET to obtain CSRF cookie
     # IMPORTANT: Don't follow redirects, as the Set-Cookie header is lost
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/login", follow_redirects=False)
 
     # Extract cookie from raw Set-Cookie header(s)
     # starlette-csrf sets cookie on EVERY response, signed with URLSafeSerializer
@@ -102,7 +111,7 @@ def create_csrf_client():
 
     # Make initial GET to obtain CSRF cookie
     # IMPORTANT: Don't follow redirects, as the Set-Cookie header is lost
-    response = client.get("/", follow_redirects=False)
+    response = client.get("/login", follow_redirects=False)
 
     # Extract cookie from raw Set-Cookie header(s)
     csrf_token = None

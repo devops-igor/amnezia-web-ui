@@ -12,7 +12,6 @@ Covers:
 """
 
 import os
-import re
 import sqlite3
 import tempfile
 
@@ -247,36 +246,41 @@ class TestNoHardcodedAdminPassword:
             "admin / admin" not in content
         ), 'Log message "admin / admin" found - indicates hardcoded credentials'
 
-    def test_random_password_generation_in_startup(self):
-        """Startup should use secrets.token_urlsafe for initial password."""
+    def test_setup_wizard_mentioned_when_no_users(self):
+        """app.py should log 'setup wizard required' when no users exist."""
         with open("app.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert (
-            "secrets.token_urlsafe(12)" in content
-        ), "secrets.token_urlsafe(12) not found in app.py startup code"
+            "setup wizard required at /setup" in content
+        ), "app.py should log about setup wizard when no users exist"
 
-    def test_password_change_required_set_on_first_boot(self):
-        """First boot user creation should set password_change_required=True."""
+    def test_no_password_change_required_on_first_boot(self):
+        """First boot no longer creates user with password_change_required=True."""
         with open("app.py", "r", encoding="utf-8") as f:
             content = f.read()
-        startup_match = re.search(
-            r"if not db\.get_all_users\(\):(.*?)(?=# Start|asyncio\.create_task)",
+        import re
+
+        # Extract only the lifespan function body
+        lifespan_match = re.search(
+            r"async def lifespan\(.*?:(.*?)(?=app = FastAPI)",
             content,
             re.DOTALL,
         )
-        assert startup_match, "Could not find first-boot user creation code"
-        startup_code = startup_match.group(1)
-        assert (
-            '"password_change_required": True' in startup_code
-        ), "password_change_required=True not set in first-boot user creation"
+        assert lifespan_match, "Could not find lifespan function in app.py"
+        lifespan_body = lifespan_match.group(1)
+        assert '"password_change_required": True' not in lifespan_body, (
+            "password_change_required=True should no longer appear in lifespan "
+            "— the setup wizard handles this instead"
+        )
 
-    def test_initial_password_printed_to_stdout(self):
-        """Initial password should be printed to stdout exactly once."""
+    def test_no_password_printed_to_stdout(self):
+        """No initial admin credentials should be printed to stdout."""
         with open("app.py", "r", encoding="utf-8") as f:
             content = f.read()
-        assert (
-            "INITIAL ADMIN CREDENTIALS" in content
-        ), "Initial admin credentials banner not found in startup code"
+        assert "INITIAL ADMIN CREDENTIALS" not in content, (
+            "Initial admin credentials banner should no longer be in startup code — "
+            "the setup wizard replaces this"
+        )
 
 
 # ======================== Unit tests for password change logic ========================
