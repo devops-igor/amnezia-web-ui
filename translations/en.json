@@ -330,5 +330,10 @@
     "setup_complete": "Setup complete! Redirecting...",
     "setup_already_done": "Setup already completed",
     "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
-    "setting_up": "Setting up..."
+    "setting_up": "Setting up...",
+    "loading_connections_error": "Failed to load connections",
+    "connection_updated": "Connection updated",
+    "connection_enabled_disabled": "Connection {status}",
+    "enabled": "Enabled",
+    "edit_connection": "Edit connection"
 }

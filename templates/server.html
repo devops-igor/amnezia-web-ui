@@ -577,7 +577,7 @@
 
                 if (protoSelect.innerHTML === '') {
                     const opt = document.createElement('option');
-                    opt.textContent = 'Нет протоколов';
+                    opt.textContent = _('no_protocols');
                     opt.disabled = true;
                     protoSelect.appendChild(opt);
                     hideConnectionsSection();
@@ -591,13 +591,13 @@
                 }
             }
             updateStatusCounts(data.protocols || {});
-            showToast('Проверка завершена', 'success');
+            showToast(_('check_done'), 'success');
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
             const statusDiv = document.getElementById('serverStatus');
             const badges = document.getElementById('statusBadges');
             statusDiv.classList.remove('hidden');
-            badges.innerHTML = `<span class="badge badge-danger"><span class="badge-dot"></span> Ошибка подключения</span>`;
+            badges.innerHTML = `<span class="badge badge-danger"><span class="badge-dot"></span> ${_('check_error')}</span>`;
         } finally {
             btn.disabled = false;
             text.textContent = _('server_check');
@@ -726,7 +726,7 @@
             // Recheck after a short delay
             setTimeout(() => checkServer(), 1500);
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
@@ -742,7 +742,7 @@
             serverConfigFilename = `server_${proto}.conf`;
             openModal('serverConfigModal');
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
@@ -793,7 +793,7 @@
     function openInstallModal(proto) {
         currentInstallProto = proto;
         const name = getProtoTitle(proto);
-        document.getElementById('installModalTitle').textContent = `Установить ${name}`;
+            document.getElementById('installModalTitle').textContent = `${_('install')} ${name}`;
 
         const portInput = document.getElementById('installPort');
         const portLabel = document.getElementById('installPortLabel');
@@ -806,7 +806,7 @@
             portLabel.textContent = _('port') + ' (Internal)';
             portInput.value = '53';
             portInput.disabled = true;
-            portHint.textContent = 'Сервис будет запущен во внутренней сети (172.29.172.254) без привязки к портам хоста.';
+            portHint.textContent = _('internal_network_hint');
         } else if (proto === 'xray') {
             portLabel.textContent = _('port') + ' (TCP)';
             portInput.disabled = false;
@@ -898,7 +898,7 @@
             showToast(`${name} ${_('stopped')}`, 'success');
             setTimeout(() => window.location.reload(), 800);
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
@@ -990,7 +990,7 @@
             });
         } catch (err) {
             loading.style.display = 'none';
-            showToast('Ошибка загрузки подключений: ' + err.message, 'error');
+            showToast(_('loading_connections_error') + ': ' + err.message, 'error');
         }
     }
 
@@ -1016,7 +1016,7 @@
             }
             const result = await apiCall(isEditingConn ? `/api/servers/${SERVER_ID}/connections/edit` : `/api/servers/${SERVER_ID}/connections/add`, 'POST', params);
             if (isEditingConn) {
-                showToast('Подключение обновлено', 'success');
+                showToast(_('connection_updated'), 'success');
                 closeModal('addConnectionModal');
             } else {
                 showToast(_('connection_created').replace('{}', connName), 'success');
@@ -1039,10 +1039,10 @@
             }
             loadConnections();
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         } finally {
             btn.disabled = false;
-            text.textContent = 'Создать';
+            text.textContent = _('create');
             spinner.classList.add('hidden');
         }
     }
@@ -1055,8 +1055,8 @@
         const proto = document.getElementById('connProtoSelect').value;
         const telemtOpts = document.getElementById('telemtConnOptions');
 
-        document.getElementById('addConnectionModalTitle').textContent = isEdit ? 'Редактировать подключение' : 'Добавить подключение';
-        document.getElementById('addConnBtnText').textContent = isEdit ? 'Сохранить' : 'Создать';
+        document.getElementById('addConnectionModalTitle').textContent = isEdit ? _('edit_connection') : _('add_connection');
+        document.getElementById('addConnBtnText').textContent = isEdit ? _('save') : _('create');
         document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
 
         if (proto === 'telemt' && isEdit) {
@@ -1095,7 +1095,7 @@
             showToast(_('connection_deleted'), 'success');
             loadConnections();
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
@@ -1144,22 +1144,21 @@
                 generateQR(result.config);
             }
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
     async function toggleConnection(clientId, enable) {
         const proto = document.getElementById('connProtoSelect').value;
-        const action = enable ? 'Включить' : 'Отключить';
         try {
-            showToast(`${action} подключение...`, 'info');
+            showToast(_('connection_enabled_disabled').replace('{status}', enable ? _('enabling') : _('disabling')) + '...', 'info');
             await apiCall(`/api/servers/${SERVER_ID}/connections/toggle`, 'POST', {
                 protocol: proto, client_id: clientId, enable: enable,
             });
-            showToast(`Подключение ${enable ? 'включено' : 'отключено'}`, 'success');
+            showToast(_('connection_enabled_disabled').replace('{status}', enable ? _('enabled') : _('disabled')), 'success');
             loadConnections();
         } catch (err) {
-            showToast('Ошибка: ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
