@@ -320,5 +320,15 @@
     "password_min_length_hint": "Minimum 8 characters",
     "password_too_short": "Password must be at least 8 characters",
     "passwords_dont_match": "New passwords do not match",
-    "current_password_incorrect": "Current password is incorrect"
+    "current_password_incorrect": "Current password is incorrect",
+    "setup_title": "Initial Setup",
+    "setup_subtitle": "Create admin account",
+    "setup_username": "Username",
+    "setup_password": "Password",
+    "setup_confirm_password": "Confirm Password",
+    "setup_btn": "Create Account",
+    "setup_complete": "Setup complete! Redirecting...",
+    "setup_already_done": "Setup already completed",
+    "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
+    "setting_up": "Setting up..."
 }

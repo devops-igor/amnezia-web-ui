@@ -282,5 +282,15 @@
     "telemt_config_dir": "دایرکتوری پیکربندی Telemt",
     "rate_limit_exceeded": "درخواست‌ها بیشتر از حد است. لطفاً بعداً دوباره امتحان کنید.",
     "telemt_config_dir_hint": "دایرکتوری در سرور راه دور که Telemt فایل‌های پیکربندی خود را در آن ذخیره می‌کند.",
-    "language_label": "زبان پیش‌فرض"
+    "language_label": "زبان پیش‌فرض",
+    "setup_title": "Initial Setup",
+    "setup_subtitle": "Create admin account",
+    "setup_username": "Username",
+    "setup_password": "Password",
+    "setup_confirm_password": "Confirm Password",
+    "setup_btn": "Create Account",
+    "setup_complete": "Setup complete! Redirecting...",
+    "setup_already_done": "Setup already completed",
+    "setup_username_invalid": "Username must be 3-32 characters (letters, numbers, underscores)",
+    "setting_up": "Setting up..."
 }
