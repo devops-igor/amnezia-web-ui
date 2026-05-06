@@ -111,16 +111,12 @@ class SetupRedirectMiddleware:
     """ASGI middleware that redirects to /setup when the database has zero users.
 
     Lets through: /static/, /set_lang/, /setup, /api/auth/setup, /login, /logout.
-    Caches the "has users" state to avoid DB queries on every request.
-    Clears cache on /api/auth/setup POST success (handled in the route).
+    Queries the DB on every request — no caching, no stale state.
     """
-
-    _has_users: bool | None = None
 
     @classmethod
     def invalidate_cache(cls) -> None:
-        """Clear the cached user-existence flag — called after successful setup."""
-        cls._has_users = None
+        """No-op kept for backward compatibility. Cache was removed to eliminate stale-state bugs."""
 
     def __init__(self, app):
         self.app = app
@@ -139,15 +135,14 @@ class SetupRedirectMiddleware:
             await self.app(scope, receive, send)
             return
 
-        if self._has_users is None:
-            try:
-                db = get_db()
-                self._has_users = bool(db.get_all_users())
-            except Exception:
-                await self.app(scope, receive, send)
-                return
+        try:
+            db = get_db()
+            has_users = bool(db.get_all_users())
+        except Exception:
+            await self.app(scope, receive, send)
+            return
 
-        if not self._has_users:
+        if not has_users:
             from starlette.responses import RedirectResponse
 
             response = RedirectResponse(url="/setup", status_code=302)
