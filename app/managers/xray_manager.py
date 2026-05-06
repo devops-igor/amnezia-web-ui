@@ -4,7 +4,6 @@ import logging
 from datetime import datetime
 import urllib.parse
 
-from utils import format_bytes
 from docker_utils import check_docker_installed
 
 logger = logging.getLogger(__name__)
@@ -369,6 +368,8 @@ ENTRYPOINT [ "dumb-init", "/opt/amnezia/start.sh" ]
                 # Xray doesn't natively expose latest handshake easily in this format,
                 # but we can map the traffic accurately
                 if rx > 0 or tx > 0:
+                    from app.utils.helpers import format_bytes  # lazy — avoids circular import
+
                     user_data["dataReceived"] = format_bytes(rx)
                     user_data["dataSent"] = format_bytes(tx)
                     user_data["dataReceivedBytes"] = rx
