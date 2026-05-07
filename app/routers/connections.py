@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
 from config import get_db
 from dependencies import get_current_user
-from schemas import MyAddConnectionRequest
+from schemas import MyAddConnectionRequest, RenameConnectionRequest
 
 logger = logging.getLogger(__name__)
 
@@ -245,4 +245,39 @@ async def api_my_connection_config(
         return {"config": config, "vpn_link": vpn_link}
     except Exception as e:
         logger.exception("Error getting my connection config")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{connection_id}/rename")
+async def api_my_rename_connection(
+    request: Request,
+    connection_id: str,
+    req: RenameConnectionRequest,
+    user: dict = Depends(get_current_user),
+):
+    try:
+        db = get_db()
+        conn = db.get_connection_by_id(connection_id)
+        if not conn or conn.get("user_id") != user["id"]:
+            return JSONResponse({"error": "Connection not found"}, status_code=404)
+
+        # Check for duplicate name within same user's connections
+        user_conns = db.get_connections_by_user(user["id"])
+        existing_names = {c.get("name", "") for c in user_conns if c.get("id") != connection_id}
+        if req.name in existing_names:
+            return JSONResponse(
+                {
+                    "error": "duplicate_name",
+                    "message": "A connection with this name already exists.",
+                },
+                status_code=409,
+            )
+
+        updated = db.update_connection(connection_id, {"name": req.name})
+        if not updated:
+            return JSONResponse({"error": "Connection not found"}, status_code=404)
+
+        return {"status": "success", "name": req.name}
+    except Exception as e:
+        logger.exception("Error renaming connection")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
