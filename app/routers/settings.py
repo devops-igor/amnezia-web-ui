@@ -92,7 +92,7 @@ async def api_backup_download(request: Request, user: dict = Depends(require_adm
         return Response(
             content=backup_json,
             media_type="application/json",
-            headers={"Content-Disposition": "attachment; filename=data.json"},
+            headers={"Content-Disposition": "attachment; filename=amnezia-backup.json"},
         )
     except Exception as e:
         logger.exception("Error creating backup")
