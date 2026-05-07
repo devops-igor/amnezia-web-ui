@@ -35,6 +35,9 @@
                 </div>
             </div>
             <div class="client-actions">
+                <button class="btn btn-secondary btn-sm" onclick="showRenameModal('{{ c.id }}', '{{ c.name or 'Connection' }}')">
+                    ✏️ {{ _('rename') }}
+                </button>
                 <button class="btn btn-primary btn-sm"
                     onclick="showMyConfig('{{ c.id }}', '{{ c.name or 'Connection' }}', '{{ c.protocol }}')">
                     {{ _('show_config') }}
@@ -138,6 +141,25 @@
         </form>
     </div>
 </div>
+
+<!-- Rename Modal -->
+<div class="modal-backdrop hidden" id="renameModal">
+    <div class="modal" style="max-width: 400px;">
+        <div class="modal-header">
+            <h2 class="modal-title">{{ _('rename_connection') }}</h2>
+            <button class="modal-close" onclick="closeRenameModal()">×</button>
+        </div>
+        <div class="form-group" style="padding: var(--space-sm) 0;">
+            <label class="form-label" for="renameInput">{{ _('rename_connection_placeholder') }}</label>
+            <input type="text" id="renameInput" class="form-input" maxlength="255"
+                   placeholder="{{ _('rename_connection_placeholder') }}">
+        </div>
+        <div class="flex gap-sm" style="padding-bottom: var(--space-sm);">
+            <button class="btn btn-primary" onclick="submitRename()">{{ _('save') }}</button>
+            <button class="btn btn-secondary" onclick="closeRenameModal()">{{ _('cancel') }}</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -235,6 +257,10 @@
                 </div>
             </div>
             <div class="client-actions">
+                <button class="btn btn-secondary btn-sm"
+                    onclick="showRenameModal('${conn.id}', '${conn.name || 'Connection'}')">
+                    ✏️ {{ _('rename') }}
+                </button>
                 <button class="btn btn-primary btn-sm"
                     onclick="showMyConfig('${conn.id}', '${conn.name || 'Connection'}', '${conn.protocol}')">
                     {{ _('show_config') }}
@@ -441,6 +467,55 @@
         } finally {
             submitBtn.disabled = false;
             submitBtn.textContent = '{{ _('create_conn_submit') }}';
+        }
+    }
+
+    // === Rename Connection ===
+    let renameConnectionId = null;
+
+    function showRenameModal(connId, currentName) {
+        renameConnectionId = connId;
+        const input = document.getElementById('renameInput');
+        input.value = currentName;
+        closeModal('configModal');
+        openModal('renameModal');
+        input.focus();
+        input.select();
+    }
+
+    function closeRenameModal() {
+        closeModal('renameModal');
+        renameConnectionId = null;
+    }
+
+    async function submitRename() {
+        const input = document.getElementById('renameInput');
+        const newName = input.value.trim();
+        if (!newName) {
+            showToast("{{ _('rename_empty_name') }}", 'error');
+            return;
+        }
+        try {
+            const res = await fetch(`/api/my/connections/${renameConnectionId}/rename`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken(),
+                },
+                body: JSON.stringify({name: newName}),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                closeRenameModal();
+                showToast("{{ _('connection_renamed') }}", 'success');
+                refreshConnectionsList();
+            } else if (res.status === 409 && data?.error === 'duplicate_name') {
+                showToast("{{ _('duplicate_connection_name') }}", 'error');
+            } else {
+                showToast(data.error || "{{ _('rename_failed') }}", 'error');
+            }
+        } catch (e) {
+            showToast("{{ _('rename_failed') }}", 'error');
         }
     }
 </script>

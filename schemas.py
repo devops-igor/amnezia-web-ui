@@ -254,6 +254,21 @@ class MyAddConnectionRequest(BaseModel):
         return v
 
 
+class RenameConnectionRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Strip whitespace and reject null bytes."""
+        v = v.strip()
+        if "\0" in v:
+            raise ValueError("Name cannot contain null bytes")
+        if not v:
+            raise ValueError("Name cannot be empty or whitespace only")
+        return v
+
+
 # ===== Users =====
 
 
