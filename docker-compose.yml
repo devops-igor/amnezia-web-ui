@@ -1,15 +1,30 @@
-version: '3.8'
+# Amnezia Web Panel — Production Docker Compose
+#
+# Usage:
+#   Standalone (panel only, port 5000):
+#     docker compose up -d
+#
+#   With BunkerWeb WAF (port 80/443):
+#     docker compose --profile bunkerweb up -d
+#
+#   With Telemt metrics (port 18443):
+#     docker compose --profile telemt up -d
+#
+#   All profiles combined:
+#     docker compose --profile bunkerweb --profile telemt up -d
+#
+# Environment: copy .env.example to .env and fill in values.
 
 services:
-  amnezia_panel:
-    image: ghcr.io/devops-igor/amnezia-web-ui:latest
-    container_name: amnezia_panel
-    # To connect the (Traefik) balancer, assign one network to both containers and uncomment the labels by replacing the domain with your own.
-    # labels:
-    #   - traefik.enable=true
-    #   - traefik.http.routers.amnezia_panel.entrypoints=web,websecure
-    #   - traefik.http.routers.amnezia_panel.rule=Host(`amnezia.domain`)
-    #   - traefik.http.services.amnezia_panel.loadbalancer.server.port=5000
+
+  # ---------------------------------------------------------------------------
+  # Amnezia Web Panel
+  # ---------------------------------------------------------------------------
+  amnezia-panel:
+    image: ${AMNEZIA_IMAGE:-ghcr.io/devops-igor/amnezia-web-ui:latest}
+    container_name: amnezia-panel
+    # Expose panel port directly. Set APP_PORT= (empty) in .env when using
+    # BunkerWeb to disable this port mapping — BunkerWeb routes traffic instead.
     ports:
       - "${APP_PORT:-5000}:5000"
     restart: unless-stopped
@@ -19,20 +34,187 @@ services:
     tmpfs:
       - /tmp
     volumes:
-      # Mount for persistent data storage across container restarts
-      - ./data:/app/data
+      - ${DATA_DIR:-./data}:/app/data
     environment:
-      # Required! SECRET_KEY must be set in production. Generate with:
-      # python -c "import secrets; print(secrets.token_hex(32))"
-      # Store in .env file: echo "SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" > .env
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
-      # Trusted reverse proxy IPs/CIDRs for X-Forwarded-For header validation.
-      # Supports CIDR notation (e.g. 172.18.0.0/24) and plain IPs (e.g. 10.0.0.1).
-      # Use CIDR for Docker networks to survive container IP changes.
-      # - TRUSTED_PROXIES=172.18.0.0/24
+      - TRUSTED_PROXIES=${TRUSTED_PROXIES:-172.18.0.0/24}
+    networks:
+      - bw-net
+    # NOTE: No depends_on for bunkerweb here. When running with --profile bunkerweb,
+    # BunkerWeb discovers the panel via AUTOCONF_MODE and labels. Start order doesn't
+    # matter — BunkerWeb retries the backend until it's healthy. Without the profile,
+    # depends_on would break standalone mode.
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 100m
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
+    labels:
+      - bunkerweb.SERVER_NAME=${SERVER_NAME:-localhost}
+      - bunkerweb.USE_REVERSE_PROXY=yes
+      - bunkerweb.REVERSE_PROXY_URL=/
+      - bunkerweb.REVERSE_PROXY_HOST=http://amnezia-panel:5000
+      - bunkerweb.REVERSE_PROXY_INTERCEPT_ERRORS=no
+      - bunkerweb.USE_WHITELIST_IP=${USE_WHITELIST_IP:-yes}
+      - bunkerweb.WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
+      - bunkerweb.USE_BAD_BEHAVIOR=${USE_BAD_BEHAVIOR:-yes}
+      - bunkerweb.USE_LIMIT_REQ=${USE_LIMIT_REQ:-yes}
+      - bunkerweb.USE_LIMIT_CONN=${USE_LIMIT_CONN:-yes}
+
+  # ---------------------------------------------------------------------------
+  # BunkerWeb WAF (Web Application Firewall)
+  # https://www.bunkerweb.io/
+  # ---------------------------------------------------------------------------
+  bunkerweb:
+    image: bunkerity/bunkerweb-all-in-one:${BUNKERWEB_VERSION:-1.6.9}
+    container_name: bunkerweb
+    profiles:
+      - bunkerweb
+    environment:
+      # Docker integration — BunkerWeb auto-configures from labels
+      - AUTOCONF_MODE=yes
+      - DOCKER_HOST=tcp://docker-proxy:2375
+
+      # Multi-site support — SERVER_NAME per-site settings are in the panel labels
+      - MULTISITE=${MULTISITE:-yes}
+      - SERVER_NAME=${SERVER_NAME:-localhost}
+
+      # Let's Encrypt
+      - AUTO_LETS_ENCRYPT=${AUTO_LETS_ENCRYPT:-yes}
+      - EMAIL_LETS_ENCRYPT=${EMAIL_LETS_ENCRYPT:?Email required for Let's Encrypt}
+      - USE_GZIP=${USE_GZIP:-yes}
+
+      # UI and security defaults
+      - USE_UI=${USE_UI:-yes}
+      - USE_MODSECURITY=${USE_MODSECURITY:-yes}
+
+      # Whitelisting — per-site override via WHITELIST_IP_LIST below
+      - USE_WHITELIST_IP=no
+      - WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
+
+      # Rate limiting — can be tightened per-site via LIMIT_REQ_* vars
+      - USE_LIMIT_REQ=no
+      - USE_LIMIT_CONN=no
+      - USE_BAD_BEHAVIOR=no
+      - USE_DNSBL=no
+      - USE_ANTIBOT=no
+
+      # CrowdSec — enable by setting USE_CROWDSEC=yes
+      - USE_CROWDSEC=${USE_CROWDSEC:-no}
+
+      # Skip WAF rules for ACME challenge endpoints
+      - SKIP_WAF_RULES=/.well-known/acme-challenge/
+
+    networks:
+      - bw-net
+    ports:
+      - "80:8080/tcp"
+      - "443:8443/tcp"
+      - "443:8443/udp"
+    volumes:
+      - bw-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 100m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Docker Socket Proxy — restricts Docker API access for BunkerWeb
+  # https://github.com/Tecnativa/docker-socket-proxy
+  # ---------------------------------------------------------------------------
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: docker-proxy
+    profiles:
+      - bunkerweb
+    environment:
+      - CONTAINERS=1
+      - NETWORKS=1
+      - SERVICES=1
+      - EVENTS=1
+    networks:
+      - bw-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: "50m"
+
+  # ---------------------------------------------------------------------------
+  # Telemt — network telemetry collector (metrics / SNMP / flow)
+  # https://github.com/raylabpro/telemt
+  # ---------------------------------------------------------------------------
+  telemt:
+    image: raylabpro/telemt:debian
+    container_name: telemt
+    profiles:
+      - telemt
+    environment:
+      - RUST_LOG=${TELEMT_LOG:-info}
+      - TZ=${TZ:-UTC}
+    networks:
+      - bw-net
+    ports:
+      - "18443:18443"
+    cap_add:
+      - NET_BIND_SERVICE
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m
+    ulimits:
+      nofile:
+        hard: 65536
+        soft: 65536
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ${TELEMT_CONFIG_DIR:-./telemt-config}:/etc/telemt/
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M
+    healthcheck:
+      # Telemt is a Rust binary — no Python/curl available in the minimal image.
+      # Use pidof to check if the process is running.
+      test: ["CMD-SHELL", "pidof telemt || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-file: "3"
+        max-size: 10m
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  bw-net:
+    driver: bridge
+
+volumes:
+  bw-data:

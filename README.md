@@ -95,12 +95,38 @@ After creating the account, you're automatically logged in and taken to the dash
 
 ## Running with Docker
 
+The recommended way to run the panel is with Docker Compose. See the [Deployment Guide](docs/deployment.md) for full production setup including HTTPS/WAF via BunkerWeb and network telemetry via Telemt.
+
+### Quick Start (Standalone)
+
 ```bash
-docker build -t amnezia-web-panel .
-docker run -p 5000:5000 -v $(pwd)/panel.db:/app/panel.db amnezia-web-panel
+git clone https://github.com/devops-igor/amnezia-web-ui.git
+cd amnezia-web-ui
+cp .env.example .env
+# Edit .env — set SECRET_KEY (generate with: python3 -c "import secrets; print(secrets.token_hex(32))")
+docker compose up -d
 ```
 
-The container uses SQLite with a volume mount so data persists across restarts.
+Panel available at **http://localhost:5000**. API docs at http://localhost:5000/docs.
+
+### Production (BunkerWeb WAF + HTTPS)
+
+```bash
+# Point your domain DNS A record to this server first
+# Edit .env — set SERVER_NAME, EMAIL_LETS_ENCRYPT, SECRET_KEY
+docker compose --profile bunkerweb up -d
+```
+
+Panel available at **https://your-domain.com** with automatic Let's Encrypt SSL.
+
+### Telemt (Network Telemetry)
+
+```bash
+# Requires telemt-config/config.toml in your config directory
+docker compose --profile telemt up -d
+```
+
+For full setup details (SSL, IP whitelisting, security hardening, troubleshooting), see [docs/deployment.md](docs/deployment.md).
 
 ---
 
