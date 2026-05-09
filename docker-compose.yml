@@ -174,7 +174,9 @@ services:
     networks:
       - bw-net
     ports:
-      - "18443:18443"
+      - "${TELEMT_PORT:-443}:443"
+      - "127.0.0.1:9090:9090"
+      - "127.0.0.1:9091:9091"
     cap_add:
       - NET_BIND_SERVICE
     cap_drop:

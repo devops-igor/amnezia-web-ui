@@ -232,10 +232,10 @@ def get_protocol_manager(ssh, protocol: str):
         from config import get_db
 
         db = get_db()
-        config_dir = db.get_setting("protocol_paths", {}).get(
-            "telemt_config_dir", "/opt/amnezia/telemt"
-        )
-        return TelemtManager(ssh, config_dir=config_dir)
+        protocol_paths = db.get_setting("protocol_paths", {})
+        config_dir = protocol_paths.get("telemt_config_dir", "/opt/amnezia/telemt-config")
+        compose_dir = protocol_paths.get("compose_dir", "/opt/amnezia")
+        return TelemtManager(ssh, config_dir=config_dir, compose_dir=compose_dir)
     elif protocol == "dns":
         from dns_manager import DNSManager
 
