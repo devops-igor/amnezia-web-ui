@@ -39,7 +39,7 @@ max_connections = 0    # 0 - unlimited, 10000 - default
 [server.api]
 enabled = true
 listen = "0.0.0.0:9091"
-whitelist = ["127.0.0.0/8"]
+whitelist = []
 minimal_runtime_enabled = false
 minimal_runtime_cache_ttl_ms = 1000
 
