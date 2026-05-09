@@ -51,3 +51,4 @@ VERIFICATION_REPORT*.md
 .secret_key
 =0.9.0
 tests/e2e/screenshots/
+TASKS_OVERVIEW.md
