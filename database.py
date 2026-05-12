@@ -305,7 +305,8 @@ class Database:
             "connection_rate_limit_window": 60,
         },
         "protocol_paths": {
-            "telemt_config_dir": "/opt/amnezia/telemt",
+            "telemt_config_dir": "/opt/amnezia/telemt-config",
+            "compose_dir": "/opt/amnezia",
         },
     }
 
