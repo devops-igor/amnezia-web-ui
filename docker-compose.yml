@@ -24,7 +24,10 @@ services:
     image: ${AMNEZIA_IMAGE:-ghcr.io/devops-igor/amnezia-web-ui:latest}
     container_name: amnezia-panel
     # Expose panel port directly. Set APP_PORT= (empty) in .env when using
-    # BunkerWeb to disable this port mapping — BunkerWeb routes traffic instead.
+    # BunkerWeb to skip direct port exposure — BunkerWeb routes traffic instead.
+    # NOTE: Docker treats APP_PORT= as a random ephemeral host port (:5000),
+    # not "no port". To fully block direct access, use firewall rules or rely
+    # on BunkerWeb as the sole entry point.
     ports:
       - "${APP_PORT:-5000}:5000"
     restart: unless-stopped
@@ -38,6 +41,7 @@ services:
     environment:
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-172.18.0.0/24}
+      - DATA_DIR=/app/data
     networks:
       - bw-net
     # NOTE: No depends_on for bunkerweb here. When running with --profile bunkerweb,
