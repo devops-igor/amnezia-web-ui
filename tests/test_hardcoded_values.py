@@ -208,8 +208,9 @@ class TestInstallProtocolWithPackageManager:
         sudo_calls = self._run_install_with_pkg_mgr("apt", docker_installed=False)
         apt_calls = [c for c in sudo_calls if "apt-get install" in c]
         yum_calls = [c for c in sudo_calls if "yum install" in c]
-        # Both plugin install calls (inside and outside docker check) use apt-get
-        assert len(apt_calls) == 2
+        # Only one plugin install call (inside docker-not-installed block);
+        # the duplicate was removed in the compose-profile refactor
+        assert len(apt_calls) == 1
         assert len(yum_calls) == 0
 
     def test_yum_when_docker_not_installed(self):
@@ -217,27 +218,27 @@ class TestInstallProtocolWithPackageManager:
         sudo_calls = self._run_install_with_pkg_mgr("yum", docker_installed=False)
         apt_calls = [c for c in sudo_calls if "apt-get install" in c]
         yum_calls = [c for c in sudo_calls if "yum install" in c]
-        assert len(yum_calls) == 2
-        assert len(apt_calls) == 0
-
-    def test_apt_when_docker_already_installed(self):
-        """When docker already installed and OS is Debian, only external apt-get call."""
-        sudo_calls = self._run_install_with_pkg_mgr("apt", docker_installed=True)
-        apt_calls = [c for c in sudo_calls if "apt-get install" in c]
-        yum_calls = [c for c in sudo_calls if "yum install" in c]
-        assert len(apt_calls) == 1
-        assert len(yum_calls) == 0
-
-    def test_yum_when_docker_already_installed(self):
-        """When docker already installed and OS is RHEL, only external yum call."""
-        sudo_calls = self._run_install_with_pkg_mgr("yum", docker_installed=True)
-        apt_calls = [c for c in sudo_calls if "apt-get install" in c]
-        yum_calls = [c for c in sudo_calls if "yum install" in c]
         assert len(yum_calls) == 1
         assert len(apt_calls) == 0
 
+    def test_apt_when_docker_already_installed(self):
+        """When docker already installed and OS is Debian, no apt-get calls."""
+        sudo_calls = self._run_install_with_pkg_mgr("apt", docker_installed=True)
+        apt_calls = [c for c in sudo_calls if "apt-get install" in c]
+        yum_calls = [c for c in sudo_calls if "yum install" in c]
+        assert len(apt_calls) == 0
+        assert len(yum_calls) == 0
+
+    def test_yum_when_docker_already_installed(self):
+        """When docker already installed and OS is RHEL, no yum calls."""
+        sudo_calls = self._run_install_with_pkg_mgr("yum", docker_installed=True)
+        apt_calls = [c for c in sudo_calls if "apt-get install" in c]
+        yum_calls = [c for c in sudo_calls if "yum install" in c]
+        assert len(yum_calls) == 0
+        assert len(apt_calls) == 0
+
     def test_detect_package_manager_called_per_branch(self):
-        """_detect_package_manager should be called for both plugin install points."""
+        """_detect_package_manager should be called once (only inside docker install block)."""
         mock_detect = MagicMock(return_value="apt")
         with (
             patch.object(self.manager, "_detect_package_manager", mock_detect),
@@ -268,8 +269,9 @@ class TestInstallProtocolWithPackageManager:
                 self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
                 self.manager.install_protocol()
 
-        # Called twice: once inside docker-not-installed block, once outside
-        assert mock_detect.call_count == 2
+        # Called once: only inside docker-not-installed block
+        # The duplicate package-manager install was removed in the compose-profile refactor
+        assert mock_detect.call_count == 1
 
 
 class TestNoBareAptGetWithoutDetection:

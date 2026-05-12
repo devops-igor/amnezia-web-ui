@@ -27,10 +27,17 @@ class TelemtManager:
 
     CONTAINER_NAME = "telemt"
     API_BASE = "http://telemt:9091"
+    COMPOSE_DIR = "/opt/amnezia"  # Main compose directory on remote server
 
-    def __init__(self, ssh_manager: SSHManager, config_dir: str = "/opt/amnezia/telemt"):
+    def __init__(
+        self,
+        ssh_manager: SSHManager,
+        config_dir: str = "/opt/amnezia/telemt-config",
+        compose_dir: str = "/opt/amnezia",
+    ):
         self.ssh = ssh_manager
         self._config_dir_path = config_dir
+        self._compose_dir_path = compose_dir
 
     def _config_dir(self) -> str:
         """Return the configurable Telemt config directory path."""
@@ -39,6 +46,10 @@ class TelemtManager:
     def _config_path(self) -> str:
         """Return the full path to config.toml."""
         return f"{self._config_dir()}/config.toml"
+
+    def _compose_dir(self) -> str:
+        """Return the compose directory path on the remote server."""
+        return self._compose_dir_path
 
     def _api_request(
         self,
@@ -144,6 +155,35 @@ class TelemtManager:
                 params["max_connections"] = 0
         return params
 
+    def _merge_env_file(self, updates: dict[str, str]) -> str:
+        """Merge key=value updates into the remote .env file.
+
+        Reads existing .env, updates or appends lines for the given keys,
+        and returns the merged content. If no .env exists, creates one
+        with just the new settings.
+        """
+        existing, _, _ = self.ssh.run_command(f"cat {self._compose_dir()}/.env 2>/dev/null || true")
+
+        # Build a dict from existing lines (skip blank/comment lines)
+        env: dict[str, str] = {}
+        for line in existing.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                key, _, value = stripped.partition("=")
+                env[key.strip()] = value.strip()
+
+        # Apply updates
+        env.update(updates)
+
+        # Reconstruct with stable ordering: put RUST_LOG first if present
+        lines: list[str] = []
+        if "RUST_LOG" in env:
+            lines.append(f"RUST_LOG={env.pop('RUST_LOG')}")
+        for key, value in sorted(env.items()):
+            lines.append(f"{key}={value}")
+
+        return "\n".join(lines) + "\n"
+
     def install_protocol(
         self,
         protocol_type: str = "telemt",
@@ -152,11 +192,12 @@ class TelemtManager:
         tls_domain: str = "",
         max_connections: int = 0,
     ) -> dict[str, Any]:
-        """Install the Telemt protocol container on the remote server.
+        """Install the Telemt protocol container via compose profile.
 
-        This method still uses SSH for file upload and docker-compose.
+        Uploads only config.toml to the config directory and activates
+        the telemt profile in the main docker-compose.yml at COMPOSE_DIR.
         """
-        results = []
+        results: list[str] = []
         if not check_docker_installed(self.ssh):
             results.append("Installing Docker...")
             self.ssh.run_sudo_command("curl -fsSL https://get.docker.com | sh")
@@ -171,48 +212,21 @@ class TelemtManager:
                 )
 
         if self.check_protocol_installed():
-            self.ssh.run_sudo_command(f"docker rm -f {self.CONTAINER_NAME}")
-
-        pkg_mgr = self._detect_package_manager()
-        if pkg_mgr == "apt":
+            # Remove existing container via compose profile
             self.ssh.run_sudo_command(
-                "apt-get install -y docker-buildx-plugin docker-compose-plugin"
+                f"cd {self._compose_dir()} && docker compose --profile telemt down",
+                timeout=60,
             )
-        else:
-            self.ssh.run_sudo_command("yum install -y docker-buildx-plugin docker-compose-plugin")
 
-        results.append("Uploading Telemt files...")
+        # Verify config.toml template integrity
         local_dir = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "..", "protocol_telemt")
         )
-        remote_dir = self._config_dir()
-        self.ssh.run_sudo_command(f"mkdir -p {remote_dir}")
-        self.ssh.run_sudo_command(f"chmod 755 {remote_dir}")
-
-        # Verify template integrity before reading
         expected_config_hash = load_expected_hash(os.path.join(local_dir, "config.toml.sha256"))
         if not verify_integrity(os.path.join(local_dir, "config.toml"), expected_config_hash):
             raise IntegrityError(
                 f"Config template integrity check failed: "
                 f"{os.path.join(local_dir, 'config.toml')} does not match expected hash"
-            )
-
-        expected_compose_hash = load_expected_hash(
-            os.path.join(local_dir, "docker-compose.yml.sha256")
-        )
-        if not verify_integrity(
-            os.path.join(local_dir, "docker-compose.yml"), expected_compose_hash
-        ):
-            raise IntegrityError(
-                f"Docker Compose template integrity check failed: "
-                f"{os.path.join(local_dir, 'docker-compose.yml')} does not match expected hash"
-            )
-
-        expected_dockerfile_hash = load_expected_hash(os.path.join(local_dir, "Dockerfile.sha256"))
-        if not verify_integrity(os.path.join(local_dir, "Dockerfile"), expected_dockerfile_hash):
-            raise IntegrityError(
-                f"Dockerfile template integrity check failed: "
-                f"{os.path.join(local_dir, 'Dockerfile')} does not match expected hash"
             )
 
         # Read and patch config.toml
@@ -228,7 +242,7 @@ class TelemtManager:
 
         if tls_emulation and tls_domain:
             # Use string find/replace instead of re.sub to prevent regex
-            # injection via backreferences ($1, \1, etc.) in tls_domain.
+            # injection via backreferences ($1, \\1, etc.) in tls_domain.
             # The value is already validated by InstallProtocolRequest.validate_tls_domain.
             pattern = re.compile(r'tls_domain\s*=\s*".*?"')
             match = pattern.search(config_content)
@@ -268,10 +282,16 @@ class TelemtManager:
         patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
         logger.info(f"Patched config.toml SHA256: {patched_hash}")
 
-        self.ssh.upload_file_sudo(config_content, f"{remote_dir}/config.toml")
+        # Ensure config directory exists
+        results.append("Uploading Telemt files...")
+        config_dir = self._config_dir()
+        self.ssh.run_sudo_command(f"mkdir -p {config_dir}/")
+
+        # Upload config.toml to the config directory
+        self.ssh.upload_file_sudo(config_content, self._config_path())
 
         # Verify remote file integrity after upload
-        remote_hash_output, _, _ = self.ssh.run_command(f"sha256sum {remote_dir}/config.toml")
+        remote_hash_output, _, _ = self.ssh.run_command(f"sha256sum {self._config_path()}")
         if remote_hash_output:
             remote_hash = remote_hash_output.split()[0]
             local_patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
@@ -281,32 +301,38 @@ class TelemtManager:
                     f"Expected {local_patched_hash[:16]}..., got {remote_hash[:16]}..."
                 )
 
-        # Patch docker-compose.yml with proper port
-        with open(os.path.join(local_dir, "docker-compose.yml"), "r", encoding="utf-8") as f:
-            compose_content = f.read()
+        # Merge Telemt env vars into .env file
+        env_updates: dict[str, str] = {}
+        if port != "443":
+            env_updates["TELEMT_PORT"] = port
+        env_updates["TELEMT_CONFIG_DIR"] = self._config_dir()
+        if "RUST_LOG" not in env_updates:
+            env_updates["RUST_LOG"] = "info"
 
-        compose_content = re.sub(r'"443:443"', f'"{port}:443"', compose_content)
-        self.ssh.upload_file_sudo(compose_content, f"{remote_dir}/docker-compose.yml")
+        merged_env = self._merge_env_file(env_updates)
+        self.ssh.upload_file_sudo(merged_env, f"{self._compose_dir()}/.env")
 
-        # Upload Dockerfile
-        with open(os.path.join(local_dir, "Dockerfile"), "r", encoding="utf-8") as f:
-            dockerfile = f.read()
-            self.ssh.upload_file_sudo(dockerfile, f"{remote_dir}/Dockerfile")
-
+        # Start the container via compose profile (no --build)
         results.append("Starting Telemt container...")
-        out, err, code = self.ssh.run_sudo_command(
-            f"cd {remote_dir} && docker compose up -d --build", timeout=600
+        self.ssh.run_sudo_command(
+            f"cd {self._compose_dir()} && docker compose --profile telemt up -d",
+            timeout=600,
         )
-        if code != 0:
-            self.ssh.run_sudo_command(
-                f"cd {remote_dir} && docker-compose up -d --build", timeout=600
-            )
 
         return {"status": "success", "host": "", "port": port, "log": results}
 
     def remove_container(self, protocol_type: Optional[str] = None) -> None:
-        """Remove the Telemt container and its config directory."""
-        self.ssh.run_sudo_command(f"docker rm -f {self.CONTAINER_NAME}")
+        """Remove the Telemt container using compose profile."""
+        # Stop and remove the telemt service via compose profile
+        out, err, code = self.ssh.run_sudo_command(
+            f"cd {self._compose_dir()} && docker compose --profile telemt down --remove-orphans",
+            timeout=60,
+        )
+        if code != 0:
+            logger.warning(f"docker compose --profile telemt down failed: {err}")
+            # Fallback: force remove the container directly
+            self.ssh.run_sudo_command(f"docker rm -f {self.CONTAINER_NAME}")
+        # Optionally remove config directory
         self.ssh.run_sudo_command(f"rm -rf {self._config_dir()}")
 
     def get_clients(self, protocol_type: str) -> list[dict[str, Any]]:

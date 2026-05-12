@@ -25,13 +25,20 @@ class TestTelemtManagerInit:
         self.manager = TelemtManager(self.mock_ssh)
 
     def test_default_config_dir(self):
-        assert self.manager._config_dir() == "/opt/amnezia/telemt"
-        assert self.manager._config_path() == "/opt/amnezia/telemt/config.toml"
+        assert self.manager._config_dir() == "/opt/amnezia/telemt-config"
+        assert self.manager._config_path() == "/opt/amnezia/telemt-config/config.toml"
+
+    def test_default_compose_dir(self):
+        assert self.manager._compose_dir() == "/opt/amnezia"
 
     def test_custom_config_dir(self):
         manager = TelemtManager(self.mock_ssh, config_dir="/custom/path")
         assert manager._config_dir() == "/custom/path"
         assert manager._config_path() == "/custom/path/config.toml"
+
+    def test_custom_compose_dir(self):
+        manager = TelemtManager(self.mock_ssh, compose_dir="/custom/compose")
+        assert manager._compose_dir() == "/custom/compose"
 
     def test_container_name(self):
         assert self.manager.CONTAINER_NAME == "telemt"
@@ -787,14 +794,15 @@ class TestRemoveContainer:
 
     def setup_method(self):
         self.mock_ssh = MagicMock()
+        self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
         self.manager = TelemtManager(self.mock_ssh)
 
-    def test_remove_container_calls_docker_rm(self):
+    def test_remove_container_calls_compose_down(self):
         self.manager.remove_container("telemt")
 
         calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
-        assert any("docker rm -f telemt" in c for c in calls)
-        assert any("rm -rf /opt/amnezia/telemt" in c for c in calls)
+        assert any("docker compose --profile telemt down" in c for c in calls)
+        assert any("rm -rf /opt/amnezia/telemt-config" in c for c in calls)
 
     def test_remove_container_custom_config_dir(self):
         manager = TelemtManager(self.mock_ssh, config_dir="/custom/telemt")
@@ -1000,34 +1008,16 @@ class TestInstallProtocolIntegrityChecks:
         """install_protocol succeeds when all integrity checks pass."""
         result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
-        # Should have called load_expected_hash for 3 template files
-        assert mock_load_hash.call_count == 3
-        # Should have called verify_integrity for 3 template files
-        assert mock_verify_file.call_count == 3
+        # Should have called load_expected_hash for 1 template file (config.toml only)
+        assert mock_load_hash.call_count == 1
+        # Should have called verify_integrity for 1 template file (config.toml only)
+        assert mock_verify_file.call_count == 1
 
     @patch("app.managers.telemt_manager.verify_integrity", return_value=False)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_config_tampered_raises(self, mock_load_hash, mock_verify):
         """IntegrityError raised when config.toml template is tampered."""
         with pytest.raises(IntegrityError, match="Config template integrity check failed"):
-            self.manager.install_protocol("telemt", port="443")
-
-    @patch("app.managers.telemt_manager.verify_integrity")
-    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_compose_tampered_raises(self, mock_load_hash, mock_verify):
-        """IntegrityError raised when docker-compose.yml template is tampered."""
-        # config.toml passes, docker-compose.yml fails
-        mock_verify.side_effect = [True, False]
-        with pytest.raises(IntegrityError, match="Docker Compose template integrity check failed"):
-            self.manager.install_protocol("telemt", port="443")
-
-    @patch("app.managers.telemt_manager.verify_integrity")
-    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_dockerfile_tampered_raises(self, mock_load_hash, mock_verify):
-        """IntegrityError raised when Dockerfile template is tampered."""
-        # config.toml and docker-compose.yml pass, Dockerfile fails
-        mock_verify.side_effect = [True, True, False]
-        with pytest.raises(IntegrityError, match="Dockerfile template integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
@@ -1072,7 +1062,7 @@ class TestInstallProtocolIntegrityChecks:
 
         def run_command_side_effect(cmd):
             if "sha256sum" in cmd:
-                return (f"{patched_hash}  /opt/amnezia/telemt/config.toml", "", 0)
+                return (f"{patched_hash}  /opt/amnezia/telemt-config/config.toml", "", 0)
             return ("", "", 0)
 
         self.mock_ssh.run_command.side_effect = run_command_side_effect
@@ -1090,7 +1080,7 @@ class TestInstallProtocolIntegrityChecks:
             call_count[0] += 1
             # Return a mismatched hash for sha256sum command
             if "sha256sum" in cmd:
-                return ("0" * 64 + "  /opt/amnezia/telemt/config.toml", "", 0)
+                return ("0" * 64 + "  /opt/amnezia/telemt-config/config.toml", "", 0)
             return ("", "", 0)
 
         self.mock_ssh.run_command.side_effect = run_command_side_effect
@@ -1115,3 +1105,122 @@ class TestInstallProtocolIntegrityChecks:
             # Check that logger.info was called with patched hash
             logged_messages = [call.args[0] for call in mock_logger.info.call_args_list]
             assert any("Patched config.toml SHA256:" in msg for msg in logged_messages)
+
+
+class TestInstallProtocolComposeProfile:
+    """New tests for compose profile behavior after refactor."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.mock_ssh.host = "10.0.0.1"
+        self.mock_ssh.run_command.return_value = ("", "", 0)
+        self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+        self.manager = TelemtManager(self.mock_ssh)
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_uses_compose_profile(self, mock_load_hash, mock_verify):
+        """install_protocol uses docker compose --profile telemt up -d, no --build."""
+        self.manager.install_protocol("telemt", port="443")
+
+        calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
+        compose_calls = [c for c in calls if "docker compose --profile telemt up -d" in c]
+        assert len(compose_calls) == 1
+        # Verify NO --build flag
+        assert not any("--build" in c for c in compose_calls)
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_no_dockerfile_upload(self, mock_load_hash, mock_verify):
+        """install_protocol does not upload a Dockerfile."""
+        self.manager.install_protocol("telemt", port="443")
+
+        upload_calls = [
+            call
+            for call in self.mock_ssh.upload_file_sudo.call_args_list
+            if "Dockerfile" in str(call)
+        ]
+        assert len(upload_calls) == 0
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_no_compose_upload(self, mock_load_hash, mock_verify):
+        """install_protocol does not upload a docker-compose.yml."""
+        self.manager.install_protocol("telemt", port="443")
+
+        upload_calls = [
+            call
+            for call in self.mock_ssh.upload_file_sudo.call_args_list
+            if "docker-compose.yml" in str(call)
+        ]
+        assert len(upload_calls) == 0
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_writes_env_file(self, mock_load_hash, mock_verify):
+        """install_protocol writes .env with TELEMT_PORT when port is non-default."""
+        self.manager.install_protocol("telemt", port="8443")
+
+        upload_calls = [
+            call for call in self.mock_ssh.upload_file_sudo.call_args_list if ".env" in str(call)
+        ]
+        assert len(upload_calls) >= 1
+        # The env content should contain TELEMT_PORT=8443
+        env_content = str(upload_calls[0])
+        assert "TELEMT_PORT=8443" in env_content
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_default_port_no_env_override(self, mock_load_hash, mock_verify):
+        """When port=443 (default), TELEMT_PORT is NOT in .env."""
+        self.manager.install_protocol("telemt", port="443")
+
+        upload_calls = [
+            call for call in self.mock_ssh.upload_file_sudo.call_args_list if ".env" in str(call)
+        ]
+        assert len(upload_calls) >= 1
+        env_content = str(upload_calls[0])
+        assert "TELEMT_PORT" not in env_content
+        # TELEMT_CONFIG_DIR should still be present
+        assert "TELEMT_CONFIG_DIR=/opt/amnezia/telemt-config" in env_content
+
+    @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
+    @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
+    def test_install_protocol_existing_container_down_before_up(self, mock_load_hash, mock_verify):
+        """When container exists, compose --profile telemt down is called before up."""
+        # Read the actual template and compute patched hash
+        local_dir = os.path.join(os.path.dirname(__file__), "..", "protocol_telemt")
+        with open(os.path.join(local_dir, "config.toml"), "r", encoding="utf-8") as f:
+            config_content = f.read()
+        config_content = re.sub(
+            r"tls_emulation\s*=\s*(true|false|True|False)",
+            "tls_emulation = true",
+            config_content,
+        )
+        config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
+        config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
+        config_content = re.sub(
+            r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
+        )
+        patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
+
+        # Simulate container already exists
+        self.mock_ssh.run_command.side_effect = [
+            # check_docker_installed
+            ("Docker version 20.10.0", "", 0),
+            ("active", "", 0),
+            # check_protocol_installed (container exists)
+            ("telemt", "", 0),
+            # sha256sum after upload — must match patched hash
+            (f"{patched_hash}  /opt/amnezia/telemt-config/config.toml", "", 0),
+            # _merge_env_file reads .env
+            ("", "", 0),
+        ]
+
+        self.manager.install_protocol("telemt", port="443")
+
+        calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
+        compose_calls = [c for c in calls if "docker compose --profile telemt" in c]
+        assert len(compose_calls) >= 2
+        assert "down" in compose_calls[0]
+        assert "up" in compose_calls[-1]
