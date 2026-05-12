@@ -54,7 +54,9 @@ services:
         max-file: "3"
         max-size: 100m
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import socket; s=socket.socket(); s.connect(('localhost', 5000)); s.close()\""]
+      # python socket.connect('localhost') fails inside read_only containers.
+      # Use pidof instead — lightweight and works in minimal Alpine images.
+      test: ["CMD-SHELL", "pidof python > /dev/null || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -83,6 +85,15 @@ services:
     environment:
       # Docker integration — BunkerWeb auto-configures from labels
       - AUTOCONF_MODE=yes
+
+      # NOTE: When using multiple domains in SERVER_NAME (e.g. "vpn.example.com panel.example.com"),
+      # BunkerWeb autoconf only maps REVERSE_PROXY_HOST to the FIRST domain. For additional
+      # domains, add per-site environment variables here:
+      #   - <domain>_USE_REVERSE_PROXY=yes
+      #   - <domain>_REVERSE_PROXY_HOST=http://amnezia-panel:5000
+      #   - <domain>_REVERSE_PROXY_URL=/
+      #   - <domain>_REVERSE_PROXY_INTERCEPT_ERRORS=no
+
       - DOCKER_HOST=tcp://docker-proxy:2375
 
       # Multi-site support — SERVER_NAME per-site settings are in the panel labels
