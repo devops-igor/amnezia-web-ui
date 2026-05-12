@@ -148,7 +148,7 @@ USE_WHITELIST_IP=yes
 WHITELIST_IP_LIST=203.0.113.50,203.0.113.100
 ```
 
-> **Security**: `APP_PORT=` (empty) disables direct panel access, forcing all traffic through BunkerWeb. This prevents bypassing the WAF.
+> **Security note**: When `APP_PORT=` (empty), Docker Compose still maps a random ephemeral host port to container port 5000. This means the panel may still be reachable from the host on an unpredictable port. For true isolation, rely on BunkerWeb as your sole entry point and use host firewall rules (`ufw`) to restrict direct access.
 
 ### Step 4 — Start the Stack
 
@@ -215,7 +215,7 @@ Telemt is available at `http://localhost:18443` (standalone) or via the reverse 
 |----------|---------|----------|-------------|
 | `SECRET_KEY` | — | **Yes** | Session signing key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"` |
 | `AMNEZIA_IMAGE` | `ghcr.io/devops-igor/amnezia-web-ui:latest` | No | Docker image tag. Pin to a version tag or SHA in production |
-| `APP_PORT` | `5000` | No | Direct panel port. Set empty (`APP_PORT=`) to disable when using BunkerWeb |
+| `APP_PORT` | `5000` | No | Direct panel port. Note: `APP_PORT=` (empty) maps a random ephemeral port due to Docker behavior, not "no port". Use BunkerWeb + firewall for true isolation |
 | `DATA_DIR` | `./data` | No | Host directory for panel SQLite DB and config persistence |
 | `TRUSTED_PROXIES` | `172.18.0.0/24` | No | CIDR list of trusted proxies for X-Forwarded-For resolution |
 | `SERVER_NAME` | `localhost` | No | Primary domain for BunkerWeb vhost and Let's Encrypt |
@@ -348,7 +348,7 @@ ufw allow 443/tcp
 ufw enable
 ```
 
-> Do NOT expose port 5000 directly in production unless you fully understand the security implications. When using BunkerWeb, set `APP_PORT=` in `.env`.
+> Do NOT expose port 5000 directly in production unless you fully understand the security implications. When using BunkerWeb, set `APP_PORT=` in `.env` — but note that Docker may still map a random ephemeral host port. Use host firewall rules (`ufw`) to restrict direct access if needed.
 
 ### SSH Hardening
 
