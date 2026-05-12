@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # ======================== Paths ========================
 
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(DATA_DIR, "panel.db")
 
 # ======================== SECRET_KEY ========================
