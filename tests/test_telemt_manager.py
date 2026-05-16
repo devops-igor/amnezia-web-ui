@@ -1128,11 +1128,13 @@ class TestInstallProtocolComposeProfile:
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_uses_compose_profile(self, mock_load_hash, mock_verify):
-        """install_protocol uses docker compose --profile telemt up -d, no --build."""
+        """install_protocol uses docker compose --profile bunkerweb --profile telemt up -d."""
         self.manager.install_protocol("telemt", port="443")
 
         calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
-        compose_calls = [c for c in calls if "docker compose --profile telemt up -d" in c]
+        compose_calls = [
+            c for c in calls if "docker compose --profile bunkerweb --profile telemt up -d" in c
+        ]
         assert len(compose_calls) == 1
         # Verify NO --build flag
         assert not any("--build" in c for c in compose_calls)
@@ -1180,7 +1182,7 @@ class TestInstallProtocolComposeProfile:
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
     def test_install_protocol_default_port_no_env_override(self, mock_load_hash, mock_verify):
-        """When port=443 (default), TELEMT_PORT is NOT in .env."""
+        """When port=443 (default), TELEMT_PORT IS always written to .env."""
         self.manager.install_protocol("telemt", port="443")
 
         upload_calls = [
@@ -1188,7 +1190,7 @@ class TestInstallProtocolComposeProfile:
         ]
         assert len(upload_calls) >= 1
         env_content = str(upload_calls[0])
-        assert "TELEMT_PORT" not in env_content
+        assert "TELEMT_PORT=443" in env_content
         # TELEMT_CONFIG_DIR should still be present
         assert "TELEMT_CONFIG_DIR=/opt/amnezia/telemt-config" in env_content
 
@@ -1225,6 +1227,8 @@ class TestInstallProtocolComposeProfile:
             ("active", "", 0),
             # check_protocol_installed (container exists)
             ("telemt", "", 0),
+            # _detect_bunkerweb_running (returns empty = not running)
+            ("", "", 0),
             # sha256sum after upload — must match patched hash
             (f"{patched_hash}  /opt/amnezia/telemt-config/config.toml", "", 0),
             # _merge_env_file reads .env
@@ -1236,7 +1240,7 @@ class TestInstallProtocolComposeProfile:
             self.manager.install_protocol("telemt", port="443")
 
         calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
-        compose_calls = [c for c in calls if "docker compose --profile telemt" in c]
+        compose_calls = [c for c in calls if "docker compose --profile" in c]
         assert len(compose_calls) >= 2
         assert "down" in compose_calls[0]
         assert "up" in compose_calls[-1]
