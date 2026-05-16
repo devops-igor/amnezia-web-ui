@@ -87,12 +87,15 @@ services:
       - AUTOCONF_MODE=yes
 
       # NOTE: When using multiple domains in SERVER_NAME (e.g. "vpn.example.com panel.example.com"),
-      # BunkerWeb autoconf only maps REVERSE_PROXY_HOST to the FIRST domain. For additional
-      # domains, add per-site environment variables here:
-      #   - <domain>_USE_REVERSE_PROXY=yes
-      #   - <domain>_REVERSE_PROXY_HOST=http://amnezia-panel:5000
-      #   - <domain>_REVERSE_PROXY_URL=/
-      #   - <domain>_REVERSE_PROXY_INTERCEPT_ERRORS=no
+      # BunkerWeb autoconf only maps REVERSE_PROXY_HOST to the FIRST domain. For each additional
+      # domain, you must add per-site environment variables on this service:
+      #   - vpn.example.com_USE_REVERSE_PROXY=yes
+      #   - vpn.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
+      #   - vpn.example.com_REVERSE_PROXY_URL=/
+      #   - vpn.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
+      #
+      # Without these, additional domains will get a TLS certificate but return 404.
+      # See: https://docs.bunkerweb.io/latest/settings/#multisite
 
       - DOCKER_HOST=tcp://docker-proxy:2375
 
