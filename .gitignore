@@ -43,6 +43,10 @@ task-leaderboard-template-fix
 # Local work items (not for remote)
 tasks/
 telemt_task_*/
+# Per-instance telemt config (secrets, domain, ad_tags).
+# Copy from protocol_telemt/config.toml and edit before deploy:
+#   mkdir -p telemt-config && cp protocol_telemt/config.toml telemt-config/config.toml
+telemt-config/config.toml
 leaderboard/
 screen/
 WORKLOG.md

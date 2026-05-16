@@ -51,6 +51,13 @@ class TelemtManager:
         """Return the compose directory path on the remote server."""
         return self._compose_dir_path
 
+    def _detect_bunkerweb_running(self) -> bool:
+        """Check if bunkerweb container is running on the remote server."""
+        out, _, _ = self.ssh.run_command(
+            "docker ps --filter name=^bunkerweb$ --format '{{.Names}}'"
+        )
+        return out.strip() == "bunkerweb"
+
     def _api_request(
         self,
         method: str,
@@ -220,6 +227,13 @@ class TelemtManager:
                 timeout=60,
             )
 
+        # Avoid port conflict: bunkerweb binds 443. If bunkerweb is running
+        # and the caller didn't explicitly request 443, use 18443 instead.
+        if port == "443" and self._detect_bunkerweb_running():
+            logger.info("Bunkerweb is running on port 443 — defaulting telemt to port 18443")
+            port = "18443"
+            results.append("Bunkerweb detected on port 443 — using port 18443 for telemt")
+
         # Verify config.toml template integrity
         local_dir = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "..", "protocol_telemt")
@@ -312,10 +326,12 @@ class TelemtManager:
                     f"Expected {local_patched_hash[:16]}..., got {remote_hash[:16]}..."
                 )
 
+        # Change ownership so the telemt container (uid=65532) can write new users
+        self.ssh.run_sudo_command(f"chown -R 65532:65532 {config_dir}/")
+
         # Merge Telemt env vars into .env file
         env_updates: dict[str, str] = {}
-        if port != "443":
-            env_updates["TELEMT_PORT"] = port
+        env_updates["TELEMT_PORT"] = port
         env_updates["TELEMT_CONFIG_DIR"] = self._config_dir()
         if "RUST_LOG" not in env_updates:
             env_updates["RUST_LOG"] = "info"
@@ -323,10 +339,12 @@ class TelemtManager:
         merged_env = self._merge_env_file(env_updates)
         self.ssh.upload_file_sudo(merged_env, f"{self._compose_dir()}/.env")
 
-        # Start the container via compose profile (no --build)
+        # Start the container via compose profile (no --build).
+        # Including --profile bunkerweb is safe: if bunkerweb isn't installed,
+        # compose simply ignores the profile.
         results.append("Starting Telemt container...")
         self.ssh.run_sudo_command(
-            f"cd {self._compose_dir()} && docker compose --profile telemt up -d",
+            f"cd {self._compose_dir()} && docker compose --profile bunkerweb --profile telemt up -d",
             timeout=600,
         )
 
