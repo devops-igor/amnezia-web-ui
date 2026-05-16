@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -318,3 +319,32 @@ class TestXrayPrivateKeyMigration:
 
         # Verify flag is set
         assert db.get_migration_flag("xray_private_keys_cleared") == "1"
+
+
+# ----------------------------------------------------------------
+# XrayManager install_protocol AppArmor integration test
+# ----------------------------------------------------------------
+
+
+class TestXrayInstallProtocolAppArmor:
+    """Tests that XrayManager.install_protocol calls ensure_apparmor_utils."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        from app.managers.xray_manager import XrayManager
+
+        self.manager = XrayManager(self.mock_ssh)
+
+    def test_install_protocol_calls_ensure_apparmor_utils(self):
+        """XrayManager.install_protocol calls ensure_apparmor_utils before docker build."""
+        # Mock docker installed and protocol not installed
+        with patch("app.managers.xray_manager.check_docker_installed", return_value=True):
+            with patch.object(self.manager, "check_protocol_installed", return_value=False):
+                self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+                self.mock_ssh.run_command.return_value = ("", "", 0)
+
+                with patch("app.managers.xray_manager.ensure_apparmor_utils") as mock_fn:
+                    self.manager.install_protocol()
+
+                    # ensure_apparmor_utils must have been called
+                    mock_fn.assert_called_once_with(self.mock_ssh)
