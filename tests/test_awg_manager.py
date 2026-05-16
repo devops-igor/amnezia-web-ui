@@ -669,3 +669,32 @@ class TestAWGManagerConcurrent:
         """The _lock attribute should be a lock instance."""
         assert hasattr(self.manager, "_lock")
         assert self.manager._lock is not None
+
+
+class TestAWGInstallProtocolAppArmor:
+    """Tests that install_protocol calls ensure_apparmor_utils before docker build."""
+
+    def setup_method(self):
+        self.mock_ssh = MagicMock()
+        self.manager = AWGManager(self.mock_ssh)
+
+    def test_install_protocol_calls_ensure_apparmor_utils(self):
+        """install_protocol calls ensure_apparmor_utils before docker build."""
+        # Mock docker installed and protocol not installed
+        with patch("app.managers.awg_manager.check_docker_installed", return_value=True):
+            with patch.object(self.manager, "check_protocol_installed", return_value=False):
+                with patch.object(self.manager, "prepare_host"):
+                    with patch.object(self.manager, "_wait_container_running"):
+                        with patch.object(self.manager, "_configure_container"):
+                            with patch.object(self.manager, "_upload_start_script"):
+                                with patch.object(self.manager, "setup_firewall"):
+                                    self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
+                                    self.mock_ssh.run_command.return_value = ("", "", 0)
+
+                                    with patch(
+                                        "app.managers.awg_manager.ensure_apparmor_utils"
+                                    ) as mock_fn:
+                                        self.manager.install_protocol("awg")
+
+                                        # ensure_apparmor_utils must have been called
+                                        mock_fn.assert_called_once_with(self.mock_ssh)
