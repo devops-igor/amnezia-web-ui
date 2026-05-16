@@ -18,7 +18,7 @@ from base64 import b64encode
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
-from docker_utils import check_docker_installed
+from docker_utils import check_docker_installed, ensure_apparmor_utils
 
 logger = logging.getLogger(__name__)
 
@@ -299,6 +299,9 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         )
         self.ssh.run_sudo_command(f"mkdir -p {dockerfile_folder}")
         self.ssh.upload_file_sudo(dockerfile_content, f"{dockerfile_folder}/Dockerfile")
+
+        # Ensure AppArmor utils are present (bare systems can fail Docker build otherwise)
+        ensure_apparmor_utils(self.ssh)
 
         out, err, code = self.ssh.run_sudo_command(
             f"docker build --no-cache --pull -t {container_name} {dockerfile_folder}", timeout=300
