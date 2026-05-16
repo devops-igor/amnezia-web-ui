@@ -13,7 +13,7 @@ from typing import Any, Optional
 import httpx
 from integrity import IntegrityError, load_expected_hash, verify_integrity
 from app.managers.ssh_manager import SSHManager
-from docker_utils import check_docker_installed
+from docker_utils import check_docker_installed, detect_package_manager
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +87,12 @@ class TelemtManager:
 
     def _detect_package_manager(self) -> str:
         """Detect the remote server's package manager. Returns 'apt' or 'yum'."""
-        _, _, code = self.ssh.run_command("which apt-get")
-        if code == 0:
-            return "apt"
-        return "yum"
+        result = detect_package_manager(self.ssh)
+        # Map 'dnf' and 'unknown' to 'yum' for Telemt's install commands
+        # (original behavior: yum was the fallback when apt-get wasn't found)
+        if result in ("dnf", "unknown"):
+            return "yum"
+        return result
 
     def check_protocol_installed(self) -> bool:
         """Check if the Telemt container exists on the remote server."""
