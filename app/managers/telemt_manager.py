@@ -275,8 +275,17 @@ class TelemtManager:
 
         config_content = re.sub(r"public_port\s*=\s*\d+", f"public_port = {port}", config_content)
 
-        # Remove default hello user
-        config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
+        # Replace default hello user with a generated admin user.
+        # Telemt requires at least one user in [access.users] to start —
+        # without it, the container crash-loops with
+        # "Invalid config: No users configured".
+        admin_secret = secrets.token_hex(16)
+        config_content = re.sub(
+            r'^hello\s*=\s*".*?"',
+            f'admin = "{admin_secret}"',
+            config_content,
+            flags=re.MULTILINE,
+        )
 
         # Log the hash of the patched content for audit trail
         patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
@@ -323,9 +332,11 @@ class TelemtManager:
 
     def remove_container(self, protocol_type: Optional[str] = None) -> None:
         """Remove the Telemt container using compose profile."""
-        # Stop and remove the telemt service via compose profile
+        # Stop and remove the telemt service via compose profile.
+        # NOTE: Do NOT use --remove-orphans, as the panel container is
+        # defined in the same compose file. --remove-orphans would kill it.
         out, err, code = self.ssh.run_sudo_command(
-            f"cd {self._compose_dir()} && docker compose --profile telemt down --remove-orphans",
+            f"cd {self._compose_dir()} && docker compose --profile telemt down",
             timeout=60,
         )
         if code != 0:

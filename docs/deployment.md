@@ -64,8 +64,10 @@ Use this for single-node local testing or development. No domain, no SSL, no WAF
 git clone https://github.com/devops-igor/amnezia-web-ui.git
 cd amnezia-web-ui
 
-# 2. Create environment file
+# 2. Create environment and data directories
 cp .env.example .env
+mkdir -p data
+chown 100:101 data
 
 # 3. Generate a secret key
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -110,10 +112,12 @@ Wait for DNS propagation (TTL depends on your registrar; typically 5–30 minute
 
 ### Step 2 — Prepare Config Directory
 
-Create a data directory for panel persistence:
+Create a data directory for panel persistence and set ownership so the
+container (which runs as `appuser` UID 100, GID 101) can write to it:
 
 ```bash
 mkdir -p data
+chown 100:101 data
 ```
 
 ### Step 3 — Edit `.env`
@@ -206,6 +210,29 @@ docker compose --profile telemt up -d
 ```
 
 Telemt is available at `http://localhost:18443` (standalone) or via the reverse proxy when bunkerweb is active.
+
+---
+
+### Multiple Domains (BunkerWeb Multisite)
+
+When `SERVER_NAME` contains multiple domains (e.g. `SERVER_NAME=vpn.example.com panel.example.com`), BunkerWeb autoconf only maps `REVERSE_PROXY_HOST` to the **first** domain. Additional domains will receive a TLS certificate but return a 404 because they have no reverse proxy config.
+
+To fix this, add per-domain labels to the `bunkerweb` service in `docker-compose.yml`:
+
+```yaml
+    environment:
+      # ... existing env vars ...
+      - vpn.example.com_USE_REVERSE_PROXY=yes
+      - vpn.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
+      - vpn.example.com_REVERSE_PROXY_URL=/
+      - vpn.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
+      - panel.example.com_USE_REVERSE_PROXY=yes
+      - panel.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
+      - panel.example.com_REVERSE_PROXY_URL=/
+      - panel.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
+```
+
+See [BunkerWeb Multisite Settings](https://docs.bunkerweb.io/latest/settings/#multisite) for details.
 
 ---
 

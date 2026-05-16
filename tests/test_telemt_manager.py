@@ -1053,7 +1053,13 @@ class TestInstallProtocolIntegrityChecks:
             config_content,
         )
         config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
-        config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
+        # Replace hello user with admin user (matches install_protocol behavior)
+        config_content = re.sub(
+            r'^hello\s*=\s*".*?"',
+            'admin = "00000000000000000000000000000000"',
+            config_content,
+            flags=re.MULTILINE,
+        )
         config_content = re.sub(
             r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
         )
@@ -1066,7 +1072,9 @@ class TestInstallProtocolIntegrityChecks:
             return ("", "", 0)
 
         self.mock_ssh.run_command.side_effect = run_command_side_effect
-        result = self.manager.install_protocol("telemt", port="443")
+        # Mock secrets.token_hex to return deterministic value for admin user
+        with patch("app.managers.telemt_manager.secrets.token_hex", return_value="0" * 32):
+            result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
 
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
@@ -1198,7 +1206,13 @@ class TestInstallProtocolComposeProfile:
             config_content,
         )
         config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
-        config_content = re.sub(r'^hello\s*=\s*".*?"', "", config_content, flags=re.MULTILINE)
+        # Replace hello user with admin user (matches install_protocol behavior)
+        config_content = re.sub(
+            r'^hello\s*=\s*".*?"',
+            'admin = "00000000000000000000000000000000"',
+            config_content,
+            flags=re.MULTILINE,
+        )
         config_content = re.sub(
             r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
         )
@@ -1217,7 +1231,9 @@ class TestInstallProtocolComposeProfile:
             ("", "", 0),
         ]
 
-        self.manager.install_protocol("telemt", port="443")
+        # Mock secrets.token_hex to return deterministic value for admin user
+        with patch("app.managers.telemt_manager.secrets.token_hex", return_value="0" * 32):
+            self.manager.install_protocol("telemt", port="443")
 
         calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
         compose_calls = [c for c in calls if "docker compose --profile telemt" in c]
