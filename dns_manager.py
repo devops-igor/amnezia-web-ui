@@ -1,5 +1,7 @@
 import logging
 
+from docker_utils import ensure_apparmor_utils
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,6 +36,9 @@ LABEL maintainer="AmneziaVPN"
 COPY forward-records.conf /opt/unbound/etc/unbound/forward-records.conf
 """
             self.ssh.write_file("/opt/amnezia/dns/Dockerfile", dockerfile)
+
+            # Ensure AppArmor utils are present (bare systems can fail Docker build otherwise)
+            ensure_apparmor_utils(self.ssh)
 
             # 4. Build and run
             self.ssh.run_sudo_command("docker build -t amnezia-dns /opt/amnezia/dns")
