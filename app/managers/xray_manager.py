@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 import urllib.parse
 
-from docker_utils import check_docker_installed
+from docker_utils import check_docker_installed, ensure_apparmor_utils
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +120,9 @@ ENTRYPOINT [ "dumb-init", "/opt/amnezia/start.sh" ]
 """
         self.ssh.run_sudo_command(f"mkdir -p {dockerfile_folder}")
         self.ssh.upload_file_sudo(dockerfile_content, f"{dockerfile_folder}/Dockerfile")
+
+        # Ensure AppArmor utils are present (bare systems can fail Docker build otherwise)
+        ensure_apparmor_utils(self.ssh)
 
         _, err, code = self.ssh.run_sudo_command(
             f"docker build --no-cache -t {self.IMAGE_NAME} {dockerfile_folder}", timeout=300
