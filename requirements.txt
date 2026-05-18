@@ -24,7 +24,7 @@ mdurl==0.1.2
 msgpack==1.1.2
 multicolorcaptcha==1.2.0
 packaging==26.2
-paramiko==4.0.0
+paramiko==5.0.0
 pillow==12.2.0
 platformdirs==4.9.6
 py-serializable==2.1.0
@@ -47,7 +47,7 @@ tomli==2.4.1
 tomli_w==1.2.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-urllib3==2.6.3
+urllib3==2.7.0
 uvicorn==0.34.0
 watchfiles==1.1.1
 websockets==16.0
