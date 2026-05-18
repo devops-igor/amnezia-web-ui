@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_get, api_post
+from tests.e2e.conftest import api_get, api_post, assert_response_shape
 
 
 def _get_admin_connections(page: Page) -> list:
@@ -103,6 +103,12 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
 
     # Endpoint should respond (success or error if protocol not available)
     assert add_conn_result["body"] is not None
+
+    # Validate add connection response shape on success
+    if add_conn_result["status"] == 200:
+        body = add_conn_result["body"]
+        if "status" in body:
+            assert_response_shape(body, {"status": str}, "add_connection")
 
     # Clean up
     api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)

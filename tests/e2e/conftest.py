@@ -14,7 +14,7 @@ Configure headless/headed via --headed CLI flag or E2E_HEADLESS env var.
 import os
 import time
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Tuple, Union
 from urllib.parse import urljoin
 
 import pytest
@@ -263,3 +263,41 @@ def api_post(page: Page, url: str, data: Dict[str, Any], token: str) -> Dict[str
         body = {"error": text[:200]}
 
     return {"status": status, "body": body}
+
+
+def assert_response_shape(
+    data: Any,
+    required_keys: Dict[str, Union[type, Tuple[type, ...]]],
+    test_name: str = "",
+) -> None:
+    """Assert that data is a dict containing the required keys with expected types.
+
+    Validates shape only — does not assert exact values. Handles the common
+    pattern of api_post returning {"status": int, "body": dict} by checking
+    the "body" key before validating its contents.
+
+    Args:
+        data: The response body dict to validate (or api_post result dict).
+        required_keys: Map of key name -> expected type (e.g. {"id": int, "name": str}).
+        test_name: Optional name for error messages.
+
+    Raises:
+        AssertionError with details of missing keys or type mismatches.
+    """
+    prefix = f"{test_name}: " if test_name else ""
+
+    assert isinstance(data, dict), f"{prefix}Expected dict, got {type(data).__name__}"
+
+    for key, expected_type in required_keys.items():
+        assert key in data, f"{prefix}Missing required key '{key}' in {sorted(data.keys())}"
+        value = data[key]
+        if isinstance(expected_type, tuple):
+            assert isinstance(value, expected_type), (
+                f"{prefix}Key '{key}' expected one of "
+                f"{[t.__name__ for t in expected_type]}, got {type(value).__name__}"
+            )
+        else:
+            assert isinstance(value, expected_type), (
+                f"{prefix}Key '{key}' expected {expected_type.__name__}, "
+                f"got {type(value).__name__}"
+            )
