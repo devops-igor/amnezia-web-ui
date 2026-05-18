@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_get, api_post
+from tests.e2e.conftest import api_get, api_post, assert_response_shape
 
 
 def _get_users(page: Page) -> list:
@@ -31,6 +31,15 @@ def test_user_list_loads(authenticated_page: Page, base_url: str) -> None:
     else:
         assert isinstance(result, list) or "users" in result
 
+    # Validate paginated users response shape
+    if isinstance(result, dict) and "users" in result:
+        assert_response_shape(result, {"users": list, "total": int, "page": int}, "user_list")
+        # Validate each user in the list has required fields
+        for user in result.get("users", []):
+            assert_response_shape(
+                user, {"id": str, "username": str, "role": str, "enabled": bool}, "user_item"
+            )
+
 
 @pytest.mark.e2e
 def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> None:
@@ -53,6 +62,9 @@ def test_add_user(authenticated_page: Page, base_url: str, csrf_token: str) -> N
     body = add_result["body"]
     if add_result["status"] == 200:
         assert body.get("status") == "success" or "user_id" in body
+        # Validate success response shape
+        if "user_id" in body:
+            assert_response_shape(body, {"status": str, "user_id": str}, "add_user")
 
     # Clean up — try to delete the test user
     if add_result["status"] == 200:
