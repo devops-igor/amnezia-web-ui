@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_get, api_post
+from tests.e2e.conftest import api_get, api_post, assert_response_shape
 
 
 @pytest.mark.e2e
@@ -35,6 +35,12 @@ def test_server_detail_page(authenticated_page: Page, base_url: str) -> None:
     if not servers:
         pytest.skip("No servers available to test detail page")
 
+    # Validate server list response shape
+    for item in servers:
+        assert_response_shape(
+            item, {"id": int, "name": str, "host": str, "protocols": dict}, "server_list_item"
+        )
+
     server_id = servers[0]["id"]
     page.goto(f"{base_url}/server/{server_id}")
     page.wait_for_load_state("networkidle")
@@ -61,6 +67,15 @@ def test_server_check(authenticated_page: Page, base_url: str, csrf_token: str) 
 
     # The check endpoint returns a response with server status data
     assert check_result["body"] is not None
+
+    # Validate check response shape
+    body = check_result["body"]
+    if isinstance(body, dict) and "connection" in body:
+        assert_response_shape(
+            body,
+            {"connection": str, "docker_installed": bool, "protocols": dict},
+            "server_check",
+        )
 
 
 @pytest.mark.e2e
@@ -97,6 +112,15 @@ def test_server_stats(authenticated_page: Page, base_url: str, csrf_token: str) 
 
     # Stats endpoint should respond
     assert stats_result["body"] is not None
+
+    # Validate stats response shape
+    body = stats_result["body"]
+    if isinstance(body, dict) and "cpu" in body:
+        assert_response_shape(
+            body,
+            {"cpu": (int, float), "ram_used": int, "ram_total": int, "ram_percent": (int, float)},
+            "server_stats",
+        )
 
 
 @pytest.mark.e2e
