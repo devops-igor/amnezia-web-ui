@@ -62,7 +62,7 @@ services:
       retries: 3
       start_period: 40s
     labels:
-      - bunkerweb.SERVER_NAME=${SERVER_NAME:-localhost}
+      - bunkerweb.SERVER_NAME=${PANEL_DOMAIN:-localhost}
       - bunkerweb.USE_REVERSE_PROXY=yes
       - bunkerweb.REVERSE_PROXY_URL=/
       - bunkerweb.REVERSE_PROXY_HOST=http://amnezia-panel:5000
@@ -86,22 +86,25 @@ services:
       # Docker integration — BunkerWeb auto-configures from labels
       - AUTOCONF_MODE=yes
 
-      # NOTE: When using multiple domains in SERVER_NAME (e.g. "vpn.example.com panel.example.com"),
-      # BunkerWeb autoconf only maps REVERSE_PROXY_HOST to the FIRST domain. For each additional
-      # domain, you must add per-site environment variables on this service:
-      #   - vpn.example.com_USE_REVERSE_PROXY=yes
-      #   - vpn.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
-      #   - vpn.example.com_REVERSE_PROXY_URL=/
-      #   - vpn.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
-      #
-      # Without these, additional domains will get a TLS certificate but return 404.
-      # See: https://docs.bunkerweb.io/latest/settings/#multisite
+      # NOTE: Multi-site domain routing is configured via env vars.
+      # See .env.example for PANEL_DOMAIN, BUNKERWEB_UI_DOMAIN, BUNKERWEB_UI_PORT.
+      # When BUNKERWEB_UI_DOMAIN is empty, the UI is only accessible via the
+      # localhost port mapping below (SSH tunnel).
 
       - DOCKER_HOST=tcp://docker-proxy:2375
 
-      # Multi-site support — SERVER_NAME per-site settings are in the panel labels
+      # Multi-site support — per-site routing set below via env vars
       - MULTISITE=${MULTISITE:-yes}
-      - SERVER_NAME=${SERVER_NAME:-localhost}
+      - SERVER_NAME=${PANEL_DOMAIN:-localhost} ${BUNKERWEB_UI_DOMAIN:-}
+
+      # Per-site routing: BunkerWeb UI domain → internal BunkerWeb UI (port 7000)
+      # When BUNKERWEB_UI_DOMAIN is set (e.g. dev.example.com), these create per-site
+      # entries that route traffic to the BunkerWeb admin interface.
+      # When empty, they resolve to harmless no-ops (BunkerWeb ignores empty prefixes).
+      - ${BUNKERWEB_UI_DOMAIN:-}_USE_REVERSE_PROXY=yes
+      - ${BUNKERWEB_UI_DOMAIN:-}_REVERSE_PROXY_URL=/
+      - ${BUNKERWEB_UI_DOMAIN:-}_REVERSE_PROXY_HOST=http://127.0.0.1:7000
+      - ${BUNKERWEB_UI_DOMAIN:-}_REVERSE_PROXY_INTERCEPT_ERRORS=no
 
       # Let's Encrypt
       - AUTO_LETS_ENCRYPT=${AUTO_LETS_ENCRYPT:-yes}
@@ -135,6 +138,7 @@ services:
       - "80:8080/tcp"
       - "443:8443/tcp"
       - "443:8443/udp"
+      - "${BUNKERWEB_UI_PORT:-127.0.0.1:7080}:7000"
     volumes:
       - bw-data:/data
     logging:
