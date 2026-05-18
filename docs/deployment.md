@@ -135,8 +135,8 @@ Critical fields:
 # REQUIRED — generate with: python3 -c "import secrets; print(secrets.token_hex(32))"
 SECRET_KEY=<your-generated-key>
 
-# Domain for Let's Encrypt + vhost
-SERVER_NAME=vpn.example.com
+# Domain for the panel — BunkerWeb vhost + Let's Encrypt
+PANEL_DOMAIN=vpn.example.com
 
 # Let's Encrypt email
 EMAIL_LETS_ENCRYPT=admin@example.com
@@ -172,7 +172,6 @@ docker compose logs -f bunkerweb
 After ~30 seconds (Let's Encrypt needs time), open:
 
 - Panel: `https://vpn.example.com`
-- BunkerWeb UI: `https://vpn.example.com/ui` (if `USE_UI=yes`)
 
 > First cert request can take up to 60 seconds. If you see a certificate error immediately, wait and retry.
 
@@ -182,7 +181,20 @@ Let's Encrypt certificates auto-renew 30 days before expiry. No manual action ne
 
 ### BunkerWeb UI
 
-When `USE_UI=yes`, the BunkerWeb admin interface is available at the same domain on port 8443 (HTTPS only). Use it to view real-time request logs, ban IPs, and adjust WAF sensitivity.
+When `USE_UI=yes`, the BunkerWeb admin interface is available. Use it to view real-time request logs, ban IPs, and adjust WAF sensitivity.
+
+There are two ways to access the BunkerWeb UI:
+
+1. **Via domain** (if `BUNKERWEB_UI_DOMAIN` is set): open `https://dev.example.com` in your browser
+2. **Via SSH tunnel** (default, always available): access port 7080 on localhost
+
+   ```bash
+   # On your local machine:
+   ssh -L 7080:127.0.0.1:7080 user@server
+   # Then open http://localhost:7080 in your browser
+   ```
+
+Credentials are created on first access — you'll be prompted to set an admin password.
 
 ---
 
@@ -213,26 +225,90 @@ Telemt is available at `http://localhost:18443` (standalone) or via the reverse 
 
 ---
 
-### Multiple Domains (BunkerWeb Multisite)
+## Multiple Domains (BunkerWeb Multisite)
 
-When `SERVER_NAME` contains multiple domains (e.g. `SERVER_NAME=vpn.example.com panel.example.com`), BunkerWeb autoconf only maps `REVERSE_PROXY_HOST` to the **first** domain. Additional domains will receive a TLS certificate but return a 404 because they have no reverse proxy config.
+BunkerWeb supports running the Amnezia panel and its own admin UI on separate domains. This is configured via three environment variables in `.env`.
 
-To fix this, add per-domain labels to the `bunkerweb` service in `docker-compose.yml`:
+### Overview
 
-```yaml
-    environment:
-      # ... existing env vars ...
-      - vpn.example.com_USE_REVERSE_PROXY=yes
-      - vpn.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
-      - vpn.example.com_REVERSE_PROXY_URL=/
-      - vpn.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
-      - panel.example.com_USE_REVERSE_PROXY=yes
-      - panel.example.com_REVERSE_PROXY_HOST=http://amnezia-panel:5000
-      - panel.example.com_REVERSE_PROXY_URL=/
-      - panel.example.com_REVERSE_PROXY_INTERCEPT_ERRORS=no
+With multisite configured, you get:
+
+- **Panel domain** (`PANEL_DOMAIN`): serves the Amnezia Web Panel
+- **UI domain** (`BUNKERWEB_UI_DOMAIN`): serves the BunkerWeb admin interface
+- **Local port** (`BUNKERWEB_UI_PORT`): localhost-only port for SSH tunnel access to the UI
+
+### Configuration via .env
+
+```env
+# =============================================================================
+# BUNKERWEB MULTISITE — Domain Routing
+# =============================================================================
+
+# Domain serving the Amnezia Web Panel (reverse-proxied through BunkerWeb).
+# Defaults to SERVER_NAME for backward compatibility with single-domain setups.
+PANEL_DOMAIN=vpn.example.com
+
+# Domain serving the BunkerWeb Web UI (optional).
+# Set this to expose BunkerWeb's admin interface on a separate domain.
+# Leave empty for single-domain setups — the UI is still accessible via
+# BUNKERWEB_UI_PORT below (default: SSH tunnel to localhost:7080).
+BUNKERWEB_UI_DOMAIN=dev.example.com
+
+# Localhost port for direct BunkerWeb UI access (SSH tunnel).
+# Default: 127.0.0.1:7080 — accessible only from localhost for security.
+BUNKERWEB_UI_PORT=127.0.0.1:7080
 ```
 
-See [BunkerWeb Multisite Settings](https://docs.bunkerweb.io/latest/settings/#multisite) for details.
+### Example Setup
+
+For a deployment with:
+- `dev.drochi.games` → BunkerWeb Web UI
+- `vpn.dev.drochi.games` → Amnezia Web Panel
+
+```env
+PANEL_DOMAIN=vpn.dev.drochi.games
+BUNKERWEB_UI_DOMAIN=dev.drochi.games
+BUNKERWEB_UI_PORT=127.0.0.1:7080
+```
+
+Both domains need DNS A records pointing to your server's IP. BunkerWeb will request separate Let's Encrypt certificates for each.
+
+After starting with `docker compose --profile bunkerweb up -d`:
+
+- Panel: `https://vpn.dev.drochi.games`
+- BunkerWeb UI: `https://dev.drochi.games` (or `http://localhost:7080` via SSH tunnel)
+
+### Single-Domain Mode
+
+When `BUNKERWEB_UI_DOMAIN` is empty (the default), the setup operates in single-domain mode:
+
+- Panel is served at `PANEL_DOMAIN`
+- BunkerWeb UI is **only** accessible via the localhost port (`BUNKERWEB_UI_PORT`)
+- The `${BUNKERWEB_UI_DOMAIN:-}_*` environment variables in docker-compose.yml resolve to harmless no-ops
+
+This is backward compatible — existing single-domain deployments continue to work.
+
+### Accessing the BunkerWeb UI
+
+**Via domain** (when `BUNKERWEB_UI_DOMAIN` is set):
+
+Open `https://dev.example.com` in your browser. BunkerWeb serves its own admin interface on port 7000 internally, routed through the reverse proxy.
+
+**Via SSH tunnel** (default, always available):
+
+```bash
+# On your local machine:
+ssh -L 7080:127.0.0.1:7080 user@server
+# Then open http://localhost:7080 in your browser
+```
+
+**Via direct port** (if `BUNKERWEB_UI_PORT` is set to a non-localhost address):
+
+Open `http://server-ip:7080` in your browser. Not recommended for production — use SSH tunnel instead.
+
+### First-Time BunkerWeb UI Setup
+
+The BunkerWeb UI creates admin credentials on first access. When you open the UI for the first time, you'll be prompted to set a password. This password is stored in the `bw-data` Docker volume and persists across restarts.
 
 ---
 
@@ -245,15 +321,18 @@ See [BunkerWeb Multisite Settings](https://docs.bunkerweb.io/latest/settings/#mu
 | `APP_PORT` | `5000` | No | Direct panel port. Note: `APP_PORT=` (empty) maps a random ephemeral port due to Docker behavior, not "no port". Use BunkerWeb + firewall for true isolation |
 | `DATA_DIR` | `./data` | No | Host directory for panel SQLite DB and config persistence |
 | `TRUSTED_PROXIES` | `172.18.0.0/24` | No | CIDR list of trusted proxies for X-Forwarded-For resolution |
-| `SERVER_NAME` | `localhost` | No | Primary domain for BunkerWeb vhost and Let's Encrypt |
+| `SERVER_NAME` | `localhost` | No | Legacy — prefer PANEL_DOMAIN for the panel. Used as default for PANEL_DOMAIN |
+| `PANEL_DOMAIN` | — | No | Domain serving the Amnezia Web Panel (reverse-proxied through BunkerWeb). Defaults to SERVER_NAME |
+| `BUNKERWEB_UI_DOMAIN` | — | No | Domain for the BunkerWeb Web UI (optional). When empty, UI is only accessible via localhost port |
+| `BUNKERWEB_UI_PORT` | `127.0.0.1:7080` | No | Localhost bind for BunkerWeb UI port 7000. Access via SSH tunnel: `ssh -L 7080:127.0.0.1:7080 user@server` |
 | `AUTO_LETS_ENCRYPT` | `yes` | No | Enable automatic Let's Encrypt certificate generation |
 | `EMAIL_LETS_ENCRYPT` | — | **Yes (when AUTO_LETS_ENCRYPT=yes)** | Email for Let's Encrypt expiry warnings |
 | `BUNKERWEB_VERSION` | `1.6.9` | No | BunkerWeb image version tag |
-| `USE_UI` | `yes` | No | Enable BunkerWeb admin UI at `/ui` |
+| `USE_UI` | `yes` | No | Enable BunkerWeb admin UI. When BUNKERWEB_UI_DOMAIN is set, accessible at that domain. Otherwise accessible via BUNKERWEB_UI_PORT (localhost only) |
 | `USE_GZIP` | `yes` | No | Enable gzip HTTP response compression |
 | `USE_MODSECURITY` | `yes` | No | Enable ModSecurity WAF rules |
 | `USE_CROWDSEC` | `no` | No | Enable CrowdSec integration (requires separate CrowdSec setup) |
-| `MULTISITE` | `yes` | No | Enable BunkerWeb multi-site mode (required for per-site config via labels) |
+| `MULTISITE` | `yes` | No | Enable BunkerWeb multi-site mode (required for per-site config) |
 | `USE_WHITELIST_IP` | `yes` | No | Enable IP whitelist at BunkerWeb level |
 | `WHITELIST_IP_LIST` | — | No | Comma-separated IPs/CIDRs for whitelist. Example: `203.0.113.50,203.0.113.100,10.0.0.0/24` |
 | `USE_BAD_BEHAVIOR` | `yes` | No | Block known malicious bots via Bad Behavior module |
@@ -309,10 +388,10 @@ WHITELIST_IP_LIST=203.0.113.50   # your current IP only
 
 ### Auto Let's Encrypt
 
-When `AUTO_LETS_ENCRYPT=yes` and `SERVER_NAME` points to your server, BunkerWeb automatically requests and renews a Let's Encrypt certificate. No manual certificate handling required.
+When `AUTO_LETS_ENCRYPT=yes` and `PANEL_DOMAIN` points to your server, BunkerWeb automatically requests and renews a Let's Encrypt certificate. No manual certificate handling required.
 
 ```env
-SERVER_NAME=vpn.example.com
+PANEL_DOMAIN=vpn.example.com
 AUTO_LETS_ENCRYPT=yes
 EMAIL_LETS_ENCRYPT=admin@example.com
 ```
