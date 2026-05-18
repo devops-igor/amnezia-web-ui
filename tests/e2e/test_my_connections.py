@@ -3,7 +3,13 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import _do_login, _get_csrf_cookie, api_get, api_post
+from tests.e2e.conftest import (
+    _do_login,
+    _get_csrf_cookie,
+    api_get,
+    api_post,
+    assert_response_shape,
+)
 
 
 def _create_test_user(
@@ -64,6 +70,17 @@ def test_user_login_and_list(page: Page, base_url: str, admin_user: str, admin_p
     page.wait_for_load_state("networkidle")
     assert "/login" not in page.url
 
+    # Validate /api/my/connections response shape
+    my_result = api_get(page, "/api/my/connections")
+    if isinstance(my_result, dict) and "connections" in my_result:
+        assert_response_shape(my_result, {"connections": list, "limits": dict}, "my_connections")
+        if isinstance(my_result.get("limits"), dict):
+            assert_response_shape(
+                my_result["limits"],
+                {"max_connections": int, "current_connections": int},
+                "my_connections_limits",
+            )
+
 
 @pytest.mark.e2e
 def test_create_connection(
@@ -98,6 +115,8 @@ def test_create_connection(
     assert conn_result["body"] is not None
     if conn_result["status"] == 200:
         assert conn_result["body"].get("status") == "success" or "id" in conn_result["body"]
+        if "status" in conn_result["body"]:
+            assert_response_shape(conn_result["body"], {"status": str}, "add_connection")
 
     # Clean up — delete the test user
     api_post(page, f"/api/users/{user_id}/delete", {}, csrf_token)

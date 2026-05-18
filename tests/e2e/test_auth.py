@@ -5,7 +5,7 @@ import os
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import _do_login, _get_csrf_cookie
+from tests.e2e.conftest import _do_login, _get_csrf_cookie, assert_response_shape
 
 
 @pytest.mark.e2e
@@ -50,6 +50,9 @@ def test_login_failure(page: Page, base_url: str) -> None:
 
     # Should fail (401 or 400)
     assert result.status in (400, 401, 403)
+
+    # Validate error response shape
+    assert_response_shape(result.json(), {"error": str}, "login_failure")
 
     # Should still be able to see the login page
     page.reload()

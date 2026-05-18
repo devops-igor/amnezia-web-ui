@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_get, api_post
+from tests.e2e.conftest import api_get, api_post, assert_response_shape
 
 
 def _find_or_create_user(page: Page, csrf_token: str, username: str = "e2e_share_user") -> dict:
@@ -64,6 +64,9 @@ def test_enable_sharing(authenticated_page: Page, base_url: str, csrf_token: str
     assert share_result["status"] == 200
     assert body.get("status") == "success"
     assert "share_token" in body
+
+    # Validate share setup response shape
+    assert_response_shape(body, {"status": str, "share_token": str}, "share_setup")
 
     # Clean up — disable sharing
     api_post(
