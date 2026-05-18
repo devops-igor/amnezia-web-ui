@@ -3,7 +3,7 @@
 import pytest
 from playwright.sync_api import Page
 
-from tests.e2e.conftest import api_get, api_post
+from tests.e2e.conftest import api_get, api_post, assert_response_shape
 
 
 @pytest.mark.e2e
@@ -28,6 +28,10 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
 
     # Get current settings
     settings_result = api_get(page, "/api/settings")
+
+    # Validate settings response shape
+    if isinstance(settings_result, dict):
+        assert_response_shape(settings_result, {"appearance": dict}, "settings")
 
     original_title = ""
     if isinstance(settings_result, dict):
@@ -82,6 +86,7 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
     # Should succeed
     if save_result["status"] == 200:
         assert save_result["body"].get("status") == "success"
+        assert_response_shape(save_result["body"], {"status": str}, "settings_save")
 
         # Verify by navigating to the page and checking the title appears
         page.goto(f"{base_url}/")
