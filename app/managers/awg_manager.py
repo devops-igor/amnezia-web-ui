@@ -1071,10 +1071,14 @@ tail -f /dev/null
 
         return result
 
-    def add_client(self, protocol_type, client_name, server_host, port):
+    def add_client(self, protocol_type, client_name, server_host, port, stored_awg_params=None):
         """
         Add a new client/peer to the AWG config.
         Returns the client config as a string for the .conf file.
+
+        Args:
+            stored_awg_params: Optional dict from the database (awg_params column).
+                Contains I1-I5 and MTU which are CLIENT-only and not in the server config.
         """
         with self._lock:
             container_name = self._container_name(protocol_type)
@@ -1092,7 +1096,9 @@ tail -f /dev/null
             # Get next available IP
             client_ip = self._get_next_ip(protocol_type)
 
-            # Get AWG params from server config
+            # Get AWG params from server config (Jc, Jmin, Jmax, S1-S4, H1-H4)
+            # NOTE: I1-I5 are CLIENT-only — they are NOT in the server config.
+            # They must be sourced from the database-stored awg_params.
             awg_params = self._get_awg_params_from_config(protocol_type)
 
             # Add peer to server config via SFTP + docker cp (no shell injection)
@@ -1138,9 +1144,16 @@ AllowedIPs = {client_ip}/32
             if awg_params.get("port"):
                 port = awg_params["port"]
 
+            # Merge CLIENT-only params (I1-I5, MTU) from database storage
+            # These are NOT in the server config file — they come from stored_awg_params
+            if stored_awg_params:
+                for key in ("i1", "i2", "i3", "i4", "i5", "mtu"):
+                    if key in stored_awg_params and key not in awg_params:
+                        awg_params[key] = stored_awg_params[key]
+
             dns1 = AWG_DEFAULTS["dns1"]
             dns2 = AWG_DEFAULTS["dns2"]
-            mtu = AWG_DEFAULTS["mtu"]
+            mtu = awg_params.get("mtu", AWG_DEFAULTS["mtu"])
 
             # Standard fields
             config_lines = [
