@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
 from docker_utils import check_docker_installed, ensure_apparmor_utils
+from app.managers.awg_cps import generate_cps_packets, select_mimicry_domain
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,10 @@ def generate_awg_params(use_ranges=False, profile=None):
                  profile-specific parameter ranges and quadrant-based
                  header generation. If None, uses original behavior
                  (backward compatible).
+
+    Returns:
+        Dict with Jc, Jmin, Jmax, S1-S4, H1-H4, plus I1-I5/CPS/MTU
+        for profile-based generation.
     """
     import random
 
@@ -201,7 +206,7 @@ def generate_awg_params(use_ranges=False, profile=None):
             "transport_packet_magic_header": h4,
         }
 
-    return {
+    result = {
         "junk_packet_count": str(jc),
         "junk_packet_min_size": str(jmin),
         "junk_packet_max_size": str(jmax),
@@ -211,6 +216,26 @@ def generate_awg_params(use_ranges=False, profile=None):
         "transport_packet_junk_size": str(s4),
         **headers,
     }
+
+    # CPS packets and MTU based on profile
+    if profile and profile in AWG_PROFILES:
+        if profile == "lite":
+            result["mtu"] = "1280"
+            result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": "", "cps": ""})
+        elif profile == "standard":
+            result["mtu"] = "1280"
+            cps_result = generate_cps_packets(profile="standard", domain=None)
+            result.update(cps_result)
+        elif profile == "pro":
+            result["mtu"] = "1320"
+            cps_result = generate_cps_packets(profile="pro", domain=None)
+            result.update(cps_result)
+    else:
+        # Backward compatible: no CPS, default MTU
+        result["mtu"] = "1280"
+        result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": "", "cps": ""})
+
+    return result
 
 
 class AWGManager:
@@ -346,7 +371,9 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         self.ssh.run_sudo_script(script)
         return True
 
-    def install_protocol(self, protocol_type, port=None, awg_params=None, awg_profile=None):
+    def install_protocol(
+        self, protocol_type, port=None, awg_params=None, awg_profile=None, awg_cps_protocol=None
+    ):
         """
         Full installation of AWG or AWG-Legacy protocol.
         Steps: install docker -> prepare host -> build container ->
@@ -360,6 +387,27 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
                 use_ranges=(protocol_type in (self.AWG, self.AWG2)),
                 profile=awg_profile,
             )
+
+        # Domain probing for CPS mimicry (Standard and Pro profiles only)
+        if awg_profile in ("standard", "pro") and self.ssh:
+            try:
+                protocol_for_probe = awg_cps_protocol if awg_cps_protocol else "quic"
+                domain = select_mimicry_domain(
+                    self.ssh,
+                    protocol=protocol_for_probe,
+                    region="world",
+                )
+                logger.info(f"AWG: Selected mimicry domain: {domain}")
+                cps_result = generate_cps_packets(
+                    profile=awg_profile,
+                    domain=domain,
+                )
+                awg_params.update(cps_result)
+            except Exception as e:
+                logger.warning(f"AWG: Domain probing failed, using fallback: {e}")
+                # Re-generate CPS with no domain (uses random values)
+                cps_result = generate_cps_packets(profile=awg_profile, domain=None)
+                awg_params.update(cps_result)
 
         container_name = self._container_name(protocol_type)
         docker_image = self._docker_image(protocol_type)
@@ -517,11 +565,20 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             "response_packet_magic_header": (5, 4294967295),
             "underload_packet_magic_header": (5, 4294967295),
             "transport_packet_magic_header": (5, 4294967295),
+            "i1": (0, 2000),
+            "i2": (0, 2000),
+            "i3": (0, 2000),
+            "i4": (0, 2000),
+            "i5": (0, 2000),
+            "mtu": (1200, 1500),
         }
         for key, (min_val, max_val) in numeric_params.items():
             if key not in awg_params:
                 continue
             val = awg_params[key]
+            # I1-I5 can be empty strings (CPS disabled) — skip validation
+            if key in ("i1", "i2", "i3", "i4", "i5") and val == "":
+                continue
             # Must be a string representation of an integer — no newlines,
             # shell metacharacters, or floating point
             if not isinstance(val, str) or not val.isdigit():
@@ -532,6 +589,12 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
                     f"awg_params['{key}'] must be between {min_val} and {max_val}, "
                     f"got: {int_val}"
                 )
+
+        # CPS must be either empty string or the literal "signature"
+        if "cps" in awg_params:
+            cps_val = awg_params["cps"]
+            if cps_val and cps_val != "signature":
+                raise ValueError(f"awg_params['cps'] must be '' or 'signature', got: {cps_val!r}")
 
     def _configure_container(self, protocol_type, port, awg_params):
         """Configure the AWG container (generate keys and server config).
@@ -572,48 +635,83 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         private_key = private_key.strip()
 
         # Build config content as plain Python string (NOT shell heredoc)
+        # Use list-based approach for clean conditional I1-I5/CPS/MTU writing
+        mtu = awg_params.get("mtu", "1280")
+
         if protocol_type in (self.AWG, self.AWG2):
-            config_content = (
-                "[Interface]\n"
-                f"PrivateKey = {private_key}\n"
-                f"Address = {subnet_ip}/{subnet_cidr}\n"
-                f"ListenPort = {port}\n"
-                f"Jc = {awg_params['junk_packet_count']}\n"
-                f"Jmin = {awg_params['junk_packet_min_size']}\n"
-                f"Jmax = {awg_params['junk_packet_max_size']}\n"
-                f"S1 = {awg_params['init_packet_junk_size']}\n"
-                f"S2 = {awg_params['response_packet_junk_size']}\n"
-                f"S3 = {awg_params['cookie_reply_packet_junk_size']}\n"
-                f"S4 = {awg_params['transport_packet_junk_size']}\n"
-                f"H1 = {awg_params['init_packet_magic_header']}\n"
-                f"H2 = {awg_params['response_packet_magic_header']}\n"
-                f"H3 = {awg_params['underload_packet_magic_header']}\n"
-                f"H4 = {awg_params['transport_packet_magic_header']}\n"
-                "# Signature Chain parameters (AWG 2.0+)\n"
-                "# I1 = 0\n"
-                "# I2 = 0\n"
-                "# I3 = 0\n"
-                "# I4 = 0\n"
-                "# I5 = 0\n"
-                "# CPS = signature\n"
-            )
+            config_parts = [
+                "[Interface]",
+                f"PrivateKey = {private_key}",
+                f"Address = {subnet_ip}/{subnet_cidr}",
+                f"MTU = {mtu}",
+                f"ListenPort = {port}",
+                f"Jc = {awg_params['junk_packet_count']}",
+                f"Jmin = {awg_params['junk_packet_min_size']}",
+                f"Jmax = {awg_params['junk_packet_max_size']}",
+                f"S1 = {awg_params['init_packet_junk_size']}",
+                f"S2 = {awg_params['response_packet_junk_size']}",
+                f"S3 = {awg_params['cookie_reply_packet_junk_size']}",
+                f"S4 = {awg_params['transport_packet_junk_size']}",
+                f"H1 = {awg_params['init_packet_magic_header']}",
+                f"H2 = {awg_params['response_packet_magic_header']}",
+                f"H3 = {awg_params['underload_packet_magic_header']}",
+                f"H4 = {awg_params['transport_packet_magic_header']}",
+            ]
+
+            # I1-I5 signature chain (CPS packets)
+            i1 = awg_params.get("i1", "")
+            i2 = awg_params.get("i2", "")
+            i3 = awg_params.get("i3", "")
+            i4 = awg_params.get("i4", "")
+            i5 = awg_params.get("i5", "")
+            cps = awg_params.get("cps", "")
+
+            if i1:
+                config_parts.append(f"I1 = {i1}")
+            else:
+                config_parts.append("# I1 = 0")
+            if i2:
+                config_parts.append(f"I2 = {i2}")
+            else:
+                config_parts.append("# I2 = 0")
+            if i3:
+                config_parts.append(f"I3 = {i3}")
+            else:
+                config_parts.append("# I3 = 0")
+            if i4:
+                config_parts.append(f"I4 = {i4}")
+            else:
+                config_parts.append("# I4 = 0")
+            if i5:
+                config_parts.append(f"I5 = {i5}")
+            else:
+                config_parts.append("# I5 = 0")
+            if cps:
+                config_parts.append(f"CPS = {cps}")
+            else:
+                config_parts.append("# CPS = signature")
+
+            config_content = "\n".join(config_parts) + "\n"
         else:
             # AWG Legacy
-            config_content = (
-                "[Interface]\n"
-                f"PrivateKey = {private_key}\n"
-                f"Address = {subnet_ip}/{subnet_cidr}\n"
-                f"ListenPort = {port}\n"
-                f"Jc = {awg_params['junk_packet_count']}\n"
-                f"Jmin = {awg_params['junk_packet_min_size']}\n"
-                f"Jmax = {awg_params['junk_packet_max_size']}\n"
-                f"S1 = {awg_params['init_packet_junk_size']}\n"
-                f"S2 = {awg_params['response_packet_junk_size']}\n"
-                f"H1 = {awg_params['init_packet_magic_header']}\n"
-                f"H2 = {awg_params['response_packet_magic_header']}\n"
-                f"H3 = {awg_params['underload_packet_magic_header']}\n"
-                f"H4 = {awg_params['transport_packet_magic_header']}\n"
-            )
+            config_parts = [
+                "[Interface]",
+                f"PrivateKey = {private_key}",
+                f"Address = {subnet_ip}/{subnet_cidr}",
+                f"MTU = {mtu}",
+                f"ListenPort = {port}",
+                f"Jc = {awg_params['junk_packet_count']}",
+                f"Jmin = {awg_params['junk_packet_min_size']}",
+                f"Jmax = {awg_params['junk_packet_max_size']}",
+                f"S1 = {awg_params['init_packet_junk_size']}",
+                f"S2 = {awg_params['response_packet_junk_size']}",
+                f"H1 = {awg_params['init_packet_magic_header']}",
+                f"H2 = {awg_params['response_packet_magic_header']}",
+                f"H3 = {awg_params['underload_packet_magic_header']}",
+                f"H4 = {awg_params['transport_packet_magic_header']}",
+            ]
+            # Legacy does NOT include S3, S4, I1-I5, CPS
+            config_content = "\n".join(config_parts) + "\n"
 
         # Upload config via SFTP + docker cp (no user data in shell commands)
         self.ssh.upload_file(config_content, "/tmp/_amnz_wg_config.conf")
