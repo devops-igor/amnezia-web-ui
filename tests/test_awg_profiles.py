@@ -164,6 +164,13 @@ class TestAWGProfileParams:
             "response_packet_magic_header",
             "underload_packet_magic_header",
             "transport_packet_magic_header",
+            "mtu",
+            "i1",
+            "i2",
+            "i3",
+            "i4",
+            "i5",
+            "cps",
         }
         assert set(params.keys()) == expected_keys
         # All values are strings
@@ -458,6 +465,7 @@ class TestApiInstallProfile:
                             protocol_type="awg",
                             port="55424",
                             awg_profile="standard",
+                            awg_cps_protocol=None,
                         )
         finally:
             app.app.dependency_overrides.clear()
@@ -521,6 +529,7 @@ class TestApiInstallProfile:
                             protocol_type="awg",
                             port="55424",
                             awg_profile=None,
+                            awg_cps_protocol=None,
                         )
         finally:
             app.app.dependency_overrides.clear()
@@ -615,3 +624,56 @@ class TestApiInstallProfile:
                         assert "awg_profile" not in call_args.kwargs
         finally:
             app.app.dependency_overrides.clear()
+
+
+class TestGenerateAwgParamsCPS:
+    """Tests for CPS integration in generate_awg_params()."""
+
+    def test_generate_awg_params_includes_cps_for_standard(self):
+        """Standard profile includes I1 with nonzero value and cps='signature'."""
+        params = generate_awg_params(profile="standard")
+        assert int(params["i1"]) >= 50
+        assert params["i2"] == ""
+        assert params["i3"] == ""
+        assert params["i4"] == ""
+        assert params["i5"] == ""
+        assert params["cps"] == "signature"
+
+    def test_generate_awg_params_includes_cps_for_pro(self):
+        """Pro profile includes all I1-I5 with nonzero values."""
+        params = generate_awg_params(profile="pro")
+        for key in ("i1", "i2", "i3", "i4", "i5"):
+            assert int(params[key]) >= 50
+        assert params["cps"] == "signature"
+
+    def test_generate_awg_params_no_cps_for_lite(self):
+        """Lite profile has empty I1-I5 and CPS."""
+        params = generate_awg_params(profile="lite")
+        assert params["i1"] == ""
+        assert params["i2"] == ""
+        assert params["i3"] == ""
+        assert params["i4"] == ""
+        assert params["i5"] == ""
+        assert params["cps"] == ""
+
+    def test_generate_awg_params_mtu_pro(self):
+        """Pro profile sets MTU=1320."""
+        params = generate_awg_params(profile="pro")
+        assert params["mtu"] == "1320"
+
+    def test_generate_awg_params_mtu_standard(self):
+        """Standard profile sets MTU=1280."""
+        params = generate_awg_params(profile="standard")
+        assert params["mtu"] == "1280"
+
+    def test_generate_awg_params_mtu_lite(self):
+        """Lite profile sets MTU=1280."""
+        params = generate_awg_params(profile="lite")
+        assert params["mtu"] == "1280"
+
+    def test_generate_awg_params_no_profile_has_cps_empty(self):
+        """Without a profile, CPS values are empty (backward compat)."""
+        params = generate_awg_params(use_ranges=True)
+        assert params["i1"] == ""
+        assert params["cps"] == ""
+        assert params["mtu"] == "1280"
