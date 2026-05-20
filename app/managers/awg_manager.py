@@ -45,6 +45,36 @@ AWG_DEFAULTS = {
     "underload_packet_magic_header": "1766607858",
 }
 
+AWG_PROFILES = {
+    "lite": {
+        "junk_packet_count": (3, 5),
+        "junk_packet_min_size": (5, 15),
+        "junk_packet_max_size": (45, 55),
+        "init_packet_junk_size": (97, 107),
+        "response_packet_junk_size": (17, 27),
+        "cookie_reply_packet_junk_size": (16, 26),
+        "transport_packet_junk_size": (4, 10),
+    },
+    "standard": {
+        "junk_packet_count": (5, 8),
+        "junk_packet_min_size": (30, 80),
+        "junk_packet_max_size": (100, 250),
+        "init_packet_junk_size": (30, 80),
+        "response_packet_junk_size": (30, 80),
+        "cookie_reply_packet_junk_size": (15, 32),
+        "transport_packet_junk_size": (10, 20),
+    },
+    "pro": {
+        "junk_packet_count": (4, 16),
+        "junk_packet_min_size": (50, 256),
+        "junk_packet_max_size": (300, 1000),
+        "init_packet_junk_size": (15, 150),
+        "response_packet_junk_size": (15, 150),
+        "cookie_reply_packet_junk_size": (8, 64),
+        "transport_packet_junk_size": (6, 31),
+    },
+}
+
 
 def generate_wg_keypair():
     """Generate a WireGuard X25519 keypair (private, public) as base64 strings."""
@@ -65,29 +95,111 @@ def generate_psk():
     return b64encode(secrets.token_bytes(32)).decode()
 
 
-def generate_awg_params(use_ranges=False):
-    """Generate random AWG obfuscation parameters."""
+def _generate_quadrant_headers():
+    """Generate H1-H4 using the quadrant method from pumbaX/awg-multi-script.
+
+    Each header is selected from a non-overlapping quadrant of [5, 2^31-1]
+    to maximize entropy spread across the 32-bit space.
+    """
     import random
 
-    jc = random.randint(1, 10)
-    jmin = random.randint(5, 20)
-    jmax = random.randint(jmin + 10, jmin + 50)
-    s1 = random.randint(10, 50)
-    s2 = random.randint(10, 50)
-    s3 = random.randint(10, 50)
-    s4 = random.randint(10, 50)
+    max_val = 2147483647  # 2^31 - 1
+    q_size = max_val // 4
 
-    if use_ranges:
-        # Standard AWG 2.0 headers. Use single large numbers.
+    headers = []
+    for i in range(4):
+        lo = 5 + i * q_size
+        hi = (i + 1) * q_size + (1 if i < 3 else 0)
+        # Pick two random values and use max to ensure minimum separation
+        a = random.randint(lo, hi)
+        b = random.randint(lo, hi)
+        # Minimum span of 1000 between consecutive headers
+        if abs(b - a) < 1000:
+            b = min(hi, max(lo, a + 1000))
+        headers.append(str(random.randint(min(a, b), max(a, b))))
+
+    return {
+        "init_packet_magic_header": headers[0],
+        "response_packet_magic_header": headers[1],
+        "underload_packet_magic_header": headers[2],
+        "transport_packet_magic_header": headers[3],
+    }
+
+
+def generate_awg_params(use_ranges=False, profile=None):
+    """Generate AWG obfuscation parameters.
+
+    Args:
+        use_ranges: If True, use wider header ranges (AWG/AWG2 mode).
+                    If False, use narrower ranges (legacy mode).
+                    Ignored when profile is specified.
+        profile: One of 'lite', 'standard', 'pro'. If provided, uses
+                 profile-specific parameter ranges and quadrant-based
+                 header generation. If None, uses original behavior
+                 (backward compatible).
+    """
+    import random
+
+    if profile and profile in AWG_PROFILES:
+        ranges = AWG_PROFILES[profile]
+        jc = random.randint(*ranges["junk_packet_count"])
+        jmin = random.randint(*ranges["junk_packet_min_size"])
+        jmax_max = ranges["junk_packet_max_size"][1]
+        jmax = random.randint(jmin + 10, jmin + jmax_max)
+        s1 = random.randint(*ranges["init_packet_junk_size"])
+        s2 = random.randint(*ranges["response_packet_junk_size"])
+        # Enforce S1/S2 gap requirement (|S1-S2| >= 10)
+        # Retry up to 100 times; if still failing, s1 +/- 10 and clamp
+        for _ in range(100):
+            if abs(s1 - s2) >= 10:
+                break
+            s2 = random.randint(*ranges["response_packet_junk_size"])
+        else:
+            # Exhausted retries — force gap by moving s2 away from s1
+            s2_min, s2_max = ranges["response_packet_junk_size"]
+            if s1 + 10 <= s2_max:
+                s2 = max(s2_min, s1 + 10)
+            else:
+                s2 = min(s2_max, s1 - 10)
+        s3 = random.randint(*ranges["cookie_reply_packet_junk_size"])
+        s4 = random.randint(*ranges["transport_packet_junk_size"])
+        headers = _generate_quadrant_headers()
+    elif use_ranges:
+        jc = random.randint(1, 10)
+        jmin = random.randint(5, 20)
+        jmax = random.randint(jmin + 10, jmin + 50)
+        s1 = random.randint(10, 50)
+        s2 = random.randint(10, 50)
+        s3 = random.randint(10, 50)
+        s4 = random.randint(10, 50)
         h1 = str(random.randint(1000000000, 4294967295))
         h2 = str(random.randint(1000000000, 4294967295))
         h3 = str(random.randint(1000000000, 4294967295))
         h4 = str(random.randint(1000000000, 4294967295))
+        headers = {
+            "init_packet_magic_header": h1,
+            "response_packet_magic_header": h2,
+            "underload_packet_magic_header": h3,
+            "transport_packet_magic_header": h4,
+        }
     else:
+        jc = random.randint(1, 10)
+        jmin = random.randint(5, 20)
+        jmax = random.randint(jmin + 10, jmin + 50)
+        s1 = random.randint(10, 50)
+        s2 = random.randint(10, 50)
+        s3 = random.randint(10, 50)
+        s4 = random.randint(10, 50)
         h1 = str(random.randint(100000000, 4294967295))
         h2 = str(random.randint(100000000, 4294967295))
         h3 = str(random.randint(100000000, 4294967295))
         h4 = str(random.randint(100000000, 4294967295))
+        headers = {
+            "init_packet_magic_header": h1,
+            "response_packet_magic_header": h2,
+            "underload_packet_magic_header": h3,
+            "transport_packet_magic_header": h4,
+        }
 
     return {
         "junk_packet_count": str(jc),
@@ -97,10 +209,7 @@ def generate_awg_params(use_ranges=False):
         "response_packet_junk_size": str(s2),
         "cookie_reply_packet_junk_size": str(s3),
         "transport_packet_junk_size": str(s4),
-        "init_packet_magic_header": h1,
-        "response_packet_magic_header": h2,
-        "underload_packet_magic_header": h3,
-        "transport_packet_magic_header": h4,
+        **headers,
     }
 
 
@@ -237,7 +346,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         self.ssh.run_sudo_script(script)
         return True
 
-    def install_protocol(self, protocol_type, port=None, awg_params=None):
+    def install_protocol(self, protocol_type, port=None, awg_params=None, awg_profile=None):
         """
         Full installation of AWG or AWG-Legacy protocol.
         Steps: install docker -> prepare host -> build container ->
@@ -247,7 +356,10 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             port = AWG_DEFAULTS["port"]
 
         if awg_params is None:
-            awg_params = generate_awg_params(use_ranges=(protocol_type in (self.AWG, self.AWG2)))
+            awg_params = generate_awg_params(
+                use_ranges=(protocol_type in (self.AWG, self.AWG2)),
+                profile=awg_profile,
+            )
 
         container_name = self._container_name(protocol_type)
         docker_image = self._docker_image(protocol_type)
@@ -390,18 +502,21 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         within acceptable bounds. Raises ValueError on invalid input.
         """
         # Numeric params that must be positive integers
+        # Bounds accommodate all AWG obfuscation profiles (lite/standard/pro):
+        # - Pro profile can generate jmax up to 1256 (jmin=256 + jmax_addon=1000)
+        # - Quadrant-based H1-H4 headers start from 5 (not 100M)
         numeric_params = {
             "junk_packet_count": (1, 100),
             "junk_packet_min_size": (1, 1000),
-            "junk_packet_max_size": (1, 1000),
+            "junk_packet_max_size": (1, 1300),
             "init_packet_junk_size": (1, 1000),
             "response_packet_junk_size": (1, 1000),
             "cookie_reply_packet_junk_size": (1, 1000),
             "transport_packet_junk_size": (1, 1000),
-            "init_packet_magic_header": (100000000, 4294967295),
-            "response_packet_magic_header": (100000000, 4294967295),
-            "underload_packet_magic_header": (100000000, 4294967295),
-            "transport_packet_magic_header": (100000000, 4294967295),
+            "init_packet_magic_header": (5, 4294967295),
+            "response_packet_magic_header": (5, 4294967295),
+            "underload_packet_magic_header": (5, 4294967295),
+            "transport_packet_magic_header": (5, 4294967295),
         }
         for key, (min_val, max_val) in numeric_params.items():
             if key not in awg_params:
