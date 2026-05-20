@@ -221,7 +221,7 @@ def generate_awg_params(use_ranges=False, profile=None):
     if profile and profile in AWG_PROFILES:
         if profile == "lite":
             result["mtu"] = "1280"
-            result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": "", "cps": ""})
+            result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": ""})
         elif profile == "standard":
             result["mtu"] = "1280"
             cps_result = generate_cps_packets(profile="standard", domain=None)
@@ -233,7 +233,7 @@ def generate_awg_params(use_ranges=False, profile=None):
     else:
         # Backward compatible: no CPS, default MTU
         result["mtu"] = "1280"
-        result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": "", "cps": ""})
+        result.update({"i1": "", "i2": "", "i3": "", "i4": "", "i5": ""})
 
     return result
 
@@ -565,20 +565,11 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             "response_packet_magic_header": (5, 4294967295),
             "underload_packet_magic_header": (5, 4294967295),
             "transport_packet_magic_header": (5, 4294967295),
-            "i1": (0, 2000),
-            "i2": (0, 2000),
-            "i3": (0, 2000),
-            "i4": (0, 2000),
-            "i5": (0, 2000),
-            "mtu": (1200, 1500),
         }
         for key, (min_val, max_val) in numeric_params.items():
             if key not in awg_params:
                 continue
             val = awg_params[key]
-            # I1-I5 can be empty strings (CPS disabled) — skip validation
-            if key in ("i1", "i2", "i3", "i4", "i5") and val == "":
-                continue
             # Must be a string representation of an integer — no newlines,
             # shell metacharacters, or floating point
             if not isinstance(val, str) or not val.isdigit():
@@ -590,11 +581,29 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
                     f"got: {int_val}"
                 )
 
-        # CPS must be either empty string or the literal "signature"
-        if "cps" in awg_params:
-            cps_val = awg_params["cps"]
-            if cps_val and cps_val != "signature":
-                raise ValueError(f"awg_params['cps'] must be '' or 'signature', got: {cps_val!r}")
+        # I1-I5: Must be empty string, or match <b 0xHEX> or <r N><b 0xHEX> format
+        for key in ("i1", "i2", "i3", "i4", "i5"):
+            if key not in awg_params:
+                continue
+            val = awg_params[key]
+            if val == "":
+                continue  # Empty = disabled
+            if not isinstance(val, str):
+                raise ValueError(f"awg_params['{key}'] must be a string, got: {type(val).__name__}")
+            if not val.startswith("<") or not val.endswith(">"):
+                raise ValueError(
+                    f"awg_params['{key}'] must be in <b 0xHEX> or <r N><b 0xHEX> "
+                    f"format, got: {val[:50]}"
+                )
+
+        # MTU: Must be a numeric string between 1200 and 1500
+        if "mtu" in awg_params:
+            mtu_val = awg_params["mtu"]
+            if not isinstance(mtu_val, str) or not mtu_val.isdigit():
+                raise ValueError(f"awg_params['mtu'] must be a numeric string, got: {mtu_val!r}")
+            mtu_int = int(mtu_val)
+            if mtu_int < 1200 or mtu_int > 1500:
+                raise ValueError(f"awg_params['mtu'] must be between 1200 and 1500, got: {mtu_int}")
 
     def _configure_container(self, protocol_type, port, awg_params):
         """Configure the AWG container (generate keys and server config).
@@ -658,39 +667,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
                 f"H4 = {awg_params['transport_packet_magic_header']}",
             ]
 
-            # I1-I5 signature chain (CPS packets)
-            i1 = awg_params.get("i1", "")
-            i2 = awg_params.get("i2", "")
-            i3 = awg_params.get("i3", "")
-            i4 = awg_params.get("i4", "")
-            i5 = awg_params.get("i5", "")
-            cps = awg_params.get("cps", "")
-
-            if i1:
-                config_parts.append(f"I1 = {i1}")
-            else:
-                config_parts.append("# I1 = 0")
-            if i2:
-                config_parts.append(f"I2 = {i2}")
-            else:
-                config_parts.append("# I2 = 0")
-            if i3:
-                config_parts.append(f"I3 = {i3}")
-            else:
-                config_parts.append("# I3 = 0")
-            if i4:
-                config_parts.append(f"I4 = {i4}")
-            else:
-                config_parts.append("# I4 = 0")
-            if i5:
-                config_parts.append(f"I5 = {i5}")
-            else:
-                config_parts.append("# I5 = 0")
-            if cps:
-                config_parts.append(f"CPS = {cps}")
-            else:
-                config_parts.append("# CPS = signature")
-
+            # I1-I5 are CLIENT-only parameters — NEVER written to server config
             config_content = "\n".join(config_parts) + "\n"
         else:
             # AWG Legacy
@@ -893,7 +870,6 @@ tail -f /dev/null
             "I3": "i3",
             "I4": "i4",
             "I5": "i5",
-            "CPS": "cps",
         }
 
         for line in config.split("\n"):
@@ -1192,7 +1168,6 @@ AllowedIPs = {client_ip}/32
                 ("i3", "I3"),
                 ("i4", "I4"),
                 ("i5", "I5"),
-                ("cps", "CPS"),
             ]
 
             for param_key, config_key in mapping:
@@ -1207,7 +1182,6 @@ AllowedIPs = {client_ip}/32
                         "I3",
                         "I4",
                         "I5",
-                        "CPS",
                     ):
                         continue
                     config_lines.append(f"{config_key} = {val}")
@@ -1287,7 +1261,6 @@ PersistentKeepalive = 25
             ("i3", "I3"),
             ("i4", "I4"),
             ("i5", "I5"),
-            ("cps", "CPS"),
         ]
 
         for param_key, config_key in mapping:
@@ -1302,7 +1275,6 @@ PersistentKeepalive = 25
                     "I3",
                     "I4",
                     "I5",
-                    "CPS",
                 ):
                     continue
                 config_lines.append(f"{config_key} = {val}")
