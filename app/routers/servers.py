@@ -640,8 +640,15 @@ async def api_add_connection(
                 telemt_expiry=req.telemt_expiry,
             )
         else:
+            # Pass stored awg_params (contains CLIENT-only I1-I5 and MTU)
+            awg_params = proto_info.get("awg_params")
             result = await asyncio.to_thread(
-                manager.add_client, req.protocol, req.name, server["host"], port
+                manager.add_client,
+                req.protocol,
+                req.name,
+                server["host"],
+                port,
+                stored_awg_params=awg_params,
             )
         await asyncio.to_thread(ssh.disconnect)
 
