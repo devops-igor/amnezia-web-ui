@@ -395,8 +395,10 @@ class TestConfigureContainerSftp:
                 assert "cat >" not in cmd
                 assert "<<EOF" not in cmd
                 # No awg_params values should appear in docker exec commands
+                # (skip empty strings — CPS/I1-I5 fields are empty when disabled)
                 for val in awg_params.values():
-                    assert val not in cmd or cmd.startswith("docker cp")
+                    if val:  # skip empty strings
+                        assert val not in cmd or cmd.startswith("docker cp")
 
         # Should use upload_file for config
         assert self.mock_ssh.upload_file.called
@@ -448,7 +450,8 @@ class TestConfigureContainerSftp:
                 # Key generation command should not contain user-controlled values
                 assert port not in cmd
                 for val in awg_params.values():
-                    assert val not in cmd
+                    if val:  # skip empty strings (CPS/I1-I5 fields)
+                        assert val not in cmd
 
     def test_configure_container_temp_file_cleaned(self):
         """Temp file should be cleaned up after configuration."""

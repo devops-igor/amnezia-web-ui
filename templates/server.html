@@ -318,6 +318,15 @@
                     </select>
                     <div class="form-hint">{{ _('awg_profile_hint') }}</div>
                 </div>
+                <div class="form-group" id="awgCpsProtocolGroup" style="display:none;">
+                    <label class="form-label">{{ _('awg_cps_protocol') }}</label>
+                    <select class="form-input" id="installAwgCpsProtocol">
+                        <option value="quic" selected>QUIC</option>
+                        <option value="dns">DNS</option>
+                        <option value="sip">SIP</option>
+                    </select>
+                    <div class="form-hint">{{ _('awg_cps_protocol_hint') }}</div>
+                </div>
             </div>
 
             <div class="modal-footer">
@@ -890,6 +899,12 @@
                 if (profileSelect && profileSelect.value) {
                     params.awg_profile = profileSelect.value;
                 }
+                if (profileSelect && profileSelect.value === 'pro') {
+                    const cpsSelect = document.getElementById('installAwgCpsProtocol');
+                    if (cpsSelect && cpsSelect.value) {
+                        params.awg_cps_protocol = cpsSelect.value;
+                    }
+                }
             }
             const result = await apiCall(`/api/servers/${SERVER_ID}/install`, 'POST', params);
             clearInterval(progressInterval);
@@ -1264,6 +1279,15 @@
     }
 
     // ========== Init ==========
+    // CPS protocol dropdown visibility toggle
+    document.getElementById('installAwgProfile').addEventListener('change', function() {
+        const cpsGroup = document.getElementById('awgCpsProtocolGroup');
+        if (this.value === 'pro') {
+            cpsGroup.style.display = 'block';
+        } else {
+            cpsGroup.style.display = 'none';
+        }
+    });
     checkServer();
     loadServerStats();
 </script>
