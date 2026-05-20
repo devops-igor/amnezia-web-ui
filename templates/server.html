@@ -307,6 +307,19 @@
                 </div>
             </div>
 
+            <div id="awgOptions"
+                style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
+                <div class="form-group">
+                    <label class="form-label">{{ _('awg_obfuscation_profile') }}</label>
+                    <select class="form-input" id="installAwgProfile">
+                        <option value="standard" selected>{{ _('awg_profile_standard') }} — {{ _('awg_profile_standard_desc') }}</option>
+                        <option value="lite">{{ _('awg_profile_lite') }} — {{ _('awg_profile_lite_desc') }}</option>
+                        <option value="pro">{{ _('awg_profile_pro') }} — {{ _('awg_profile_pro_desc') }}</option>
+                    </select>
+                    <div class="form-hint">{{ _('awg_profile_hint') }}</div>
+                </div>
+            </div>
+
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('installModal')">{{ _('cancel') }}</button>
                 <button class="btn btn-primary" onclick="installProtocol()" id="installBtn">
@@ -799,8 +812,10 @@
         const portLabel = document.getElementById('installPortLabel');
         const portHint = document.getElementById('installPortHint');
         const telemtOpts = document.getElementById('telemtOptions');
+        const awgOpts = document.getElementById('awgOptions');
 
         telemtOpts.style.display = 'none';
+        awgOpts.style.display = 'none';
 
         if (proto === 'dns') {
             portLabel.textContent = _('port') + ' (Internal)';
@@ -822,6 +837,7 @@
             portInput.value = '55424';
             portInput.disabled = false;
             portHint.textContent = _('port_default_hint');
+            awgOpts.style.display = 'block';
         }
 
         document.getElementById('installForm').classList.remove('hidden');
@@ -868,6 +884,12 @@
                 params.tls_emulation = document.getElementById('installTelemtTls').checked;
                 params.tls_domain = document.getElementById('installTelemtDomain').value;
                 params.max_connections = parseInt(document.getElementById('installTelemtMaxConns').value) || 0;
+            }
+            if (['awg', 'awg2', 'awg_legacy'].includes(currentInstallProto)) {
+                const profileSelect = document.getElementById('installAwgProfile');
+                if (profileSelect && profileSelect.value) {
+                    params.awg_profile = profileSelect.value;
+                }
             }
             const result = await apiCall(`/api/servers/${SERVER_ID}/install`, 'POST', params);
             clearInterval(progressInterval);
