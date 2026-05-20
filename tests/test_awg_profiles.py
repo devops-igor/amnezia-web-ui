@@ -170,7 +170,6 @@ class TestAWGProfileParams:
             "i3",
             "i4",
             "i5",
-            "cps",
         }
         assert set(params.keys()) == expected_keys
         # All values are strings
@@ -629,32 +628,33 @@ class TestApiInstallProfile:
 class TestGenerateAwgParamsCPS:
     """Tests for CPS integration in generate_awg_params()."""
 
-    def test_generate_awg_params_includes_cps_for_standard(self):
-        """Standard profile includes I1 with nonzero value and cps='signature'."""
+    def test_generate_awg_params_has_cps_for_standard(self):
+        """Standard profile includes I1 as <b 0x...> QUIC Initial, I2-I5 empty, no cps."""
         params = generate_awg_params(profile="standard")
-        assert int(params["i1"]) >= 50
+        assert params["i1"].startswith("<b 0x"), f"I1 format: {params['i1'][:50]}"
+        assert len(params["i1"]) >= 2400  # 1200 bytes hex
         assert params["i2"] == ""
         assert params["i3"] == ""
         assert params["i4"] == ""
         assert params["i5"] == ""
-        assert params["cps"] == "signature"
+        assert "cps" not in params
 
-    def test_generate_awg_params_includes_cps_for_pro(self):
-        """Pro profile includes all I1-I5 with nonzero values."""
+    def test_generate_awg_params_has_cps_for_pro(self):
+        """Pro profile includes all I1-I5 as <b 0x...> format, no cps."""
         params = generate_awg_params(profile="pro")
         for key in ("i1", "i2", "i3", "i4", "i5"):
-            assert int(params[key]) >= 50
-        assert params["cps"] == "signature"
+            assert params[key].startswith("<b 0x"), f"{key} format: {params[key][:50]}"
+        assert "cps" not in params
 
     def test_generate_awg_params_no_cps_for_lite(self):
-        """Lite profile has empty I1-I5 and CPS."""
+        """Lite profile has empty I1-I5, no cps key."""
         params = generate_awg_params(profile="lite")
         assert params["i1"] == ""
         assert params["i2"] == ""
         assert params["i3"] == ""
         assert params["i4"] == ""
         assert params["i5"] == ""
-        assert params["cps"] == ""
+        assert "cps" not in params
 
     def test_generate_awg_params_mtu_pro(self):
         """Pro profile sets MTU=1320."""
@@ -671,9 +671,9 @@ class TestGenerateAwgParamsCPS:
         params = generate_awg_params(profile="lite")
         assert params["mtu"] == "1280"
 
-    def test_generate_awg_params_no_profile_has_cps_empty(self):
-        """Without a profile, CPS values are empty (backward compat)."""
+    def test_generate_awg_params_no_profile_has_empty_cps(self):
+        """Without a profile, CPS values are empty (backward compat), no cps key."""
         params = generate_awg_params(use_ranges=True)
         assert params["i1"] == ""
-        assert params["cps"] == ""
+        assert "cps" not in params
         assert params["mtu"] == "1280"
