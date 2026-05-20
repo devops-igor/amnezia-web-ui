@@ -410,6 +410,7 @@ async def api_install_protocol(
                 protocol_type=req.protocol,
                 port=req.port,
                 awg_profile=req.awg_profile.value if req.awg_profile else None,
+                awg_cps_protocol=req.awg_cps_protocol,
             )
         else:
             result = await asyncio.to_thread(manager.install_protocol, req.protocol, port=req.port)

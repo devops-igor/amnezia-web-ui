@@ -80,6 +80,7 @@ class InstallProtocolRequest(BaseModel):
     tls_domain: Optional[str] = Field(default=None, max_length=128)
     max_connections: Optional[int] = Field(default=None, ge=1, le=100000)
     awg_profile: Optional[AWGObfuscationProfile] = None
+    awg_cps_protocol: Optional[str] = Field(default=None, pattern=r"^(quic|dns|sip)$")
 
     @field_validator("protocol")
     @classmethod
