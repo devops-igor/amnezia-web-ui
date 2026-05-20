@@ -9,11 +9,26 @@ All request/response models are centralized here for:
 
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional
+from enum import Enum
 import re
 
 # ===== Shared Constants =====
 
 VALID_PROTOCOLS = {"awg", "awg2", "awg_legacy", "xray", "telemt", "dns"}
+
+
+class AWGObfuscationProfile(str, Enum):
+    """AWG obfuscation profile — determines parameter generation ranges.
+
+    lite:      Minimal junk packets, max compatibility (Jc 3-5)
+    standard:  Balanced obfuscation and performance (Jc 5-8) — recommended default
+    pro:       Maximum obfuscation, more overhead (Jc 4-16)
+    """
+
+    lite = "lite"
+    standard = "standard"
+    pro = "pro"
+
 
 # ===== Auth =====
 
@@ -64,6 +79,7 @@ class InstallProtocolRequest(BaseModel):
     tls_emulation: Optional[bool] = None
     tls_domain: Optional[str] = Field(default=None, max_length=128)
     max_connections: Optional[int] = Field(default=None, ge=1, le=100000)
+    awg_profile: Optional[AWGObfuscationProfile] = None
 
     @field_validator("protocol")
     @classmethod

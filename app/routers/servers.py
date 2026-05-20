@@ -404,6 +404,13 @@ async def api_install_protocol(
             )
         elif req.protocol == "xray":
             result = await asyncio.to_thread(manager.install_protocol, port=req.port)
+        elif req.protocol in ("awg", "awg2", "awg_legacy"):
+            result = await asyncio.to_thread(
+                manager.install_protocol,
+                protocol_type=req.protocol,
+                port=req.port,
+                awg_profile=req.awg_profile.value if req.awg_profile else None,
+            )
         else:
             result = await asyncio.to_thread(manager.install_protocol, req.protocol, port=req.port)
 
