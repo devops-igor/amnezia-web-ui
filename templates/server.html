@@ -615,6 +615,42 @@
                     }
                 }
                 if (info.clients_count !== undefined) grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('connections')}</span><span class="protocol-info-value">${info.clients_count}</span></div>`;
+                // AWG obfuscation params
+                if (proto === 'awg' && info.awg_params) {
+                    const p = info.awg_params;
+                    if (p.mtu) {
+                        grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_mtu')}</span><span class="protocol-info-value">${p.mtu}</span></div>`;
+                    }
+                    const jParts = [];
+                    if (p.junk_packet_count) jParts.push(`Jc=${escapeHtml(String(p.junk_packet_count))}`);
+                    if (p.junk_packet_min_size) jParts.push(`Jmin=${escapeHtml(String(p.junk_packet_min_size))}`);
+                    if (p.junk_packet_max_size) jParts.push(`Jmax=${escapeHtml(String(p.junk_packet_max_size))}`);
+                    if (jParts.length) {
+                        grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_junk_packets')}</span><span class="protocol-info-value">${jParts.join(' ')}</span></div>`;
+                    }
+                    const sParts = [];
+                    const sLabels = {init_packet_junk_size:'S1', response_packet_junk_size:'S2', cookie_reply_packet_junk_size:'S3', transport_packet_junk_size:'S4'};
+                    for (const [key, label] of Object.entries(sLabels)) {
+                        if (p[key]) sParts.push(`${label}=${escapeHtml(String(p[key]))}`);
+                    }
+                    if (sParts.length) {
+                        grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_junk_sizes')}</span><span class="protocol-info-value">${sParts.join(' ')}</span></div>`;
+                    }
+                    const hLabels = {init_packet_magic_header:'H1', response_packet_magic_header:'H2', underload_packet_magic_header:'H3', transport_packet_magic_header:'H4'};
+                    const hParts = [];
+                    for (const [key, label] of Object.entries(hLabels)) {
+                        if (p[key]) hParts.push(`${label}=${escapeHtml(String(p[key]))}`);
+                    }
+                    if (hParts.length) {
+                        grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_magic_headers')}</span><span class="protocol-info-value">${hParts.join(' ')}</span></div>`;
+                    }
+                    const iParts = [];
+                    for (let i = 1; i <= 5; i++) {
+                        const val = p['i' + i];
+                        iParts.push(`I${i}=${val ? _('awg_present') : _('awg_not_set')}`);
+                    }
+                    grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_init_packets')}</span><span class="protocol-info-value">${iParts.join(' ')}</span></div>`;
+                }
                 infoGrid.innerHTML = grid;
             }
             if (proto === 'dns') {
