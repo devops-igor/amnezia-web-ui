@@ -192,7 +192,7 @@ class TestAWGProfileParams:
         ):
             s = int(params[key])
             assert 10 <= s <= 50, f"{key}={s} out of [10,50]"
-        # headers: 100000000..4294967295 (legacy)
+        # headers: 100000000..4294967295 (non-profile mode)
         for key in (
             "init_packet_magic_header",
             "response_packet_magic_header",
@@ -200,13 +200,13 @@ class TestAWGProfileParams:
             "transport_packet_magic_header",
         ):
             h = int(params[key])
-            assert 100000000 <= h <= 4294967295, f"{key}={h} out of legacy range"
+            assert 100000000 <= h <= 4294967295, f"{key}={h} out of range"
 
-    def test_use_ranges_still_works(self):
-        """generate_awg_params(use_ranges=True) still works."""
-        params = generate_awg_params(use_ranges=True)
+    def test_default_profile_returns_dict(self):
+        """generate_awg_params() returns valid params with default profile."""
+        params = generate_awg_params()
         assert isinstance(params, dict)
-        # Headers should be in AWG2 range: 1_000_000_000..4_294_967_295
+        # Headers in default range: 100_000_000..4_294_967_295
         for key in (
             "init_packet_magic_header",
             "response_packet_magic_header",
@@ -214,14 +214,15 @@ class TestAWGProfileParams:
             "transport_packet_magic_header",
         ):
             h = int(params[key])
-            assert 1000000000 <= h <= 4294967295, f"{key}={h} out of AWG2 range"
+            assert 100000000 <= h <= 4294967295, f"{key}={h} out of range"
 
     def test_invalid_profile_falls_back(self):
-        """generate_awg_params(use_ranges=True, profile='invalid') produces valid params."""
-        params = generate_awg_params(use_ranges=True, profile="invalid")
+        """generate_awg_params(profile='invalid') produces valid params."""
+        params = generate_awg_params(profile="invalid")
         assert isinstance(params, dict)
         assert "junk_packet_count" in params
-        # Should fall back to use_ranges=True behavior (no crash)
+        # Should fall back to default behavior (no crash)
+        # Default range is 100_000_000..4_294_967_295 (wider than profile range)
         for key in (
             "init_packet_magic_header",
             "response_packet_magic_header",
@@ -229,7 +230,7 @@ class TestAWGProfileParams:
             "transport_packet_magic_header",
         ):
             h = int(params[key])
-            assert 1000000000 <= h <= 4294967295
+            assert 100000000 <= h <= 4294967295
 
 
 class TestQuadrantHeaders:
@@ -319,7 +320,6 @@ class TestAWGManagerInstallProtocolProfile:
 
                                             # Verify generate_awg_params was called with profile
                                             mock_gen.assert_called_once_with(
-                                                use_ranges=True,
                                                 profile="standard",
                                             )
                                             assert result["status"] == "success"
@@ -361,7 +361,6 @@ class TestAWGManagerInstallProtocolProfile:
 
                                             # No profile => None passed
                                             mock_gen.assert_called_once_with(
-                                                use_ranges=True,
                                                 profile=None,
                                             )
                                             assert result["status"] == "success"
@@ -673,7 +672,7 @@ class TestGenerateAwgParamsCPS:
 
     def test_generate_awg_params_no_profile_has_empty_cps(self):
         """Without a profile, CPS values are empty (backward compat), no cps key."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         assert params["i1"] == ""
         assert "cps" not in params
         assert params["mtu"] == "1280"

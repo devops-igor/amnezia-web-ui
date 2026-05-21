@@ -1,11 +1,6 @@
 """
-AWG Protocol Manager - handles AmneziaWG and AmneziaWG-Legacy protocol
-installation, configuration, and client management on remote servers.
-
-Replicates the logic from:
-- client/server_scripts/awg/ and awg_legacy/
-- client/configurators/wireguard_configurator.cpp
-- client/ui/models/clientManagementModel.cpp
+AWG Protocol Manager - handles AmneziaWG protocol installation
+and client management on remote servers.
 """
 
 import ipaddress
@@ -127,17 +122,13 @@ def _generate_quadrant_headers():
     }
 
 
-def generate_awg_params(use_ranges=False, profile=None):
+def generate_awg_params(profile=None):
     """Generate AWG obfuscation parameters.
 
     Args:
-        use_ranges: If True, use wider header ranges (AWG/AWG2 mode).
-                    If False, use narrower ranges (legacy mode).
-                    Ignored when profile is specified.
         profile: One of 'lite', 'standard', 'pro'. If provided, uses
                  profile-specific parameter ranges and quadrant-based
-                 header generation. If None, uses original behavior
-                 (backward compatible).
+                 header generation. If None, uses default behavior.
 
     Returns:
         Dict with Jc, Jmin, Jmax, S1-S4, H1-H4, plus I1-I5/CPS/MTU
@@ -169,24 +160,6 @@ def generate_awg_params(use_ranges=False, profile=None):
         s3 = random.randint(*ranges["cookie_reply_packet_junk_size"])
         s4 = random.randint(*ranges["transport_packet_junk_size"])
         headers = _generate_quadrant_headers()
-    elif use_ranges:
-        jc = random.randint(1, 10)
-        jmin = random.randint(5, 20)
-        jmax = random.randint(jmin + 10, jmin + 50)
-        s1 = random.randint(10, 50)
-        s2 = random.randint(10, 50)
-        s3 = random.randint(10, 50)
-        s4 = random.randint(10, 50)
-        h1 = str(random.randint(1000000000, 4294967295))
-        h2 = str(random.randint(1000000000, 4294967295))
-        h3 = str(random.randint(1000000000, 4294967295))
-        h4 = str(random.randint(1000000000, 4294967295))
-        headers = {
-            "init_packet_magic_header": h1,
-            "response_packet_magic_header": h2,
-            "underload_packet_magic_header": h3,
-            "transport_packet_magic_header": h4,
-        }
     else:
         jc = random.randint(1, 10)
         jmin = random.randint(5, 20)
@@ -241,10 +214,8 @@ def generate_awg_params(use_ranges=False, profile=None):
 class AWGManager:
     """Manages AmneziaWG protocol installation and client management."""
 
-    # Protocol types
-    AWG = "awg"  # New AWG (awg-go based, uses awg/awg-quick)
-    AWG_LEGACY = "awg_legacy"  # Legacy AWG (uses wg/wg-quick)
-    AWG2 = "awg2"  # AmneziaWG 2.0 (separate container amnezia-awg2)
+    # Protocol type (single AWG variant)
+    AWG = "awg"
 
     def __init__(self, ssh_manager):
         self.ssh = ssh_manager
@@ -252,45 +223,27 @@ class AWGManager:
 
     def _container_name(self, protocol_type):
         """Get Docker container name for protocol type."""
-        if protocol_type == self.AWG_LEGACY:
-            return "amnezia-awg-legacy"
-        if protocol_type == self.AWG2:
-            return "amnezia-awg2"
         return "amnezia-awg"
 
     def _config_path(self, protocol_type):
         """Get server config path inside container."""
-        if protocol_type == self.AWG_LEGACY:
-            return "/opt/amnezia/awg/wg0.conf"
-        # Both AWG and AWG2 use awg0.conf
         return "/opt/amnezia/awg/awg0.conf"
 
     def _wg_binary(self, protocol_type):
         """Get the wireguard binary name."""
-        if protocol_type == self.AWG_LEGACY:
-            return "wg"
-        # AWG and AWG2 both use 'awg' binary
         return "awg"
 
     def _quick_binary(self, protocol_type):
         """Get the wireguard-quick binary name."""
-        if protocol_type == self.AWG_LEGACY:
-            return "wg-quick"
-        # AWG and AWG2 both use 'awg-quick'
         return "awg-quick"
 
     def _interface_name(self, protocol_type):
         """Get the interface name."""
-        if protocol_type == self.AWG_LEGACY:
-            return "wg0"
-        # AWG and AWG2 both use 'awg0' interface
         return "awg0"
 
     def _docker_image(self, protocol_type):
         """Get Docker image for protocol type."""
-        if protocol_type in (self.AWG, self.AWG2):
-            return "amneziavpn/amneziawg-go:latest"
-        return "amneziavpn/amnezia-wg:latest"
+        return "amneziavpn/amneziawg-go:latest"
 
     def _clients_table_path(self):
         """Path to the clients table file inside container."""
@@ -383,10 +336,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             port = AWG_DEFAULTS["port"]
 
         if awg_params is None:
-            awg_params = generate_awg_params(
-                use_ranges=(protocol_type in (self.AWG, self.AWG2)),
-                profile=awg_profile,
-            )
+            awg_params = generate_awg_params(profile=awg_profile)
 
         # Domain probing for CPS mimicry (Standard and Pro profiles only)
         if awg_profile in ("standard", "pro") and self.ssh:
@@ -647,48 +597,27 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         # Use list-based approach for clean conditional I1-I5/CPS/MTU writing
         mtu = awg_params.get("mtu", "1280")
 
-        if protocol_type in (self.AWG, self.AWG2):
-            config_parts = [
-                "[Interface]",
-                f"PrivateKey = {private_key}",
-                f"Address = {subnet_ip}/{subnet_cidr}",
-                f"MTU = {mtu}",
-                f"ListenPort = {port}",
-                f"Jc = {awg_params['junk_packet_count']}",
-                f"Jmin = {awg_params['junk_packet_min_size']}",
-                f"Jmax = {awg_params['junk_packet_max_size']}",
-                f"S1 = {awg_params['init_packet_junk_size']}",
-                f"S2 = {awg_params['response_packet_junk_size']}",
-                f"S3 = {awg_params['cookie_reply_packet_junk_size']}",
-                f"S4 = {awg_params['transport_packet_junk_size']}",
-                f"H1 = {awg_params['init_packet_magic_header']}",
-                f"H2 = {awg_params['response_packet_magic_header']}",
-                f"H3 = {awg_params['underload_packet_magic_header']}",
-                f"H4 = {awg_params['transport_packet_magic_header']}",
-            ]
+        config_parts = [
+            "[Interface]",
+            f"PrivateKey = {private_key}",
+            f"Address = {subnet_ip}/{subnet_cidr}",
+            f"MTU = {mtu}",
+            f"ListenPort = {port}",
+            f"Jc = {awg_params['junk_packet_count']}",
+            f"Jmin = {awg_params['junk_packet_min_size']}",
+            f"Jmax = {awg_params['junk_packet_max_size']}",
+            f"S1 = {awg_params['init_packet_junk_size']}",
+            f"S2 = {awg_params['response_packet_junk_size']}",
+            f"S3 = {awg_params['cookie_reply_packet_junk_size']}",
+            f"S4 = {awg_params['transport_packet_junk_size']}",
+            f"H1 = {awg_params['init_packet_magic_header']}",
+            f"H2 = {awg_params['response_packet_magic_header']}",
+            f"H3 = {awg_params['underload_packet_magic_header']}",
+            f"H4 = {awg_params['transport_packet_magic_header']}",
+        ]
 
-            # I1-I5 are CLIENT-only parameters — NEVER written to server config
-            config_content = "\n".join(config_parts) + "\n"
-        else:
-            # AWG Legacy
-            config_parts = [
-                "[Interface]",
-                f"PrivateKey = {private_key}",
-                f"Address = {subnet_ip}/{subnet_cidr}",
-                f"MTU = {mtu}",
-                f"ListenPort = {port}",
-                f"Jc = {awg_params['junk_packet_count']}",
-                f"Jmin = {awg_params['junk_packet_min_size']}",
-                f"Jmax = {awg_params['junk_packet_max_size']}",
-                f"S1 = {awg_params['init_packet_junk_size']}",
-                f"S2 = {awg_params['response_packet_junk_size']}",
-                f"H1 = {awg_params['init_packet_magic_header']}",
-                f"H2 = {awg_params['response_packet_magic_header']}",
-                f"H3 = {awg_params['underload_packet_magic_header']}",
-                f"H4 = {awg_params['transport_packet_magic_header']}",
-            ]
-            # Legacy does NOT include S3, S4, I1-I5, CPS
-            config_content = "\n".join(config_parts) + "\n"
+        # I1-I5 are CLIENT-only parameters — NEVER written to server config
+        config_content = "\n".join(config_parts) + "\n"
 
         # Upload config via SFTP + docker cp (no user data in shell commands)
         self.ssh.upload_file(config_content, "/tmp/_amnz_wg_config.conf")
@@ -908,7 +837,7 @@ tail -f /dev/null
         when the subnet is exhausted.
 
         Args:
-            protocol_type: The protocol type (awg, awg_legacy, awg2).
+            protocol_type: The protocol type (awg).
 
         Returns:
             The next available IP address as a string.
@@ -1186,17 +1115,6 @@ AllowedIPs = {client_ip}/32
             for param_key, config_key in mapping:
                 val = awg_params.get(param_key)
                 if val:
-                    # Basic compatibility filtering
-                    if protocol_type == self.AWG_LEGACY and config_key in (
-                        "S3",
-                        "S4",
-                        "I1",
-                        "I2",
-                        "I3",
-                        "I4",
-                        "I5",
-                    ):
-                        continue
                     config_lines.append(f"{config_key} = {val}")
 
             client_config = "[Interface]\n" + "\n".join(config_lines) + f"""
@@ -1279,17 +1197,6 @@ PersistentKeepalive = 25
         for param_key, config_key in mapping:
             val = awg_params.get(param_key)
             if val:
-                # Basic compatibility filtering
-                if protocol_type == self.AWG_LEGACY and config_key in (
-                    "S3",
-                    "S4",
-                    "I1",
-                    "I2",
-                    "I3",
-                    "I4",
-                    "I5",
-                ):
-                    continue
                 config_lines.append(f"{config_key} = {val}")
 
         config = "[Interface]\n" + "\n".join(config_lines) + f"""
