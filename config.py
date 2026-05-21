@@ -107,3 +107,42 @@ def init_db():
 
     migrate_to_sqlite.migrate_if_needed(DATA_DIR)
     get_db()
+
+
+def migrate_awg_protocol_names():
+    """Migrate legacy awg2/awg_legacy protocol keys to 'awg' in all servers.
+
+    Existing database records may contain servers with protocols JSON that has
+    'awg2' or 'awg_legacy' keys. This migration renames them to 'awg' so that
+    the UI and API only deal with a single AmneziaWG protocol key.
+    """
+    db = get_db()
+    migrated = 0
+    for server in db.get_all_servers():
+        protocols = server.get("protocols")
+        if not isinstance(protocols, dict):
+            continue
+        needs_write = False
+        renamed_key = None
+        new_protocols = {}
+        for proto_key, proto_val in protocols.items():
+            if proto_key in ("awg2", "awg_legacy"):
+                # Merge into 'awg' key (keep existing 'awg' if present, else use the value)
+                if "awg" not in new_protocols:
+                    new_protocols["awg"] = proto_val
+                needs_write = True
+                renamed_key = proto_key
+            else:
+                new_protocols[proto_key] = proto_val
+        if needs_write:
+            db.update_server(server["id"], {"protocols": new_protocols})
+            migrated += 1
+            logger.info(
+                "Migrated server %d: renamed %s -> 'awg'",
+                server["id"],
+                renamed_key,
+            )
+    if migrated:
+        logger.info("AWG legacy migration complete: %d server(s) updated", migrated)
+    else:
+        logger.info("AWG legacy migration: no servers needed migration")

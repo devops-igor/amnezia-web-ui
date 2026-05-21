@@ -77,7 +77,7 @@ class BackgroundTaskOrchestrator:
             try:
                 ssh = get_ssh(server)
                 await asyncio.to_thread(ssh.connect)
-                for proto in ["awg", "awg2", "awg_legacy", "xray", "telemt"]:
+                for proto in ["awg", "xray", "telemt"]:
                     if proto in server.get("protocols", {}):
                         try:
                             manager = get_protocol_manager(ssh, proto)

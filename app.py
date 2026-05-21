@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from starlette_csrf import CSRFMiddleware
 
 from app.utils.helpers import _get_client_ip, _t, _get_default_lang
-from config import _get_secret_key, load_translations, get_db, init_db
+from config import _get_secret_key, load_translations, get_db, init_db, migrate_awg_protocol_names
 
 from app.routers.auth import router as auth_router
 from app.routers.connections import router as connections_router
@@ -38,6 +38,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan: startup DB init, admin creation, background tasks, and shutdown cleanup."""
     # --- Startup ---
     init_db()
+    migrate_awg_protocol_names()
     db = get_db()
 
     if not db.get_all_users():
