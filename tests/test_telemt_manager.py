@@ -332,10 +332,12 @@ class TestAddClient:
         mock_api.return_value = {
             "ok": True,
             "data": {
-                "username": "newuser",
-                "secret": "***",
-                "links": {
-                    "tls": ["tg://proxy?server=api.example.com&port=18443&secret=newsecret123"]
+                "user": {
+                    "username": "newuser",
+                    "secret": "***",
+                    "links": {
+                        "tls": ["tg://proxy?server=api.example.com&port=18443&secret=newsecret123"]
+                    },
                 },
             },
         }
