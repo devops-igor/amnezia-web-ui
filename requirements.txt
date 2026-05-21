@@ -48,7 +48,7 @@ tomli_w==1.2.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.7.0
-uvicorn==0.34.0
+uvicorn==0.47.0
 watchfiles==1.2.0
 websockets==16.0
 slowapi==0.1.9
