@@ -506,7 +506,8 @@ class TelemtManager:
             return {"client_id": "", "config": "", "vpn_link": "", "error": error_msg}
 
         data = resp.get("data", {})
-        links = data.get("links", {})
+        user_data = data.get("user", {})
+        links = user_data.get("links", {})
 
         # Use the link from the API (it has correct server IP, port, and secret)
         if links.get("tls"):
