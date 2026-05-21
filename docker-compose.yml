@@ -31,6 +31,7 @@ services:
     ports:
       - "${APP_PORT:-5000}:5000"
     restart: unless-stopped
+    user: "100:101"
     security_opt:
       - no-new-privileges:true
     read_only: true
