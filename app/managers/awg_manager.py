@@ -783,6 +783,7 @@ tail -f /dev/null
         # Mapping from server config keys to our param dictionary keys
         param_map = {
             "ListenPort": "port",
+            "MTU": "mtu",
             "Jc": "junk_packet_count",
             "Jmin": "junk_packet_min_size",
             "Jmax": "junk_packet_max_size",
