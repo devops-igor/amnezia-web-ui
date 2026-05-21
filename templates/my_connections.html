@@ -25,8 +25,7 @@
                     <div class="client-meta">
                         <span>🖥 {{ c.server_name }}</span>
                         <span class="badge badge-info" style="font-size:0.65rem;">
-                            {{ 'AmneziaWG' if c.protocol == 'awg' else ('AmneziaWG 2.0' if c.protocol == 'awg2' else ('AWG Legacy' if c.protocol == 'awg_legacy' else
-                            ('Xray' if c.protocol == 'xray' else c.protocol | upper))) }}
+                            {{ 'AmneziaWG' if c.protocol == 'awg' else ('Xray' if c.protocol == 'xray' else c.protocol | upper) }}
                         </span>
                         {% if c.created_at %}
                         <span>📅 {{ c.created_at[:10] }}</span>
@@ -234,8 +233,6 @@
     function renderConnectionItem(conn) {
         const protoDisplay = {
             awg: 'AmneziaWG',
-            awg2: 'AmneziaWG 2.0',
-            awg_legacy: 'AWG Legacy',
             xray: 'Xray',
             telemt: 'Telemt',
             dns: 'AmneziaDNS'
@@ -300,8 +297,6 @@
         const protocols = server.protocols;
         const protoNames = {
             awg: 'AmneziaWG',
-            awg2: 'AmneziaWG 2.0',
-            awg_legacy: 'AWG Legacy',
             xray: 'Xray (VLESS-Reality)',
             telemt: 'Telemt (Telegram Proxy)',
             dns: 'AmneziaDNS'
