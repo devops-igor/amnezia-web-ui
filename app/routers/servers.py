@@ -48,8 +48,6 @@ async def api_list_servers(request: Request, user: dict = Depends(get_current_us
 
 CONTAINER_NAMES = {
     "awg": "amnezia-awg",
-    "awg2": "amnezia-awg2",
-    "awg_legacy": "amnezia-awg-legacy",
     "xray": "amnezia-xray",
     "telemt": "telemt",
     "dns": "amnezia-dns",
@@ -204,8 +202,6 @@ async def api_clear_server(request: Request, server_id: int, user: dict = Depend
         await asyncio.to_thread(ssh.connect)
         containers = [
             "amnezia-awg",
-            "amnezia-awg2",
-            "amnezia-awg-legacy",
             "amnezia-xray",
             "telemt",
             "amnezia-dns",
@@ -341,7 +337,7 @@ async def api_check_server(request: Request, server_id: int, user: dict = Depend
                 return proto, None, str(e)
 
         check_results = await asyncio.gather(
-            *[check_proto(p) for p in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]]
+            *[check_proto(p) for p in ["awg", "xray", "telemt", "dns"]]
         )
         for proto, result, err in check_results:
             if err:
@@ -385,7 +381,7 @@ async def api_install_protocol(
         server = db.get_server_by_id(server_id)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        if req.protocol not in ["awg", "awg2", "awg_legacy", "xray", "telemt", "dns"]:
+        if req.protocol not in ["awg", "xray", "telemt", "dns"]:
             return JSONResponse({"error": "Invalid protocol type"}, status_code=400)
 
         ssh = get_ssh(server)
@@ -404,7 +400,7 @@ async def api_install_protocol(
             )
         elif req.protocol == "xray":
             result = await asyncio.to_thread(manager.install_protocol, port=req.port)
-        elif req.protocol in ("awg", "awg2", "awg_legacy"):
+        elif req.protocol == "awg":
             result = await asyncio.to_thread(
                 manager.install_protocol,
                 protocol_type=req.protocol,
@@ -458,8 +454,6 @@ async def api_uninstall_protocol(
 
 CONTAINER_NAMES = {
     "awg": "amnezia-awg",
-    "awg2": "amnezia-awg2",
-    "awg_legacy": "amnezia-awg-legacy",
     "xray": "amnezia-xray",
     "telemt": "telemt",
     "dns": "amnezia-dns",

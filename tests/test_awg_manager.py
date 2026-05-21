@@ -36,13 +36,13 @@ class TestAWGKeyGeneration:
         assert psk1 != psk2
 
     def test_generate_awg_params_returns_dict(self):
-        params = generate_awg_params(use_ranges=False)
+        params = generate_awg_params()
         assert isinstance(params, dict)
         assert "junk_packet_count" in params
         assert "init_packet_magic_header" in params
 
     def test_generate_awg_params_with_ranges(self):
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         assert isinstance(params, dict)
         assert "junk_packet_count" in params
 
@@ -59,23 +59,11 @@ class TestAWGManager:
     def test_container_name_awg(self):
         assert self.manager._container_name("awg") == "amnezia-awg"
 
-    def test_container_name_awg_legacy(self):
-        assert self.manager._container_name("awg_legacy") == "amnezia-awg-legacy"
-
-    def test_container_name_awg2(self):
-        assert self.manager._container_name("awg2") == "amnezia-awg2"
-
     def test_config_path_awg(self):
         assert self.manager._config_path("awg") == "/opt/amnezia/awg/awg0.conf"
 
-    def test_config_path_awg_legacy(self):
-        assert self.manager._config_path("awg_legacy") == "/opt/amnezia/awg/wg0.conf"
-
     def test_docker_image_awg(self):
         assert self.manager._docker_image("awg") == "amneziavpn/amneziawg-go:latest"
-
-    def test_docker_image_awg_legacy(self):
-        assert self.manager._docker_image("awg_legacy") == "amneziavpn/amnezia-wg:latest"
 
     # ---- Docker checks ----
 
@@ -307,55 +295,55 @@ class TestValidateAwgParams:
 
     def test_valid_awg_params_pass(self):
         """Standard generated params should pass validation."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         # Should not raise
         self.manager._validate_awg_params(params)
 
     def test_non_numeric_value_rejected(self):
         """Non-numeric string values should be rejected."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "$(rm -rf /)"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
 
     def test_newline_injection_rejected(self):
         """Values with newlines should be rejected."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["init_packet_magic_header"] = "1\nMALICIOUS"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
 
     def test_semicolon_injection_rejected(self):
         """Values with semicolons should be rejected (not digits)."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "3; rm -rf /"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
 
     def test_pipe_injection_rejected(self):
         """Values with pipes should be rejected."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "3|cat /etc/passwd"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
 
     def test_out_of_range_rejected(self):
         """Values outside expected range should be rejected."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "999"
         with pytest.raises(ValueError, match="between"):
             self.manager._validate_awg_params(params)
 
     def test_negative_value_rejected(self):
         """Negative values should be rejected by digit check."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "-1"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
 
     def test_float_value_rejected(self):
         """Float values should be rejected (not digit-only)."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = "3.5"
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
@@ -368,7 +356,7 @@ class TestValidateAwgParams:
 
     def test_non_string_value_rejected(self):
         """Non-string values (e.g. int) should be rejected."""
-        params = generate_awg_params(use_ranges=True)
+        params = generate_awg_params()
         params["junk_packet_count"] = 3  # int, not str
         with pytest.raises(ValueError, match="numeric string"):
             self.manager._validate_awg_params(params)
@@ -385,7 +373,7 @@ class TestConfigureContainerSftp:
         """Config file should be written via upload_file + docker cp, not shell heredoc."""
         self.mock_ssh.run_sudo_command.return_value = ("keycontent", "", 0)
 
-        awg_params = generate_awg_params(use_ranges=True)
+        awg_params = generate_awg_params()
         self.manager._configure_container("awg", "55424", awg_params)
 
         # Should NOT use 'cat >' (heredoc) in any docker exec command
@@ -406,30 +394,9 @@ class TestConfigureContainerSftp:
         cmds = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
         assert any("docker cp" in cmd for cmd in cmds)
 
-    def test_configure_container_legacy_uses_sftp(self):
-        """AWG Legacy path should also use SFTP, not shell heredoc."""
-        self.mock_ssh.run_sudo_command.return_value = ("keycontent", "", 0)
-
-        awg_params = generate_awg_params(use_ranges=False)
-        # Remove AWG2-specific params for legacy
-        for key in ["cookie_reply_packet_junk_size", "transport_packet_junk_size"]:
-            if key in awg_params:
-                del awg_params[key]
-
-        self.manager._configure_container("awg_legacy", "55424", awg_params)
-
-        # Should NOT use shell heredoc in docker exec
-        for call in self.mock_ssh.run_sudo_command.call_args_list:
-            cmd = call[0][0]
-            if "docker exec" in cmd:
-                assert "cat >" not in cmd
-                assert "EOF" not in cmd
-
-        assert self.mock_ssh.upload_file.called
-
     def test_configure_container_validates_awg_params(self):
         """_configure_container should validate awg_params injection."""
-        awg_params = generate_awg_params(use_ranges=True)
+        awg_params = generate_awg_params()
         awg_params["junk_packet_count"] = "$(rm -rf /)"
 
         with pytest.raises(ValueError):
@@ -439,7 +406,7 @@ class TestConfigureContainerSftp:
         """Key generation commands should contain no user data."""
         self.mock_ssh.run_sudo_command.return_value = ("keycontent", "", 0)
 
-        awg_params = generate_awg_params(use_ranges=True)
+        awg_params = generate_awg_params()
         port = "55424"
         self.manager._configure_container("awg", port, awg_params)
 
@@ -457,7 +424,7 @@ class TestConfigureContainerSftp:
         """Temp file should be cleaned up after configuration."""
         self.mock_ssh.run_sudo_command.return_value = ("keycontent", "", 0)
 
-        awg_params = generate_awg_params(use_ranges=True)
+        awg_params = generate_awg_params()
         self.manager._configure_container("awg", "55424", awg_params)
 
         # rm -f should be called for the temp config file

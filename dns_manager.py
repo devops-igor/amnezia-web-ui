@@ -57,8 +57,6 @@ COPY forward-records.conf /opt/unbound/etc/unbound/forward-records.conf
             # Connect existing VPN containers to the DNS network
             vpn_containers = [
                 "amnezia-awg",
-                "amnezia-awg2",
-                "amnezia-awg-legacy",
                 "amnezia-xray",
                 "telemt",
             ]

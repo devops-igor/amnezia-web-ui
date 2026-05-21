@@ -61,36 +61,10 @@
 </div>
 
 <div class="protocol-cards" id="protocols-grid">
-    <!-- AWG2 Card (first - new version) -->
-    <div class="card card-hover protocol-card protocol-awg" id="proto-awg2">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-sm);">
-            <div class="protocol-icon">✨</div>
-            <div class="flex gap-sm" id="awg2-ctrl" style="display:none!important;"></div>
-        </div>
-        <div class="protocol-name">AmneziaWG 2.0 <span
-                style="font-size:0.65rem; background:var(--accent); color:#fff; padding:2px 6px; border-radius:8px; vertical-align:middle;">NEW</span>
-        </div>
-        <div class="protocol-desc">
-            {{ _('awg_desc') }}
-        </div>
-        <div class="protocol-status" id="awg2-status">
-            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
-        </div>
-        <div id="awg2-info" class="hidden">
-            <div class="protocol-info" id="awg2-info-grid"></div>
-        </div>
-        <div class="flex gap-sm" id="awg2-actions">
-            <button class="btn btn-primary btn-sm" onclick="openInstallModal('awg2')" id="awg2-install-btn"
-                style="flex:1">
-                {{ _('install') }}
-            </button>
-        </div>
-    </div>
-
-    <!-- AWG Card -->
+    <!-- AmneziaWG Card -->
     <div class="card card-hover protocol-card protocol-awg" id="proto-awg">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-sm);">
-            <div class="protocol-icon">🔮</div>
+            <div class="protocol-icon">✨</div>
             <div class="flex gap-sm" id="awg-ctrl" style="display:none!important;"></div>
         </div>
         <div class="protocol-name">AmneziaWG</div>
@@ -105,30 +79,6 @@
         </div>
         <div class="flex gap-sm" id="awg-actions">
             <button class="btn btn-primary btn-sm" onclick="openInstallModal('awg')" id="awg-install-btn"
-                style="flex:1">
-                {{ _('install') }}
-            </button>
-        </div>
-    </div>
-
-    <!-- AWG Legacy Card -->
-    <div class="card card-hover protocol-card protocol-legacy" id="proto-awg-legacy">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-sm);">
-            <div class="protocol-icon">📡</div>
-            <div class="flex gap-sm" id="awg-legacy-ctrl" style="display:none!important;"></div>
-        </div>
-        <div class="protocol-name">AmneziaWG Legacy</div>
-        <div class="protocol-desc">
-            {{ _('awg_legacy_desc') }}
-        </div>
-        <div class="protocol-status" id="awg-legacy-status">
-            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
-        </div>
-        <div id="awg-legacy-info" class="hidden">
-            <div class="protocol-info" id="awg-legacy-info-grid"></div>
-        </div>
-        <div class="flex gap-sm" id="awg-legacy-actions">
-            <button class="btn btn-primary btn-sm" onclick="openInstallModal('awg_legacy')" id="awg-legacy-install-btn"
                 style="flex:1">
                 {{ _('install') }}
             </button>
@@ -244,8 +194,6 @@
             <select class="form-select" id="connProtoSelect" onchange="loadConnections()"
                 style="width:auto; min-width:160px;">
                 <option value="awg">AmneziaWG</option>
-                <option value="awg2">AmneziaWG 2.0</option>
-                <option value="awg_legacy">AWG Legacy</option>
                 <option value="xray">Xray</option>
                 <option value="telemt">Telemt</option>
             </select>
@@ -530,8 +478,6 @@
     function getProtoTitle(proto) {
         switch (proto) {
             case 'awg': return 'AmneziaWG';
-            case 'awg2': return 'AmneziaWG 2.0';
-            case 'awg_legacy': return 'AWG Legacy';
             case 'xray': return 'Xray';
             case 'telemt': return 'Telemt';
             case 'dns': return 'AmneziaDNS';
@@ -587,7 +533,7 @@
 
                 for (const [proto, info] of Object.entries(data.protocols)) {
                     updateProtocolCard(proto, info);
-                    const isVPN = ['awg', 'awg2', 'awg_legacy', 'xray', 'telemt'].includes(proto);
+                    const isVPN = ['awg', 'xray', 'telemt'].includes(proto);
                     if (info.container_running && isVPN) {
                         const opt = document.createElement('option');
                         opt.value = proto;
@@ -628,7 +574,7 @@
     }
 
     function updateStatusCounts(protocols) {
-        const protos = ['awg', 'awg2', 'awg_legacy', 'xray', 'telemt'];
+        const protos = ['awg', 'xray', 'telemt'];
         const servs = ['dns'];
 
         let pRunning = 0, pTotal = protos.length;
@@ -894,7 +840,7 @@
                 params.tls_domain = document.getElementById('installTelemtDomain').value;
                 params.max_connections = parseInt(document.getElementById('installTelemtMaxConns').value) || 0;
             }
-            if (['awg', 'awg2', 'awg_legacy'].includes(currentInstallProto)) {
+            if (['awg'].includes(currentInstallProto)) {
                 const profileSelect = document.getElementById('installAwgProfile');
                 if (profileSelect && profileSelect.value) {
                     params.awg_profile = profileSelect.value;

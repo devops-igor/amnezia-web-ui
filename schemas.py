@@ -14,7 +14,7 @@ import re
 
 # ===== Shared Constants =====
 
-VALID_PROTOCOLS = {"awg", "awg2", "awg_legacy", "xray", "telemt", "dns"}
+VALID_PROTOCOLS = {"awg", "xray", "telemt", "dns"}
 
 
 class AWGObfuscationProfile(str, Enum):
