@@ -121,9 +121,91 @@ class TestAWGManager:
         self.mock_ssh.run_sudo_command.side_effect = mock_run
         self.manager.remove_container("awg")
 
-        assert any("docker stop amnezia-awg" in cmd for cmd in calls)
-        assert any("docker rm -fv amnezia-awg" in cmd for cmd in calls)
-        assert any("docker rmi amnezia-awg" in cmd for cmd in calls)
+        # Should attempt to stop/rm/rmi all known container names
+        found_stop = any("docker stop" in cmd for cmd in calls)
+        found_rm = any("docker rm -fv" in cmd for cmd in calls)
+        found_rmi = any("docker rmi" in cmd for cmd in calls)
+        assert found_stop
+        assert found_rm
+        assert found_rmi
+        # Should cover legacy names too
+        assert any("amnezia-awg2" in cmd for cmd in calls)
+        assert any("amnezia-awg-legacy" in cmd for cmd in calls)
+
+    # ---- Legacy container name fallback ----
+
+    def test_check_container_running_awg2_true(self):
+        """check_container_running returns True when amnezia-awg2 is running."""
+        self.mock_ssh.run_sudo_command.side_effect = [
+            ("", "", 0),  # amnezia-awg: not running
+            ("Up 5 minutes", "", 0),  # amnezia-awg2: running
+            ("", "", 0),  # amnezia-awg-legacy: not checked (short-circuits)
+        ]
+        assert self.manager.check_container_running("awg") is True
+
+    def test_check_container_running_awg2_auto_rename(self):
+        """check_container_running auto-renames amnezia-awg2 to amnezia-awg."""
+        calls = []
+
+        def mock_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if "amnezia-awg2" in cmd and "--filter name=^amnezia-awg2$" in cmd:
+                return ("Up 5 minutes", "", 0)
+            return ("", "", 0)
+
+        self.mock_ssh.run_sudo_command.side_effect = mock_run
+        assert self.manager.check_container_running("awg") is True
+        assert any("docker rename amnezia-awg2 amnezia-awg" in cmd for cmd in calls)
+
+    def test_check_container_running_awg_legacy_auto_rename(self):
+        """check_container_running auto-renames amnezia-awg-legacy to amnezia-awg."""
+        calls = []
+
+        def mock_run(cmd, *args, **kwargs):
+            calls.append(cmd)
+            if "amnezia-awg-legacy" in cmd and "--filter name=^amnezia-awg-legacy$" in cmd:
+                return ("Up 5 minutes", "", 0)
+            return ("", "", 0)
+
+        self.mock_ssh.run_sudo_command.side_effect = mock_run
+        assert self.manager.check_container_running("awg") is True
+        assert any("docker rename amnezia-awg-legacy amnezia-awg" in cmd for cmd in calls)
+
+    def test_check_protocol_installed_awg2_stopped(self):
+        """check_protocol_installed returns True when amnezia-awg2 exists (stopped)."""
+        self.mock_ssh.run_sudo_command.side_effect = [
+            ("", "", 0),  # amnezia-awg: not found
+            ("amnezia-awg2\n", "", 0),  # amnezia-awg2: found
+            ("", "", 0),  # amnezia-awg-legacy: not checked (short-circuits)
+        ]
+        assert self.manager.check_protocol_installed("awg") is True
+
+    def test_check_protocol_installed_awg_legacy_true(self):
+        """check_protocol_installed returns True when amnezia-awg-legacy exists."""
+        self.mock_ssh.run_sudo_command.side_effect = [
+            ("", "", 0),  # amnezia-awg: not found
+            ("", "", 0),  # amnezia-awg2: not found
+            ("amnezia-awg-legacy\n", "", 0),  # amnezia-awg-legacy: found
+        ]
+        assert self.manager.check_protocol_installed("awg") is True
+
+    def test_find_awg_container_returns_awg2(self):
+        """_find_awg_container returns amnezia-awg2 when found."""
+        self.mock_ssh.run_sudo_command.return_value = (
+            "amnezia-awg2\nother-container\n",
+            "",
+            0,
+        )
+        assert self.manager._find_awg_container() == "amnezia-awg2"
+
+    def test_find_awg_container_returns_none(self):
+        """_find_awg_container returns None when no AWG container exists."""
+        self.mock_ssh.run_sudo_command.return_value = (
+            "other-container\nunrelated\n",
+            "",
+            0,
+        )
+        assert self.manager._find_awg_container() is None
 
     # ---- IP allocation ----
 
