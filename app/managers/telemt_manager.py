@@ -387,7 +387,9 @@ class TelemtManager:
             username = user.get("username", "")
             secret = user.get("secret", "")
             links = user.get("links", {})
-            enabled = bool(secret)  # Non-empty secret means enabled
+            enabled = user.get(
+                "in_runtime", secret != ""
+            )  # Use API's in_runtime, fallback to secret
 
             tg_link = ""
             if links.get("tls"):
