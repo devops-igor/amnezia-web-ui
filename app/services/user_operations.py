@@ -8,6 +8,7 @@ from typing import List
 
 from config import get_db
 from app.utils.helpers import get_ssh, get_protocol_manager
+from schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,9 @@ async def perform_delete_user(user_id: str):
             ssh = get_ssh(server)
             await asyncio.to_thread(ssh.connect)
             for uc in conns:
-                manager = get_protocol_manager(ssh, uc["protocol"])
-                await asyncio.to_thread(manager.remove_client, uc["protocol"], uc["client_id"])
+                normalized_proto = normalize_protocol(uc["protocol"])
+                manager = get_protocol_manager(ssh, normalized_proto)
+                await asyncio.to_thread(manager.remove_client, normalized_proto, uc["client_id"])
             await asyncio.to_thread(ssh.disconnect)
         except Exception as e:
             logger.warning(

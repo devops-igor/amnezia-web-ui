@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
 from config import get_db
 from dependencies import get_current_user
-from schemas import MyAddConnectionRequest, RenameConnectionRequest
+from schemas import MyAddConnectionRequest, RenameConnectionRequest, normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,8 @@ async def api_my_add_connection(
         return JSONResponse({"error": "Server not found"}, status_code=404)
 
     # Verify protocol is installed
-    proto_info = server.get("protocols", {}).get(req.protocol, {})
+    normalized_proto = normalize_protocol(req.protocol)
+    proto_info = server.get("protocols", {}).get(normalized_proto, {})
     if not proto_info or not proto_info.get("installed", False):
         return JSONResponse(
             {"error": f"Protocol {req.protocol} is not installed on this server"},
@@ -158,13 +159,13 @@ async def api_my_add_connection(
     try:
         ssh = get_ssh(server)
         await asyncio.to_thread(ssh.connect)
-        manager = get_protocol_manager(ssh, req.protocol)
+        manager = get_protocol_manager(ssh, normalized_proto)
 
         # Create client on remote server
-        if req.protocol == "telemt":
+        if normalized_proto == "telemt":
             result = await asyncio.to_thread(
                 manager.add_client,
-                req.protocol,
+                normalized_proto,
                 req.name,
                 server["host"],
                 port,
@@ -174,7 +175,7 @@ async def api_my_add_connection(
             )
         else:
             result = await asyncio.to_thread(
-                manager.add_client, req.protocol, req.name, server["host"], port
+                manager.add_client, normalized_proto, req.name, server["host"], port
             )
 
         if result.get("client_id"):
@@ -182,7 +183,7 @@ async def api_my_add_connection(
                 "id": str(uuid.uuid4()),
                 "user_id": user["id"],
                 "server_id": req.server_id,
-                "protocol": req.protocol,
+                "protocol": normalized_proto,
                 "client_id": result["client_id"],
                 "name": req.name,
                 "created_at": now.isoformat(),
@@ -227,15 +228,16 @@ async def api_my_connection_config(
         server = db.get_server_by_id(sid)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        proto_info = server.get("protocols", {}).get(conn["protocol"], {})
+        normalized_proto = normalize_protocol(conn["protocol"])
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
         await asyncio.to_thread(ssh.connect)
         # Use appropriate manager for the protocol
-        manager = get_protocol_manager(ssh, conn["protocol"])
+        manager = get_protocol_manager(ssh, normalized_proto)
         config = await asyncio.to_thread(
             manager.get_client_config,
-            conn["protocol"],
+            normalized_proto,
             conn["client_id"],
             server["host"],
             port,

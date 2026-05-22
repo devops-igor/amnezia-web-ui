@@ -146,3 +146,27 @@ def migrate_awg_protocol_names():
         logger.info("AWG legacy migration complete: %d server(s) updated", migrated)
     else:
         logger.info("AWG legacy migration: no servers needed migration")
+
+    # Also migrate user_connections.protocol column
+    conn_migrated = 0
+    for alias in ("awg2", "awg_legacy"):
+        with db._connection() as conn:
+            rows = conn.execute(
+                "SELECT id FROM user_connections WHERE protocol = ?", (alias,)
+            ).fetchall()
+            if rows:
+                conn.execute(
+                    "UPDATE user_connections SET protocol = 'awg' WHERE protocol = ?",
+                    (alias,),
+                )
+                conn.commit()
+                conn_migrated += len(rows)
+                logger.info(
+                    "Migrated %d connection(s) with protocol '%s' -> 'awg'",
+                    len(rows),
+                    alias,
+                )
+    if conn_migrated:
+        logger.info("AWG connection migration complete: %d connection(s) updated", conn_migrated)
+    else:
+        logger.info("AWG connection migration: no connections needed migration")
