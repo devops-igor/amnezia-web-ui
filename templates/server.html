@@ -644,12 +644,6 @@
                     if (hParts.length) {
                         grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_magic_headers')}</span><span class="protocol-info-value">${hParts.join(' ')}</span></div>`;
                     }
-                    const iParts = [];
-                    for (let i = 1; i <= 5; i++) {
-                        const val = p['i' + i];
-                        iParts.push(`I${i}=${val ? _('awg_present') : _('awg_not_set')}`);
-                    }
-                    grid += `<div class="protocol-info-item"><span class="protocol-info-label">${_('awg_init_packets')}</span><span class="protocol-info-value">${iParts.join(' ')}</span></div>`;
                 }
                 infoGrid.innerHTML = grid;
             }
