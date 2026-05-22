@@ -216,6 +216,7 @@ class TestGetClients:
             "data": [
                 {
                     "username": "alice",
+                    "in_runtime": True,
                     "secret": "abc123def456",
                     "links": {"tls": ["tg://proxy?server=example.com&port=443&secret=abc123"]},
                     "total_octets": 1000,
@@ -264,6 +265,7 @@ class TestGetClients:
             "data": [
                 {
                     "username": "bob",
+                    "in_runtime": False,
                     "secret": "",  # Empty secret = disabled
                     "links": {"classic": ["tg://proxy?server=example.com&port=443&secret="]},
                     "total_octets": 500,
@@ -283,6 +285,7 @@ class TestGetClients:
             "data": [
                 {
                     "username": "carol",
+                    "in_runtime": True,
                     "secret": "***",
                     "links": {"tls": ["tg://proxy?..."]},
                     "total_octets": 10000,
@@ -306,6 +309,7 @@ class TestGetClients:
             "data": [
                 {
                     "username": "dave",
+                    "in_runtime": True,
                     "secret": "xyz789",
                     "links": {
                         "tls": [],
@@ -318,6 +322,44 @@ class TestGetClients:
 
         clients = self.manager.get_clients("telemt")
         assert clients[0]["userData"]["tg_link"] == "tg://secure-link"
+
+    @patch.object(TelemtManager, "_api_request")
+    def test_get_clients_in_runtime_false(self, mock_api):
+        """User with in_runtime=False should be disabled regardless of secret."""
+        mock_api.return_value = {
+            "ok": True,
+            "data": [
+                {"username": "bob", "in_runtime": False, "secret": "some_secret", "links": {}}
+            ],
+        }
+        clients = self.manager.get_clients("telemt")
+        assert clients[0]["enabled"] is False
+
+    @patch.object(TelemtManager, "_api_request")
+    def test_get_clients_in_runtime_missing_with_secret(self, mock_api):
+        """Fallback: no in_runtime field, uses secret to determine enabled."""
+        mock_api.return_value = {
+            "ok": True,
+            "data": [
+                {
+                    "username": "alice",
+                    "secret": "abc123",
+                    "links": {"tls": ["tg://proxy?..."]},
+                }
+            ],
+        }
+        clients = self.manager.get_clients("telemt")
+        assert clients[0]["enabled"] is True
+
+    @patch.object(TelemtManager, "_api_request")
+    def test_get_clients_in_runtime_missing_without_secret(self, mock_api):
+        """Fallback: no in_runtime, no secret → disabled."""
+        mock_api.return_value = {
+            "ok": True,
+            "data": [{"username": "bob", "links": {}}],
+        }
+        clients = self.manager.get_clients("telemt")
+        assert clients[0]["enabled"] is False
 
 
 class TestAddClient:
@@ -766,6 +808,7 @@ class TestGetClientConfig:
                 "data": [
                     {
                         "username": "dave",
+                        "in_runtime": True,
                         "secret": "***",
                         "links": {
                             "tls": [
