@@ -107,7 +107,7 @@ def test_create_connection(
     conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_user_conn"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_user_conn"},
         csrf_token,
     )
 
@@ -150,7 +150,7 @@ def test_view_connection_config(
     conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_view_conn"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_view_conn"},
         csrf_token,
     )
 
