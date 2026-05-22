@@ -214,7 +214,7 @@ def test_add_user_connection(authenticated_page: Page, base_url: str, csrf_token
         f"/api/users/{user_id}/connections/add",
         {
             "server_id": server_id,
-            "protocol": "awg2",
+            "protocol": "awg",
             "name": "e2e_user_conn",
         },
         csrf_token,

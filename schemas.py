@@ -16,6 +16,17 @@ import re
 
 VALID_PROTOCOLS = {"awg", "xray", "telemt", "dns"}
 
+# Protocol aliases: legacy names that should be treated as their modern equivalent
+PROTOCOL_ALIASES = {"awg2": "awg", "awg_legacy": "awg"}
+
+
+def normalize_protocol(proto: str) -> str:
+    """Normalize legacy protocol names to their modern equivalents.
+
+    Maps 'awg2' and 'awg_legacy' to 'awg'. All other values pass through.
+    """
+    return PROTOCOL_ALIASES.get(proto, proto)
+
 
 class AWGObfuscationProfile(str, Enum):
     """AWG obfuscation profile — determines parameter generation ranges.
