@@ -13,6 +13,7 @@ from app.services.background import perform_mass_operations
 from app.services.background import sync_users_with_remnawave
 from app.utils.helpers import get_protocol_manager
 from app.utils.helpers import get_ssh
+from schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,10 @@ class BackgroundTaskOrchestrator:
                             client_bytes[c.get("clientId")] = {"rx": rx, "tx": tx}
 
                         for uc in conns_by_server[sid]:
-                            if uc["protocol"] == proto and uc["client_id"] in client_bytes:
+                            if (
+                                normalize_protocol(uc["protocol"]) == proto
+                                and uc["client_id"] in client_bytes
+                            ):
                                 curr_rx = client_bytes[uc["client_id"]]["rx"]
                                 curr_tx = client_bytes[uc["client_id"]]["tx"]
                                 last_rx = uc.get("last_rx")

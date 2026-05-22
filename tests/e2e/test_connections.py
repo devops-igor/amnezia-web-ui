@@ -97,7 +97,7 @@ def test_add_connection(authenticated_page: Page, base_url: str, csrf_token: str
     add_conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_test_connection"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_test_connection"},
         csrf_token,
     )
 
@@ -149,7 +149,7 @@ def test_connection_config_and_qr(authenticated_page: Page, base_url: str, csrf_
     conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_config_test"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_config_test"},
         csrf_token,
     )
 
@@ -213,7 +213,7 @@ def test_toggle_connection(authenticated_page: Page, base_url: str, csrf_token: 
     conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_toggle_test"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_toggle_test"},
         csrf_token,
     )
 
@@ -289,7 +289,7 @@ def test_delete_connection(authenticated_page: Page, base_url: str, csrf_token: 
     conn_result = api_post(
         page,
         f"/api/users/{user_id}/connections/add",
-        {"server_id": server_id, "protocol": "awg2", "name": "e2e_delete_conn"},
+        {"server_id": server_id, "protocol": "awg", "name": "e2e_delete_conn"},
         csrf_token,
     )
 
