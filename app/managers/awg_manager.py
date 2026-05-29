@@ -71,6 +71,9 @@ AWG_PROFILES = {
     },
 }
 
+# Legacy container names that may exist on user servers from before AWG 2.0 deprecation
+AWG_CONTAINER_NAMES = ("amnezia-awg", "amnezia-awg2", "amnezia-awg-legacy")
+
 
 def generate_wg_keypair():
     """Generate a WireGuard X25519 keypair (private, public) as base64 strings."""
@@ -225,6 +228,22 @@ class AWGManager:
         """Get Docker container name for protocol type."""
         return "amnezia-awg"
 
+    def _find_awg_container(self):
+        """Check which AWG container exists on the remote server.
+
+        Checks for both the current name (amnezia-awg) and legacy names
+        (amnezia-awg2, amnezia-awg-legacy). Returns the name found, or None.
+        """
+        out, _, _ = self.ssh.run_sudo_command(
+            "docker ps -a --filter 'name=amnezia-awg' --format '{{.Names}}'"
+        )
+        found = [name.strip() for name in out.strip().split("\n") if name.strip()]
+        # Filter to exact matches only (docker filter does substring matching)
+        for name in AWG_CONTAINER_NAMES:
+            if name in found:
+                return name
+        return None
+
     def _config_path(self, protocol_type):
         """Get server config path inside container."""
         return "/opt/amnezia/awg/awg0.conf"
@@ -282,22 +301,29 @@ docker --version
         return out
 
     def check_container_running(self, protocol_type):
-        """Check if AWG container is running."""
-        container_name = self._container_name(protocol_type)
-        # Use ^name$ for exact match (Docker name filter does substring match)
-        out, _, code = self.ssh.run_sudo_command(
-            f"docker ps --filter name=^{container_name}$ --format '{{{{.Status}}}}'"
-        )
-        return "Up" in out
+        """Check if any AWG container is running. Auto-rename legacy containers."""
+        # Check all possible AWG container names
+        for name in AWG_CONTAINER_NAMES:
+            out, _, _ = self.ssh.run_sudo_command(
+                f"docker ps --filter name=^{name}$ --format '{{{{.Status}}}}'"
+            )
+            if "Up" in out:
+                # Auto-rename legacy containers to canonical name
+                if name != "amnezia-awg":
+                    logger.info("Auto-renaming AWG container from '%s' to 'amnezia-awg'", name)
+                    self.ssh.run_sudo_command(f"docker rename {name} amnezia-awg")
+                return True
+        return False
 
     def check_protocol_installed(self, protocol_type):
-        """Check if protocol is installed (container exists)."""
-        container_name = self._container_name(protocol_type)
-        out, _, code = self.ssh.run_sudo_command(
-            f"docker ps -a --filter name=^{container_name}$ --format '{{{{.Names}}}}'"
-        )
-        # Exact match check
-        return container_name in out.strip().split("\n")
+        """Check if any AWG container exists (running or stopped)."""
+        for name in AWG_CONTAINER_NAMES:
+            out, _, _ = self.ssh.run_sudo_command(
+                f"docker ps -a --filter name=^{name}$ --format '{{{{.Names}}}}'"
+            )
+            if name in out.strip().split("\n"):
+                return True
+        return False
 
     def prepare_host(self, protocol_type):
         """Prepare host for container (mirrors prepare_host.sh)."""
@@ -676,11 +702,11 @@ tail -f /dev/null
         time.sleep(5)
 
     def remove_container(self, protocol_type):
-        """Remove AWG container (mirrors remove_container.sh)."""
-        container_name = self._container_name(protocol_type)
-        self.ssh.run_sudo_command(f"docker stop {container_name}")
-        self.ssh.run_sudo_command(f"docker rm -fv {container_name}")
-        self.ssh.run_sudo_command(f"docker rmi {container_name}")
+        """Remove AWG container including legacy-named containers (mirrors remove_container.sh)."""
+        for name in AWG_CONTAINER_NAMES:
+            self.ssh.run_sudo_command(f"docker stop {name} || true")
+            self.ssh.run_sudo_command(f"docker rm -fv {name} || true")
+            self.ssh.run_sudo_command(f"docker rmi {name} || true")
         return True
 
     # ===================== CLIENT MANAGEMENT =====================
