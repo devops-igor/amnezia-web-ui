@@ -202,6 +202,8 @@ async def api_clear_server(request: Request, server_id: int, user: dict = Depend
         await asyncio.to_thread(ssh.connect)
         containers = [
             "amnezia-awg",
+            "amnezia-awg2",  # Legacy AWG 2.0 container name
+            "amnezia-awg-legacy",  # Legacy AWG container name
             "amnezia-xray",
             "telemt",
             "amnezia-dns",
