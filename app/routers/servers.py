@@ -16,6 +16,7 @@ from dependencies import get_current_user, require_admin
 from schemas import (
     AddConnectionRequest,
     AddServerRequest,
+    AwgSpeedLimitConfigRequest,
     ConfirmFingerprintRequest,
     ConnectionActionRequest,
     EditConnectionRequest,
@@ -649,6 +650,7 @@ async def api_add_connection(
                 stored_awg_params=awg_params,
                 speed_limit_down=req.awg_speed_limit_down,
                 speed_limit_up=req.awg_speed_limit_up,
+                server_protocols=server.get("protocols", {}),
             )
         await asyncio.to_thread(ssh.disconnect)
 
@@ -909,6 +911,105 @@ async def api_update_connection_speed_limit(
         }
     except Exception as e:
         logger.exception("Error updating connection speed limit")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.get("/{server_id}/awg/speed-limit-config")
+async def api_get_awg_speed_limit_config(
+    request: Request, server_id: int, user: dict = Depends(require_admin)
+):
+    """Get AWG global and default per-connection speed limit configuration.
+
+    Returns the global_speed_limit_down/up (total bandwidth pool cap) and
+    default_speed_limit_down/up (defaults for new connections without
+    explicit limits) stored in the server's AWG protocol config.
+    """
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+
+        normalized_proto = normalize_protocol("awg")
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        if not proto_info.get("installed"):
+            return JSONResponse(
+                {"error": "AWG protocol is not installed on this server"},
+                status_code=400,
+            )
+
+        awg_config = proto_info.get("awg_speed_limit_config", {})
+        return {
+            "global_speed_limit_down": awg_config.get("global_speed_limit_down"),
+            "global_speed_limit_up": awg_config.get("global_speed_limit_up"),
+            "default_speed_limit_down": awg_config.get("default_speed_limit_down"),
+            "default_speed_limit_up": awg_config.get("default_speed_limit_up"),
+        }
+    except Exception as e:
+        logger.exception("Error getting AWG speed limit config")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.patch("/{server_id}/awg/speed-limit-config")
+async def api_update_awg_speed_limit_config(
+    request: Request,
+    server_id: int,
+    req: AwgSpeedLimitConfigRequest,
+    user: dict = Depends(require_admin),
+):
+    """Update AWG global and default per-connection speed limits.
+
+    Global limits cap the total AWG bandwidth pool (class 1:1 on awg0/ifb0).
+    Default limits are applied to new connections that don't specify explicit limits.
+
+    The config is stored in the server's protocols.awg.awg_speed_limit_config
+    in the database, and applied to the container via awg_tc.set_global_limit().
+    """
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+
+        normalized_proto = normalize_protocol("awg")
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        if not proto_info.get("installed"):
+            return JSONResponse(
+                {"error": "AWG protocol is not installed on this server"},
+                status_code=400,
+            )
+
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        try:
+            manager = get_protocol_manager(ssh, normalized_proto)
+            result = await asyncio.to_thread(
+                manager.update_speed_limit_config_and_apply,
+                normalized_proto,
+                req.global_speed_limit_down,
+                req.global_speed_limit_up,
+                req.default_speed_limit_down,
+                req.default_speed_limit_up,
+                server.get("protocols", {}),
+            )
+        finally:
+            await asyncio.to_thread(ssh.disconnect)
+
+        if result is None:
+            return JSONResponse(
+                {"error": "Failed to update speed limit config"},
+                status_code=500,
+            )
+
+        return {
+            "status": "success",
+            "global_speed_limit_down": result.get("global_speed_limit_down"),
+            "global_speed_limit_up": result.get("global_speed_limit_up"),
+            "default_speed_limit_down": result.get("default_speed_limit_down"),
+            "default_speed_limit_up": result.get("default_speed_limit_up"),
+        }
+    except Exception as e:
+        logger.exception("Error updating AWG speed limit config")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
