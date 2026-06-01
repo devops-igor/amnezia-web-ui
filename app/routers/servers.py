@@ -840,11 +840,10 @@ async def api_get_server_clients(
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
-@router.patch("/{server_id}/connections/{client_id}/speed-limit")
+@router.patch("/{server_id}/connections/speed-limit")
 async def api_update_connection_speed_limit(
     request: Request,
     server_id: int,
-    client_id: str,
     req: SpeedLimitRequest,
     user: dict = Depends(require_admin),
 ):
@@ -852,6 +851,7 @@ async def api_update_connection_speed_limit(
 
     Speed limits are stored in the clientsTable JSON on the server.
     """
+    client_id = req.client_id
 
     try:
         db = get_db()
