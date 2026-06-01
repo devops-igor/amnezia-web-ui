@@ -194,6 +194,8 @@ class AddConnectionRequest(BaseModel):
     telemt_quota: Optional[str] = Field(default=None, max_length=50)
     telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+    awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
+    awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("protocol")
     @classmethod
@@ -203,6 +205,16 @@ class AddConnectionRequest(BaseModel):
             raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
         return v
 
+    @field_validator("awg_speed_limit_down", "awg_speed_limit_up")
+    @classmethod
+    def validate_speed_limit(cls, v: Optional[int]) -> Optional[int]:
+        """Validate speed limit: must be positive int or 0 (unlimited), null = no limit."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("speed_limit must be >= 0 (0 means unlimited)")
+        return v
+
 
 class EditConnectionRequest(BaseModel):
     protocol: str = Field(default="telemt", min_length=1, max_length=50)
@@ -210,6 +222,8 @@ class EditConnectionRequest(BaseModel):
     telemt_quota: Optional[str] = Field(default=None, max_length=50)
     telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+    awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
+    awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("protocol")
     @classmethod
@@ -217,6 +231,16 @@ class EditConnectionRequest(BaseModel):
         """Validate protocol against allowlist."""
         if v not in VALID_PROTOCOLS:
             raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
+
+    @field_validator("awg_speed_limit_down", "awg_speed_limit_up")
+    @classmethod
+    def validate_speed_limit(cls, v: Optional[int]) -> Optional[int]:
+        """Validate speed limit: must be positive int or 0 (unlimited), null = no limit."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("speed_limit must be >= 0 (0 means unlimited)")
         return v
 
 
@@ -272,6 +296,8 @@ class MyAddConnectionRequest(BaseModel):
     telemt_quota: Optional[str] = Field(default=None, max_length=50)
     telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+    awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
+    awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("protocol")
     @classmethod
@@ -279,6 +305,16 @@ class MyAddConnectionRequest(BaseModel):
         """Validate protocol against allowlist."""
         if v not in VALID_PROTOCOLS:
             raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
+
+    @field_validator("awg_speed_limit_down", "awg_speed_limit_up")
+    @classmethod
+    def validate_speed_limit(cls, v: Optional[int]) -> Optional[int]:
+        """Validate speed limit: must be positive int or 0 (unlimited), null = no limit."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("speed_limit must be >= 0 (0 means unlimited)")
         return v
 
 
@@ -294,6 +330,23 @@ class RenameConnectionRequest(BaseModel):
             raise ValueError("Name cannot contain null bytes")
         if not v:
             raise ValueError("Name cannot be empty or whitespace only")
+        return v
+
+
+class SpeedLimitRequest(BaseModel):
+    """Request body for updating AWG connection speed limits."""
+
+    speed_limit_down: Optional[int] = Field(default=None, ge=0)
+    speed_limit_up: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("speed_limit_down", "speed_limit_up")
+    @classmethod
+    def validate_speed_limit(cls, v: Optional[int]) -> Optional[int]:
+        """Validate speed limit: must be positive int or 0 (unlimited), null = no limit."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("speed_limit must be >= 0 (0 means unlimited)")
         return v
 
 
