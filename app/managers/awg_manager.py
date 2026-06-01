@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives import serialization
 
 from docker_utils import check_docker_installed, ensure_apparmor_utils
 from app.managers.awg_cps import generate_cps_packets, select_mimicry_domain
+from app.managers import awg_tc
 
 logger = logging.getLogger(__name__)
 
@@ -1027,7 +1028,16 @@ tail -f /dev/null
 
         return result
 
-    def add_client(self, protocol_type, client_name, server_host, port, stored_awg_params=None):
+    def add_client(
+        self,
+        protocol_type,
+        client_name,
+        server_host,
+        port,
+        stored_awg_params=None,
+        speed_limit_down=None,
+        speed_limit_up=None,
+    ):
         """
         Add a new client/peer to the AWG config.
         Returns the client config as a string for the .conf file.
@@ -1035,6 +1045,8 @@ tail -f /dev/null
         Args:
             stored_awg_params: Optional dict from the database (awg_params column).
                 Contains I1-I5 and MTU which are CLIENT-only and not in the server config.
+            speed_limit_down: Optional download speed limit in Mbps (null = unlimited).
+            speed_limit_up: Optional upload speed limit in Mbps (null = unlimited).
         """
         with self._lock:
             container_name = self._container_name(protocol_type)
@@ -1079,6 +1091,29 @@ AllowedIPs = {client_ip}/32
                 f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
             )
 
+            # Apply speed limit if configured
+            if speed_limit_down or speed_limit_up:
+                tc_result = awg_tc.apply_speed_limit(
+                    self.ssh,
+                    container_name,
+                    iface,
+                    client_ip,
+                    speed_limit_down or 0,
+                    speed_limit_up or 0,
+                )
+                if tc_result["status"] == "ok":
+                    logger.info(f"Speed limit applied for new client {client_ip}")
+                else:
+                    logger.warning(f"Failed to apply speed limit: {tc_result.get('message')}")
+            else:
+                # Even without limits, reapply all existing limits after syncconf
+                # to ensure any previously configured limits survive the config reload
+                try:
+                    clients_table_for_tc = self._get_clients_table(protocol_type)
+                    awg_tc.reapply_all_limits(self.ssh, container_name, iface, clients_table_for_tc)
+                except Exception as e:
+                    logger.warning(f"Failed to reapply speed limits after syncconf: {e}")
+
             # Update clients table — store keys for config reconstruction
             clients_table = self._get_clients_table(protocol_type)
             new_client = {
@@ -1090,6 +1125,8 @@ AllowedIPs = {client_ip}/32
                     "clientIp": client_ip,
                     "psk": psk,
                     "enabled": True,
+                    "speed_limit_down": speed_limit_down,
+                    "speed_limit_up": speed_limit_up,
                 },
             }
             clients_table.append(new_client)
@@ -1303,6 +1340,13 @@ AllowedIPs = {client_ip}/32
                 f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
             )
 
+            # Reapply all speed limits after syncconf (tc rules may reset)
+            try:
+                clients_for_tc = self._get_clients_table(protocol_type)
+                awg_tc.reapply_all_limits(self.ssh, container_name, iface, clients_for_tc or [])
+            except Exception as e:
+                logger.warning(f"Failed to reapply speed limits after toggle: {e}")
+
             # Update enabled status in clients table
             clients_table = self._get_clients_table(protocol_type)
             for c in clients_table:
@@ -1317,6 +1361,18 @@ AllowedIPs = {client_ip}/32
         config_path = self._config_path(protocol_type)
         wg_bin = self._wg_binary(protocol_type)
         iface = self._interface_name(protocol_type)
+
+        # Remove speed limit for this peer before removing the peer
+        try:
+            clients_table_before = self._get_clients_table(protocol_type)
+            for c in clients_table_before:
+                if c.get("clientId") == client_id:
+                    peer_ip = c.get("clientIp") or c.get("userData", {}).get("clientIp")
+                    if peer_ip:
+                        awg_tc.remove_speed_limit(self.ssh, container_name, iface, peer_ip)
+                    break
+        except Exception as e:
+            logger.warning(f"Failed to remove speed limit before client removal: {e}")
 
         # Get current config
         config = self._get_server_config(protocol_type)
@@ -1344,6 +1400,13 @@ AllowedIPs = {client_ip}/32
         self.ssh.run_sudo_command(
             f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
         )
+
+        # Reapply remaining speed limits after syncconf
+        try:
+            clients_for_tc = self._get_clients_table(protocol_type)
+            awg_tc.reapply_all_limits(self.ssh, container_name, iface, clients_for_tc or [])
+        except Exception as e:
+            logger.warning(f"Failed to reapply speed limits after client removal: {e}")
 
         # Update clients table
         clients_table = self._get_clients_table(protocol_type)
@@ -1379,3 +1442,58 @@ AllowedIPs = {client_ip}/32
                     info["error"] = str(e)
 
         return info
+
+    def update_client_speed_limit(self, protocol_type, client_id, speed_limit_down, speed_limit_up):
+        """Update speed limits for an existing AWG client.
+
+        Args:
+            protocol_type: Protocol type (unused, always "awg").
+            client_id: The client's public key (clientId).
+            speed_limit_down: Download speed limit in Mbps (None = no limit, 0 = unlimited).
+            speed_limit_up: Upload speed limit in Mbps (None = no limit, 0 = unlimited).
+
+        Returns:
+            Updated clients_table entry for this client, or None if not found.
+        """
+        with self._lock:
+            clients_table = self._get_clients_table(protocol_type)
+            updated_entry = None
+            for client in clients_table:
+                if client.get("clientId") == client_id:
+                    user_data = client.setdefault("userData", {})
+                    user_data["speed_limit_down"] = speed_limit_down
+                    user_data["speed_limit_up"] = speed_limit_up
+                    updated_entry = client
+                    break
+
+            if updated_entry is None:
+                return None
+
+            self._save_clients_table(protocol_type, clients_table)
+
+            # Apply or remove tc rules on the server
+            container_name = self._container_name(protocol_type)
+            iface = self._interface_name(protocol_type)
+            peer_ip = updated_entry.get("clientIp") or updated_entry.get("userData", {}).get(
+                "clientIp"
+            )
+            if peer_ip:
+                try:
+                    if speed_limit_down or speed_limit_up:
+                        effective_down = speed_limit_down if speed_limit_down else speed_limit_up
+                        effective_up = speed_limit_up if speed_limit_up else speed_limit_down
+                        awg_tc.apply_speed_limit(
+                            self.ssh,
+                            container_name,
+                            iface,
+                            peer_ip,
+                            effective_down or 0,
+                            effective_up or 0,
+                        )
+                    else:
+                        # Both null/zero = remove limit
+                        awg_tc.remove_speed_limit(self.ssh, container_name, iface, peer_ip)
+                except Exception as e:
+                    logger.warning(f"Failed to apply/remove tc speed limit: {e}")
+
+            return updated_entry
