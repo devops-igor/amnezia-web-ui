@@ -340,12 +340,53 @@
             </div>
         </div>
 
+        <div id="awgSpeedLimitOptions"
+            style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
+            <div class="form-group">
+                <label class="form-label">{{ _('speed_limit_down') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="awgSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <div class="form-hint">{{ _('speed_limit_down_hint') }}</div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">{{ _('speed_limit_up') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="awgSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <div class="form-hint">{{ _('speed_limit_up_hint') }}</div>
+            </div>
+        </div>
+
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeModal('addConnectionModal')">{{ _('cancel') }}</button>
             <button class="btn btn-primary" onclick="addConnection()" id="addConnBtn">
                 <span id="addConnBtnText">{{ _('create') }}</span>
                 <div class="spinner hidden" id="addConnSpinner"></div>
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Edit Speed Limit Modal ===== -->
+<div class="modal-backdrop" id="editSpeedLimitModal">
+    <div class="modal" style="max-width: 400px;">
+        <div class="modal-header">
+            <h2 class="modal-title">{{ _('edit_speed_limit') }}</h2>
+            <button class="modal-close" onclick="closeModal('editSpeedLimitModal')">×</button>
+        </div>
+        <div style="padding: var(--space-md) 0;">
+            <div class="form-group">
+                <label class="form-label">{{ _('speed_limit_down') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="editSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+            <div class="form-group">
+                <label class="form-label">{{ _('speed_limit_up') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="editSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+        </div>
+        <div class="flex gap-sm" style="padding-bottom: var(--space-md);">
+            <button class="btn btn-danger" onclick="clearSpeedLimits()" style="flex:1;">{{ _('remove_limits') }}</button>
+            <button class="btn btn-primary" onclick="saveSpeedLimits()" style="flex:1;">{{ _('save') }}</button>
+        </div>
+        <div style="padding-bottom: var(--space-sm);">
+            <button class="btn btn-secondary" onclick="closeModal('editSpeedLimitModal')" style="width:100%;">{{ _('cancel') }}</button>
         </div>
     </div>
 </div>
@@ -974,12 +1015,25 @@
 
                 if (!enabled) metaHtml += `<span class="badge badge-danger" style="font-size:0.65rem">${_('stop')}</span>`;
 
+                // AWG speed limit badges
+                if (proto === 'awg' && (userData.speed_limit_down || userData.speed_limit_up)) {
+                    const down = userData.speed_limit_down;
+                    const up = userData.speed_limit_up;
+                    const parts = [];
+                    if (down) parts.push(`↓${down}`);
+                    if (up) parts.push(`↑${up}`);
+                    if (parts.length) metaHtml += `<span class="badge badge-warn" style="font-size:0.65rem;">⚡${parts.join(' ')} Mbps</span>`;
+                }
+
                 const disabledStyle = enabled ? '' : 'opacity:0.5;';
                 const toggleIcon = enabled ? '🔵' : '⚫';
                 const toggleTitle = enabled ? _('stop') : _('starting');
                 // Show config button for all WireGuard-based clients.
                 // If clientPrivateKey is missing (created via native app), we show a warning instead.
                 const canShowConfig = proto === 'xray' || true; // always show 📄 button
+
+                // AWG edit speed limit button
+                const awgSpeedBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openEditSpeedLimitModal('${escapeJs(client.clientId)}')" title="${_('edit_speed_limit')}">⚡</button>` : '';
 
                 listEl.innerHTML += `
                     <div class="client-item" style="${disabledStyle}">
@@ -992,6 +1046,7 @@
                         </div>
                         <div class="client-actions">
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="showConnectionConfig('${escapeJs(client.clientId)}', '${escapeJs(name)}', ${!!userData.clientPrivateKey || proto === 'xray' || proto === 'telemt'})" title="${_('config')}">📄</button>
+                            ${awgSpeedBtn}
                             ${proto === 'telemt' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="editConnection('${escapeJs(client.clientId)}')" title="${_('edit')}">✏️</button>` : ''}
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleConnection('${escapeJs(client.clientId)}', ${!enabled})" title="${toggleTitle}">${toggleIcon}</button>
                             <button class="btn btn-danger btn-sm btn-icon" onclick="removeConnection('${escapeJs(client.clientId)}')" title="${_('delete')}">🗑</button>
@@ -1019,6 +1074,13 @@
             const params = {
                 protocol: proto, name: connName, user_id: userId,
             };
+            // AWG speed limits
+            if (proto === 'awg') {
+                const downVal = document.getElementById('awgSpeedLimitDown').value;
+                const upVal = document.getElementById('awgSpeedLimitUp').value;
+                if (downVal !== '' && downVal !== null) params.awg_speed_limit_down = parseInt(downVal) || null;
+                if (upVal !== '' && upVal !== null) params.awg_speed_limit_up = parseInt(upVal) || null;
+            }
             if (proto === 'telemt' && isEditingConn) {
                 params.telemt_quota = document.getElementById('telemtQuota').value || null;
                 params.telemt_max_ips = parseInt(document.getElementById('telemtMaxIps').value) || null;
@@ -1065,10 +1127,22 @@
         isEditingConn = isEdit;
         const proto = document.getElementById('connProtoSelect').value;
         const telemtOpts = document.getElementById('telemtConnOptions');
+        const awgSpeedOpts = document.getElementById('awgSpeedLimitOptions');
 
         document.getElementById('addConnectionModalTitle').textContent = isEdit ? _('edit_connection') : _('add_connection');
         document.getElementById('addConnBtnText').textContent = isEdit ? _('save') : _('create');
         document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
+
+        // AWG speed limit options
+        if (proto === 'awg') {
+            awgSpeedOpts.style.display = 'block';
+            if (!isEdit) {
+                document.getElementById('awgSpeedLimitDown').value = '';
+                document.getElementById('awgSpeedLimitUp').value = '';
+            }
+        } else {
+            awgSpeedOpts.style.display = 'none';
+        }
 
         if (proto === 'telemt' && isEdit) {
             telemtOpts.style.display = 'block';
@@ -1262,6 +1336,52 @@
             cpsGroup.style.display = 'none';
         }
     });
+
+    // ========== AWG Speed Limit ==========
+    let editingSpeedLimitClientId = null;
+
+    function openEditSpeedLimitModal(clientId) {
+        editingSpeedLimitClientId = clientId;
+        const userData = window.connectionsStore[clientId] || {};
+        document.getElementById('editSpeedLimitDown').value = userData.speed_limit_down || '';
+        document.getElementById('editSpeedLimitUp').value = userData.speed_limit_up || '';
+        openModal('editSpeedLimitModal');
+    }
+
+    async function saveSpeedLimits() {
+        if (!editingSpeedLimitClientId) return;
+        const downVal = document.getElementById('editSpeedLimitDown').value;
+        const upVal = document.getElementById('editSpeedLimitUp').value;
+        const speed_down = (downVal !== '' && downVal !== null) ? parseInt(downVal) : null;
+        const speed_up = (upVal !== '' && upVal !== null) ? parseInt(upVal) : null;
+        try {
+            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/${editingSpeedLimitClientId}/speed-limit`, 'PATCH', {
+                speed_limit_down: speed_down,
+                speed_limit_up: speed_up,
+            });
+            showToast(_('connection_updated'), 'success');
+            closeModal('editSpeedLimitModal');
+            loadConnections();
+        } catch (err) {
+            showToast(_('error') + ': ' + err.message, 'error');
+        }
+    }
+
+    async function clearSpeedLimits() {
+        if (!editingSpeedLimitClientId) return;
+        try {
+            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/${editingSpeedLimitClientId}/speed-limit`, 'PATCH', {
+                speed_limit_down: null,
+                speed_limit_up: null,
+            });
+            showToast(_('connection_updated'), 'success');
+            closeModal('editSpeedLimitModal');
+            loadConnections();
+        } catch (err) {
+            showToast(_('error') + ': ' + err.message, 'error');
+        }
+    }
+
     checkServer();
     loadServerStats();
 </script>

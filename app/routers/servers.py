@@ -20,8 +20,10 @@ from schemas import (
     ConnectionActionRequest,
     EditConnectionRequest,
     InstallProtocolRequest,
+    normalize_protocol,
     ProtocolRequest,
     ServerConfigSaveRequest,
+    SpeedLimitRequest,
     ToggleConnectionRequest,
     ServerStatsResponse,
     ServerCheckResponse,
@@ -645,6 +647,8 @@ async def api_add_connection(
                 server["host"],
                 port,
                 stored_awg_params=awg_params,
+                speed_limit_down=req.awg_speed_limit_down,
+                speed_limit_up=req.awg_speed_limit_up,
             )
         await asyncio.to_thread(ssh.disconnect)
 
@@ -833,6 +837,78 @@ async def api_get_server_clients(
         return {"clients": filtered}
     except Exception as e:
         logger.exception("Error getting server clients")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.patch("/{server_id}/connections/{client_id}/speed-limit")
+async def api_update_connection_speed_limit(
+    request: Request,
+    server_id: int,
+    client_id: str,
+    req: SpeedLimitRequest,
+    user: dict = Depends(require_admin),
+):
+    """Update speed limits for an existing AWG connection.
+
+    Speed limits are stored in the clientsTable JSON on the server.
+    """
+
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+
+        normalized_proto = normalize_protocol("awg")
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        if not proto_info.get("installed"):
+            return JSONResponse(
+                {"error": "AWG protocol is not installed on this server"},
+                status_code=400,
+            )
+
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        manager = get_protocol_manager(ssh, normalized_proto)
+        if not hasattr(manager, "update_client_speed_limit"):
+            await asyncio.to_thread(ssh.disconnect)
+            return JSONResponse(
+                {"error": "Protocol does not support speed limit updates"},
+                status_code=400,
+            )
+
+        # Normalize 0 -> None (unlimited)
+        speed_down = req.speed_limit_down
+        speed_up = req.speed_limit_up
+        if speed_down == 0:
+            speed_down = None
+        if speed_up == 0:
+            speed_up = None
+
+        updated = await asyncio.to_thread(
+            manager.update_client_speed_limit,
+            normalized_proto,
+            client_id,
+            speed_down,
+            speed_up,
+        )
+        await asyncio.to_thread(ssh.disconnect)
+
+        if updated is None:
+            return JSONResponse(
+                {"error": "Connection not found in AWG clientsTable"},
+                status_code=404,
+            )
+
+        user_data = updated.get("userData", {})
+        return {
+            "status": "success",
+            "client_id": client_id,
+            "speed_limit_down": user_data.get("speed_limit_down"),
+            "speed_limit_up": user_data.get("speed_limit_up"),
+        }
+    except Exception as e:
+        logger.exception("Error updating connection speed limit")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
