@@ -336,6 +336,7 @@ class RenameConnectionRequest(BaseModel):
 class SpeedLimitRequest(BaseModel):
     """Request body for updating AWG connection speed limits."""
 
+    client_id: str
     speed_limit_down: Optional[int] = Field(default=None, ge=0)
     speed_limit_up: Optional[int] = Field(default=None, ge=0)
 

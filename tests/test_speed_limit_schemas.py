@@ -16,37 +16,53 @@ class TestSpeedLimitSchemaValidation:
 
     # ---- SpeedLimitRequest tests ----
 
+    def test_speed_limit_request_client_id_required(self):
+        with pytest.raises(ValidationError) as exc_info:
+            SpeedLimitRequest()
+        assert "client_id" in str(exc_info.value)
+
     def test_speed_limit_request_all_null(self):
-        req = SpeedLimitRequest()
+        req = SpeedLimitRequest(client_id="test-client-id")
+        assert req.client_id == "test-client-id"
         assert req.speed_limit_down is None
         assert req.speed_limit_up is None
 
     def test_speed_limit_request_positive_integers(self):
-        req = SpeedLimitRequest(speed_limit_down=100, speed_limit_up=50)
+        req = SpeedLimitRequest(client_id="test-client-id", speed_limit_down=100, speed_limit_up=50)
+        assert req.client_id == "test-client-id"
         assert req.speed_limit_down == 100
         assert req.speed_limit_up == 50
 
     def test_speed_limit_request_zero_means_unlimited(self):
-        req = SpeedLimitRequest(speed_limit_down=0, speed_limit_up=0)
+        req = SpeedLimitRequest(client_id="test-client-id", speed_limit_down=0, speed_limit_up=0)
+        assert req.client_id == "test-client-id"
         assert req.speed_limit_down == 0
         assert req.speed_limit_up == 0
 
     def test_speed_limit_request_partial_null(self):
-        req = SpeedLimitRequest(speed_limit_down=50)
+        req = SpeedLimitRequest(client_id="test-client-id", speed_limit_down=50)
+        assert req.client_id == "test-client-id"
         assert req.speed_limit_down == 50
         assert req.speed_limit_up is None
 
     def test_speed_limit_request_negative_rejected(self):
         with pytest.raises(ValidationError) as exc_info:
-            SpeedLimitRequest(speed_limit_down=-10)
+            SpeedLimitRequest(client_id="test-client-id", speed_limit_down=-10)
         assert "greater_than_equal" in str(exc_info.value)
         assert "0" in str(exc_info.value)
 
     def test_speed_limit_request_negative_up_rejected(self):
         with pytest.raises(ValidationError) as exc_info:
-            SpeedLimitRequest(speed_limit_up=-5)
+            SpeedLimitRequest(client_id="test-client-id", speed_limit_up=-5)
         assert "greater_than_equal" in str(exc_info.value)
         assert "0" in str(exc_info.value)
+
+    def test_speed_limit_request_with_base64_client_id(self):
+        """Test that client_ids containing / (base64) work correctly."""
+        base64_client_id = "NEORwLqJ2682uIozOSj4IJA58VgCVwwcVuB/RjFZG24="
+        req = SpeedLimitRequest(client_id=base64_client_id, speed_limit_down=100)
+        assert req.client_id == base64_client_id
+        assert req.speed_limit_down == 100
 
     # ---- AddConnectionRequest tests ----
 

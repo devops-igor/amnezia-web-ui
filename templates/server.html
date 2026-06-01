@@ -1355,7 +1355,8 @@
         const speed_down = (downVal !== '' && downVal !== null) ? parseInt(downVal) : null;
         const speed_up = (upVal !== '' && upVal !== null) ? parseInt(upVal) : null;
         try {
-            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/${editingSpeedLimitClientId}/speed-limit`, 'PATCH', {
+            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
+                client_id: editingSpeedLimitClientId,
                 speed_limit_down: speed_down,
                 speed_limit_up: speed_up,
             });
@@ -1370,7 +1371,8 @@
     async function clearSpeedLimits() {
         if (!editingSpeedLimitClientId) return;
         try {
-            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/${editingSpeedLimitClientId}/speed-limit`, 'PATCH', {
+            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
+                client_id: editingSpeedLimitClientId,
                 speed_limit_down: null,
                 speed_limit_up: null,
             });
