@@ -246,10 +246,13 @@ class TestRemoveSpeedLimit:
             "filter parent 1: protocol ip pref 2 u32 fh 801::800 "
             "flowid 1:45\n  match 0a08012d/ffffffff at 16\n"
         )
+        # Each handle triggers 2 prio attempts (prio 1 and prio 2), some will fail
         responses = [
             (filter_show_output, "", 0),  # filter show
-            ("", "", 0),  # filter del handle 800::800
-            ("", "", 0),  # filter del handle 801::800
+            ("", "", 0),  # filter del prio 1, handle 800::800
+            ("", "", 1),  # filter del prio 2, handle 800::800 (no match, ignored)
+            ("", "", 1),  # filter del prio 1, handle 801::800 (no match, ignored)
+            ("", "", 0),  # filter del prio 2, handle 801::800
             ("", "", 0),  # class del
         ]
         ssh.run_sudo_command.side_effect = responses

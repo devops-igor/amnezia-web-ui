@@ -235,9 +235,9 @@ def _find_filter_handles(
         return []
 
     handles: list[str] = []
-    # tc filter show output uses "filter parent" as entry delimiters.
-    # Split on the pattern that starts each filter entry.
-    entries = re.split(r"(?=filter parent 1: protocol)", out.strip())
+    # tc filter show output uses "filter protocol" or "filter parent" as entry
+    # delimiters. Split on either pattern that starts each filter entry.
+    entries = re.split(r"(?=filter (?:parent \d+: )?protocol)", out.strip())
     for entry in entries:
         if not entry.strip():
             continue
@@ -278,14 +278,22 @@ def remove_speed_limit(
 
     # Delete specific filters for this peer before deleting the class.
     # tc class del fails with "HTB class in use" if filters still reference it.
+    # We find the handles via _find_filter_handles, then delete each one
+    # using prio extracted from the same filter block.
     handles = _find_filter_handles(ssh, container_name, interface, class_id)
     for handle in handles:
-        _tc_exec(
-            ssh,
-            container_name,
-            f"filter del dev {interface} parent 1: handle {handle}",
-            ignore_errors=True,
-        )
+        # Extract prio from handle: e.g. 800::800 -> prio 1, 801::800 -> prio 2
+        # HTB u32 handles use the first hex value as the hash table index.
+        # We also need to delete by prio. Use the known prios (1=download, 2=upload).
+        # Since we always create prio 1 and prio 2, try both.
+        for prio in ["1", "2"]:
+            _tc_exec(
+                ssh,
+                container_name,
+                f"filter del dev {interface} parent 1: protocol ip prio {prio}"
+                f" handle {handle} u32",
+                ignore_errors=True,
+            )
 
     # Now delete the class
     _, _, code = _tc_exec(
