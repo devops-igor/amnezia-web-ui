@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from schemas import (
     AddConnectionRequest,
+    AwgSpeedLimitConfigRequest,
     EditConnectionRequest,
     MyAddConnectionRequest,
     SpeedLimitRequest,
@@ -148,3 +149,88 @@ class TestSpeedLimitSchemaValidation:
             )
         assert "greater_than_equal" in str(exc_info.value)
         assert "0" in str(exc_info.value)
+
+
+class TestAwgSpeedLimitConfigRequest:
+    """Test AwgSpeedLimitConfigRequest schema validation."""
+
+    def test_all_null_is_valid(self):
+        """All null fields means no limits set."""
+        req = AwgSpeedLimitConfigRequest()
+        assert req.global_speed_limit_down is None
+        assert req.global_speed_limit_up is None
+        assert req.default_speed_limit_down is None
+        assert req.default_speed_limit_up is None
+
+    def test_all_positive_integers_valid(self):
+        req = AwgSpeedLimitConfigRequest(
+            global_speed_limit_down=500,
+            global_speed_limit_up=200,
+            default_speed_limit_down=100,
+            default_speed_limit_up=50,
+        )
+        assert req.global_speed_limit_down == 500
+        assert req.global_speed_limit_up == 200
+        assert req.default_speed_limit_down == 100
+        assert req.default_speed_limit_up == 50
+
+    def test_zero_means_unlimited(self):
+        """0 is valid for all fields (means unlimited)."""
+        req = AwgSpeedLimitConfigRequest(
+            global_speed_limit_down=0,
+            global_speed_limit_up=0,
+            default_speed_limit_down=0,
+            default_speed_limit_up=0,
+        )
+        assert req.global_speed_limit_down == 0
+        assert req.global_speed_limit_up == 0
+        assert req.default_speed_limit_down == 0
+        assert req.default_speed_limit_up == 0
+
+    def test_partial_fields_valid(self):
+        """Only some fields set is valid."""
+        req = AwgSpeedLimitConfigRequest(
+            global_speed_limit_down=300,
+            default_speed_limit_down=50,
+        )
+        assert req.global_speed_limit_down == 300
+        assert req.global_speed_limit_up is None
+        assert req.default_speed_limit_down == 50
+        assert req.default_speed_limit_up is None
+
+    def test_negative_rejected_global_down(self):
+        with pytest.raises(ValidationError) as exc_info:
+            AwgSpeedLimitConfigRequest(global_speed_limit_down=-10)
+        assert "greater_than_equal" in str(exc_info.value)
+        assert "0" in str(exc_info.value)
+
+    def test_negative_rejected_global_up(self):
+        with pytest.raises(ValidationError) as exc_info:
+            AwgSpeedLimitConfigRequest(global_speed_limit_up=-5)
+        assert "greater_than_equal" in str(exc_info.value)
+        assert "0" in str(exc_info.value)
+
+    def test_negative_rejected_default_down(self):
+        with pytest.raises(ValidationError) as exc_info:
+            AwgSpeedLimitConfigRequest(default_speed_limit_down=-1)
+        assert "greater_than_equal" in str(exc_info.value)
+        assert "0" in str(exc_info.value)
+
+    def test_negative_rejected_default_up(self):
+        with pytest.raises(ValidationError) as exc_info:
+            AwgSpeedLimitConfigRequest(default_speed_limit_up=-1)
+        assert "greater_than_equal" in str(exc_info.value)
+        assert "0" in str(exc_info.value)
+
+    def test_mixed_unlimited_and_null(self):
+        """0 (unlimited) and null (no limit) are both valid but different."""
+        req = AwgSpeedLimitConfigRequest(
+            global_speed_limit_down=0,  # unlimited
+            global_speed_limit_up=None,  # no limit
+            default_speed_limit_down=0,
+            default_speed_limit_up=None,
+        )
+        assert req.global_speed_limit_down == 0
+        assert req.global_speed_limit_up is None
+        assert req.default_speed_limit_down == 0
+        assert req.default_speed_limit_up is None
