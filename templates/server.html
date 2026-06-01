@@ -181,6 +181,44 @@
             </button>
         </div>
     </div>
+
+    <!-- AWG Speed Limit Settings -->
+    <div class="card" id="awgSpeedLimitSettingsCard" style="width:100%; max-width:600px;">
+        <div class="card-title">{{ _('awg_speed_limit_settings') }}</div>
+        <div class="card-subtitle" style="margin-bottom: var(--space-md);">
+            {{ _('global_pool_hint') }}
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">{{ _('global_speed_limit_down') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="globalSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">{{ _('global_speed_limit_up') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="globalSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+        </div>
+        <div class="divider" style="margin-bottom: var(--space-md);"></div>
+        <div class="card-subtitle" style="margin-bottom: var(--space-md);">
+            {{ _('default_limit_hint') }}
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">{{ _('default_speed_limit_down') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="defaultSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label">{{ _('default_speed_limit_up') }} ({{ _('mbps') }})</label>
+                <input class="form-input" type="number" id="defaultSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+            </div>
+        </div>
+        <div class="flex gap-sm">
+            <button class="btn btn-primary" onclick="saveAwgSpeedLimitConfig()" style="flex:1" id="saveAwgSpeedLimitBtn">
+                {{ _('save') }}
+            </button>
+        </div>
+        <div id="awgSpeedLimitStatus" style="margin-top: var(--space-sm); text-align: center; font-size: 0.85rem;"></div>
+    </div>
 </div>
 
 <!-- Connections Section (renamed from Clients) -->
@@ -1384,7 +1422,53 @@
         }
     }
 
+    async function loadAwgSpeedLimitConfig() {
+        try {
+            const data = await apiCall(`/api/servers/${SERVER_ID}/awg/speed-limit-config`, 'GET');
+            document.getElementById('globalSpeedLimitDown').value = (data.global_speed_limit_down != null) ? data.global_speed_limit_down : '';
+            document.getElementById('globalSpeedLimitUp').value = (data.global_speed_limit_up != null) ? data.global_speed_limit_up : '';
+            document.getElementById('defaultSpeedLimitDown').value = (data.default_speed_limit_down != null) ? data.default_speed_limit_down : '';
+            document.getElementById('defaultSpeedLimitUp').value = (data.default_speed_limit_up != null) ? data.default_speed_limit_up : '';
+        } catch (err) {
+            console.warn('Could not load AWG speed limit config:', err.message);
+        }
+    }
+
+    async function saveAwgSpeedLimitConfig() {
+        const btn = document.getElementById('saveAwgSpeedLimitBtn');
+        const statusEl = document.getElementById('awgSpeedLimitStatus');
+        const globalDown = document.getElementById('globalSpeedLimitDown').value;
+        const globalUp = document.getElementById('globalSpeedLimitUp').value;
+        const defaultDown = document.getElementById('defaultSpeedLimitDown').value;
+        const defaultUp = document.getElementById('defaultSpeedLimitUp').value;
+        
+        const payload = {
+            global_speed_limit_down: (globalDown !== '') ? parseInt(globalDown) : null,
+            global_speed_limit_up: (globalUp !== '') ? parseInt(globalUp) : null,
+            default_speed_limit_down: (defaultDown !== '') ? parseInt(defaultDown) : null,
+            default_speed_limit_up: (defaultUp !== '') ? parseInt(defaultUp) : null,
+        };
+        
+        btn.disabled = true;
+        btn.textContent = '...';
+        
+        try {
+            await apiCall(`/api/servers/${SERVER_ID}/awg/speed-limit-config`, 'PATCH', payload);
+            statusEl.textContent = _('speed_limit_config_saved');
+            statusEl.style.color = 'var(--success)';
+            setTimeout(() => { statusEl.textContent = ''; }, 3000);
+        } catch (err) {
+            statusEl.textContent = _('speed_limit_config_error');
+            statusEl.style.color = 'var(--danger)';
+            setTimeout(() => { statusEl.textContent = ''; }, 5000);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = _('save');
+        }
+    }
+
     checkServer();
     loadServerStats();
+    loadAwgSpeedLimitConfig();
 </script>
 {% endblock %}

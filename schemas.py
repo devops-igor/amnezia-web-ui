@@ -351,6 +351,46 @@ class SpeedLimitRequest(BaseModel):
         return v
 
 
+class AwgSpeedLimitConfigRequest(BaseModel):
+    """Request body for configuring AWG global and default per-connection speed limits.
+
+    Global limits cap the total AWG bandwidth pool (class 1:1 on awg0/ifb0).
+    Default limits are applied to new connections that don't specify explicit limits.
+    """
+
+    global_speed_limit_down: Optional[int] = Field(
+        default=None, ge=0, description="Global download pool limit in Mbps (null=unlimited)"
+    )
+    global_speed_limit_up: Optional[int] = Field(
+        default=None, ge=0, description="Global upload pool limit in Mbps (null=unlimited)"
+    )
+    default_speed_limit_down: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Default download limit per new connection in Mbps (null=unlimited)",
+    )
+    default_speed_limit_up: Optional[int] = Field(
+        default=None,
+        ge=0,
+        description="Default upload limit per new connection in Mbps (null=unlimited)",
+    )
+
+    @field_validator(
+        "global_speed_limit_down",
+        "global_speed_limit_up",
+        "default_speed_limit_down",
+        "default_speed_limit_up",
+    )
+    @classmethod
+    def validate_speed_limit(cls, v: Optional[int]) -> Optional[int]:
+        """Validate speed limit: must be >= 0 (0 means unlimited), null = no limit."""
+        if v is None:
+            return v
+        if v < 0:
+            raise ValueError("speed_limit must be >= 0 (0 means unlimited)")
+        return v
+
+
 # ===== Users =====
 
 
