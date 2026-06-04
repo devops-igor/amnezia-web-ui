@@ -29,7 +29,7 @@ pillow==12.2.0
 platformdirs==4.9.6
 py-serializable==2.1.0
 pycparser==3.0
-pydantic==2.12.5
+pydantic==2.13.4
 pydantic_core==2.41.5
 Pygments==2.20.0
 PyNaCl==1.6.2
