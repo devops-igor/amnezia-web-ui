@@ -840,6 +840,16 @@ class Database:
             conn.commit()
             return cur.rowcount
 
+    def delete_connections_by_server_and_protocol(self, server_id: int, protocol: str) -> int:
+        """Delete all connections for a given server and protocol. Returns count deleted."""
+        with self._connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_connections WHERE server_id = ? AND protocol = ?",
+                (server_id, protocol),
+            )
+            conn.commit()
+            return cur.rowcount
+
     # ----------------------------------------------------------------
     # Connection Creation Log
     # ----------------------------------------------------------------

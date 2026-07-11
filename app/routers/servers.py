@@ -358,6 +358,7 @@ async def api_check_server(request: Request, server_id: int, user: dict = Depend
                 else:
                     if proto in server["protocols"]:
                         del server["protocols"][proto]
+                        db.delete_connections_by_server_and_protocol(server["id"], proto)
                         changed = True
 
         if changed:
@@ -448,6 +449,7 @@ async def api_uninstall_protocol(
         if req.protocol in new_protocols:
             del new_protocols[req.protocol]
             db.update_server(server["id"], {"protocols": new_protocols})
+            db.delete_connections_by_server_and_protocol(server["id"], req.protocol)
         await asyncio.to_thread(ssh.disconnect)
         return {"status": "success"}
     except Exception as e:
