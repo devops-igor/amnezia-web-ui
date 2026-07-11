@@ -11,18 +11,44 @@ logger = logging.getLogger(__name__)
 def cleanup_stale_protocols() -> None:
     """Check all servers for stale protocol entries and clean up orphaned connections.
 
-    For each server in the DB:
-    - SSH in and check which protocol containers exist
-    - For any protocol in server.protocols whose container is gone:
-      - Delete user_connections for that (server_id, protocol)
-      - Remove the protocol from server.protocols
-    - Log what was cleaned up
+    Two-phase cleanup:
+    Phase 1 (DB-only, no SSH): Delete user_connections for protocols that are
+    no longer in server.protocols. These were left behind when a protocol was
+    removed externally and the panel already cleaned server.protocols but
+    never deleted the connections (pre-fix bug).
+
+    Phase 2 (SSH): For each server, SSH in and check which protocol containers
+    still exist. If a protocol is in server.protocols but its container is gone:
+    - Delete user_connections for that (server_id, protocol)
+    - Remove the protocol from server.protocols
 
     One unreachable server does NOT block cleanup of others.
     """
     db = get_db()
     servers = db.get_all_servers()
 
+    # Phase 1: Clean up orphaned connections for protocols NOT in server.protocols
+    for server in servers:
+        server_id = server["id"]
+        active_protos = set(server.get("protocols", {}).keys())
+        all_conns = db.get_all_connections()
+        orphan_protos = {
+            c["protocol"]
+            for c in all_conns
+            if c["server_id"] == server_id and c["protocol"] not in active_protos
+        }
+        for proto in orphan_protos:
+            deleted = db.delete_connections_by_server_and_protocol(server_id, proto)
+            if deleted:
+                logger.info(
+                    "Startup cleanup: removed %d orphaned %s connections "
+                    "for server %s (protocol not in server.protocols)",
+                    deleted,
+                    proto,
+                    server_id,
+                )
+
+    # Phase 2: SSH-based check for stale protocol containers
     for server in servers:
         server_id = server["id"]
         protocols = server.get("protocols", {})
