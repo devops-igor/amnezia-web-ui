@@ -68,8 +68,6 @@ services:
       - bunkerweb.REVERSE_PROXY_URL=/
       - bunkerweb.REVERSE_PROXY_HOST=http://amnezia-panel:5000
       - bunkerweb.REVERSE_PROXY_INTERCEPT_ERRORS=no
-      - bunkerweb.USE_WHITELIST_IP=${USE_WHITELIST_IP:-yes}
-      - bunkerweb.WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
       - bunkerweb.USE_BAD_BEHAVIOR=${USE_BAD_BEHAVIOR:-yes}
       - bunkerweb.USE_LIMIT_REQ=${USE_LIMIT_REQ:-yes}
       - bunkerweb.USE_LIMIT_CONN=${USE_LIMIT_CONN:-yes}
@@ -116,9 +114,13 @@ services:
       - USE_UI=${USE_UI:-yes}
       - USE_MODSECURITY=${USE_MODSECURITY:-yes}
 
-      # Whitelisting — per-site override via WHITELIST_IP_LIST below
+      # Whitelisting — global default is off; per-site overrides below
       - USE_WHITELIST_IP=no
       - WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
+      # Per-site whitelist for the panel domain (overrides global default).
+      # ${PANEL_DOMAIN}_ prefix targets only the panel site in multisite mode.
+      - ${PANEL_DOMAIN:-}_USE_WHITELIST_IP=${USE_WHITELIST_IP:-no}
+      - ${PANEL_DOMAIN:-}_WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
 
       # Rate limiting — can be tightened per-site via LIMIT_REQ_* vars
       - USE_LIMIT_REQ=no
@@ -129,6 +131,9 @@ services:
 
       # CrowdSec — enable by setting USE_CROWDSEC=yes
       - USE_CROWDSEC=${USE_CROWDSEC:-no}
+
+      # Allowed HTTP methods — PATCH needed for speed-limit API, DELETE for future use
+      - ALLOWED_METHODS=GET|POST|HEAD|PATCH|DELETE
 
       # Skip WAF rules for ACME challenge endpoints
       - SKIP_WAF_RULES=/.well-known/acme-challenge/
