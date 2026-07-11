@@ -362,3 +362,30 @@ class TestStaleConnectionsCleanup:
         assert "dns" not in server["protocols"]
         assert len(self.db.get_all_connections()) == 0
         mock_manager.get_server_status.assert_called_once_with("dns")
+
+    @patch("app.services.startup_reconciliation.get_db")
+    @patch("app.services.startup_reconciliation.get_ssh")
+    def test_cleanup_orphaned_connections_not_in_server_protocols(self, mock_get_ssh, mock_get_db):
+        """Phase 1: connections for protocols NOT in server.protocols are deleted."""
+        mock_get_db.return_value = self.db
+        # Server has only 'awg' in protocols, but telemt connections exist
+        self.db.update_server(self.server_id, {"protocols": {"awg": {"installed": True}}})
+        self._create_connections(["awg", "telemt"])
+
+        # Phase 2 will SSH and check awg — mock it as healthy so awg survives
+        mock_ssh = MagicMock()
+        mock_ssh.connect.return_value = None
+        mock_ssh.disconnect.return_value = None
+        mock_get_ssh.return_value = mock_ssh
+
+        with patch("app.services.startup_reconciliation.get_protocol_manager") as mock_pm:
+            mock_mgr = MagicMock()
+            mock_mgr.check_protocol_installed.return_value = True
+            mock_pm.return_value = mock_mgr
+
+            cleanup_stale_protocols()
+
+        # Telemt connections deleted (orphan cleanup), awg connections preserved
+        remaining = self.db.get_all_connections()
+        assert len(remaining) == 1
+        assert remaining[0]["protocol"] == "awg"
