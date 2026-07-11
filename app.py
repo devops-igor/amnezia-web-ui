@@ -39,6 +39,12 @@ async def lifespan(app: FastAPI):
     # --- Startup ---
     init_db()
     migrate_awg_protocol_names()
+
+    # Reconcile stale protocol connections on startup
+    from app.services.startup_reconciliation import cleanup_stale_protocols
+
+    cleanup_stale_protocols()
+
     db = get_db()
 
     if not db.get_all_users():
