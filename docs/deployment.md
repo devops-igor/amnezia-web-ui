@@ -332,9 +332,10 @@ The BunkerWeb UI creates admin credentials on first access. When you open the UI
 | `USE_GZIP` | `yes` | No | Enable gzip HTTP response compression |
 | `USE_MODSECURITY` | `yes` | No | Enable ModSecurity WAF rules |
 | `USE_CROWDSEC` | `no` | No | Enable CrowdSec integration (requires separate CrowdSec setup) |
+| `ALLOWED_METHODS` | `GET\|POST\|HEAD\|PATCH\|DELETE` | No | HTTP methods allowed through ModSecurity. Default includes PATCH (for speed-limit API) and DELETE (for future use). Reduce for stricter security |
 | `MULTISITE` | `yes` | No | Enable BunkerWeb multi-site mode (required for per-site config) |
-| `USE_WHITELIST_IP` | `yes` | No | Enable IP whitelist at BunkerWeb level |
-| `WHITELIST_IP_LIST` | — | No | Comma-separated IPs/CIDRs for whitelist. Example: `203.0.113.50,203.0.113.100,10.0.0.0/24` |
+| `USE_WHITELIST_IP` | `yes` | No | Enable IP whitelist for the panel domain (per-site, via `${PANEL_DOMAIN}_` prefix). Global default is `no`; the panel site overrides it |
+| `WHITELIST_IP_LIST` | — | No | Space- or comma-separated IPs/CIDRs for whitelist. Example: `203.0.113.50,203.0.113.100,10.0.0.0/24` |
 | `USE_BAD_BEHAVIOR` | `yes` | No | Block known malicious bots via Bad Behavior module |
 | `USE_LIMIT_REQ` | `yes` | No | Enable ModSecurity request rate limiting |
 | `USE_LIMIT_CONN` | `yes` | No | Enable ModSecurity connection limiting |
@@ -346,13 +347,30 @@ The BunkerWeb UI creates admin credentials on first access. When you open the UI
 
 ## IP Whitelisting
 
-IP whitelisting operates at the BunkerWeb layer, before traffic reaches the panel.
+IP whitelisting operates at the BunkerWeb layer, before traffic reaches the panel. BunkerWeb uses **per-site environment variables** to control whitelisting for each domain independently.
 
 ### How It Works
 
-1. `USE_WHITELIST_IP=yes` in `.env` tells BunkerWeb to activate its whitelist engine.
+1. `USE_WHITELIST_IP=yes` in `.env` tells BunkerWeb to activate its whitelist engine for the panel domain.
 2. `WHITELIST_IP_LIST=203.0.113.50,203.0.113.100` provides the allowed IPs/CIDRs.
 3. BunkerWeb returns HTTP 403 for any request from an IP not in the list.
+
+### Per-Site Configuration (BunkerWeb Multisite)
+
+In multisite mode, BunkerWeb applies settings **per site** using the `${PANEL_DOMAIN}_` prefix. The `docker-compose.yml` configures this automatically:
+
+```yaml
+# In the bunkerweb service environment:
+- USE_WHITELIST_IP=no                    # Global default (off for all sites)
+- WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
+# Per-site override — only the panel domain gets whitelist protection:
+- ${PANEL_DOMAIN:-}_USE_WHITELIST_IP=${USE_WHITELIST_IP:-no}
+- ${PANEL_DOMAIN:-}_WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
+```
+
+When `USE_WHITELIST_IP=yes` is set in `.env`, the per-site vars expand to (e.g.) `vpn.example.com_USE_WHITELIST_IP=yes`, activating whitelisting **only for the panel domain**. Other domains (like the BunkerWeb UI domain) remain unaffected and use the global default (`no`).
+
+> **Why not use Docker labels on the panel container?** BunkerWeb's Docker autoconf mode reads `bunkerweb.*` labels to discover services, but it **does not apply** all label settings as per-site configuration. Specifically, `USE_WHITELIST_IP` and `WHITELIST_IP_LIST` set via labels are silently ignored by the autoconf controller — the whitelist ends up empty and all traffic is blocked with a 403/404. Per-site environment variables on the BunkerWeb service are the correct mechanism.
 
 ### Configuration
 
@@ -360,18 +378,6 @@ IP whitelisting operates at the BunkerWeb layer, before traffic reaches the pane
 USE_WHITELIST_IP=yes
 WHITELIST_IP_LIST=203.0.113.50,203.0.113.100,10.0.0.0/24
 ```
-
-### Using Whitelist from Panel Labels (Per-Site Override)
-
-The panel's Docker labels can override the global whitelist for the panel site specifically. In `docker-compose.yml`, the panel service has:
-
-```yaml
-labels:
-  - bunkerweb.USE_WHITELIST_IP=${USE_WHITELIST_IP:-yes}
-  - bunkerweb.WHITELIST_IP_LIST=${WHITELIST_IP_LIST:-}
-```
-
-This means the panel site inherits whatever you set in `.env`, but you can override per service by changing the label values directly in `docker-compose.yml`.
 
 ### Admin IP Only Setup
 
@@ -381,6 +387,37 @@ WHITELIST_IP_LIST=203.0.113.50   # your current IP only
 ```
 
 > Find your IP: `curl -s https://ifconfig.me` or `curl -s https://api.ipify.org`
+
+---
+
+## ModSecurity Allowed HTTP Methods
+
+When ModSecurity is enabled (`USE_MODSECURITY=yes`, the default), BunkerWeb restricts which HTTP methods can reach the panel. The default `ALLOWED_METHODS` only includes `GET|POST|HEAD`, which is too restrictive for the panel API.
+
+### How It Works
+
+1. ModSecurity's Core Rule Set checks every incoming request's HTTP method against `ALLOWED_METHODS`.
+2. If the method is not in the list, ModSecurity returns **405 Method Not Allowed** before the request reaches the panel.
+3. The panel's speed-limit API (`PATCH /api/servers/{id}/connections/{client}/speed-limit`) requires `PATCH`.
+
+### Configuration
+
+```env
+# In .env — pipe-separated list of allowed HTTP methods
+# PATCH is required for the speed-limit API
+# DELETE is included for future API endpoints
+ALLOWED_METHODS=GET|POST|HEAD|PATCH|DELETE
+```
+
+This is set in `docker-compose.yml` as a BunkerWeb environment variable so it applies globally.
+
+### Troubleshooting 405 Errors
+
+If you see **405 Method Not Allowed** with a BunkerWeb-branded error page when using the panel's speed-limit feature (or any API call using PATCH/DELETE):
+
+1. Check `ALLOWED_METHODS` includes the method: `docker exec bunkerweb cat /etc/nginx/variables.env | grep ALLOWED_METHODS`
+2. Add the missing method to `docker-compose.yml` under the `bunkerweb` service environment
+3. Restart: `docker compose --profile bunkerweb up -d bunkerweb`
 
 ---
 
