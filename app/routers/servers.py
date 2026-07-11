@@ -214,6 +214,7 @@ async def api_clear_server(request: Request, server_id: int, user: dict = Depend
         await asyncio.to_thread(ssh.run_sudo_command, "docker network rm amnezia-dns-net || true")
         await asyncio.to_thread(ssh.run_sudo_command, "rm -rf /opt/amnezia")
 
+        db.delete_connections_by_server(server["id"])
         db.update_server(server["id"], {"protocols": {}})
         await asyncio.to_thread(ssh.disconnect)
         return {"status": "success"}
