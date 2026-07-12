@@ -40,13 +40,13 @@ class TestPeerToClassId:
     """Test IP-to-class-ID conversion."""
 
     def test_valid_ip(self) -> None:
-        assert _peer_to_class_id("10.8.1.45") == 45
+        assert _peer_to_class_id("10.8.1.45") == 145
 
     def test_valid_ip_low(self) -> None:
-        assert _peer_to_class_id("10.8.1.1") == 1
+        assert _peer_to_class_id("10.8.1.1") == 101
 
     def test_valid_ip_high(self) -> None:
-        assert _peer_to_class_id("10.8.1.253") == 253
+        assert _peer_to_class_id("10.8.1.253") == 353
 
     def test_zero_octet_rejected(self) -> None:
         with pytest.raises(ValueError, match="out of usable range"):
@@ -506,15 +506,15 @@ class TestFindFilterHandles:
         ssh.run_sudo_command.return_value = (
             "filter parent 1: protocol ip pref 1 u32\n"
             "filter parent 1: protocol ip pref 1 u32 fh 800::800 order 2048 "
-            "key ht 800 bkt 0 flowid 1:45\n"
+            "key ht 800 bkt 0 flowid 1:145\n"
             "  match 0a08012d/ffffffff at 12\n"
             "filter parent 1: protocol ip pref 2 u32 fh 801::800 order 2048 "
-            "key ht 801 bkt 0 flowid 1:45\n"
+            "key ht 801 bkt 0 flowid 1:145\n"
             "  match 0a08012d/ffffffff at 16\n",
             "",
             0,
         )
-        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 45)
+        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 145)
         assert len(handles) == 2
         assert "800::800" in handles
         assert "801::800" in handles
@@ -522,7 +522,7 @@ class TestFindFilterHandles:
     def test_empty_output(self) -> None:
         ssh = MagicMock()
         ssh.run_sudo_command.return_value = ("", "", 0)
-        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 45)
+        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 145)
         assert handles == []
 
     def test_no_matching_class(self) -> None:
@@ -532,18 +532,18 @@ class TestFindFilterHandles:
             "",
             0,
         )
-        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 45)
+        handles = _find_filter_handles(ssh, "amnezia-awg", "awg0", 145)
         assert handles == []
 
     def test_different_interface(self) -> None:
         """Can search on ifb0 as well as awg0."""
         ssh = MagicMock()
         ssh.run_sudo_command.return_value = (
-            "filter parent 1: protocol ip pref 1 u32 fh 900::900 flowid 1:45\n",
+            "filter parent 1: protocol ip pref 1 u32 fh 900::900 flowid 1:145\n",
             "",
             0,
         )
-        handles = _find_filter_handles(ssh, "amnezia-awg", IFB_DEVICE, 45)
+        handles = _find_filter_handles(ssh, "amnezia-awg", IFB_DEVICE, 145)
         assert handles == ["900::900"]
 
 
@@ -562,9 +562,9 @@ class TestRemoveSpeedLimit:
         # No matching filters, just class deletes
         responses = [
             ("", "", 0),  # filter show awg0 (no handles)
-            ("", "", 0),  # class del awg0 1:45
+            ("", "", 0),  # class del awg0 1:145
             ("", "", 0),  # filter show ifb0 (no handles)
-            ("", "", 0),  # class del ifb0 1:45
+            ("", "", 0),  # class del ifb0 1:145
         ]
         ssh.run_sudo_command.side_effect = responses
         result = remove_speed_limit(ssh, "amnezia-awg", "awg0", "10.8.1.45")
@@ -576,14 +576,14 @@ class TestRemoveSpeedLimit:
         ssh = MagicMock()
         filter_show_output = (
             "filter parent 1: protocol ip pref 1 u32 fh 800::800 "
-            "flowid 1:45\n  match 0a08012d/ffffffff at 12\n"
+            "flowid 1:145\n  match 0a08012d/ffffffff at 12\n"
         )
         responses = [
             (filter_show_output, "", 0),  # filter show awg0
             ("", "", 0),  # filter del awg0 prio 1 handle 800::800
-            ("", "", 0),  # class del awg0 1:45
+            ("", "", 0),  # class del awg0 1:145
             ("", "", 0),  # filter show ifb0 (no handles)
-            ("", "", 0),  # class del ifb0 1:45
+            ("", "", 0),  # class del ifb0 1:145
         ]
         ssh.run_sudo_command.side_effect = responses
         result = remove_speed_limit(ssh, "amnezia-awg", "awg0", "10.8.1.45")
@@ -594,14 +594,14 @@ class TestRemoveSpeedLimit:
         ssh = MagicMock()
         filter_show_output_ifb = (
             "filter parent 1: protocol ip pref 2 u32 fh 901::901 "
-            "flowid 1:45\n  match 0a08012d/ffffffff at 16\n"
+            "flowid 1:145\n  match 0a08012d/ffffffff at 16\n"
         )
         responses = [
             ("", "", 0),  # filter show awg0 (no handles)
-            ("", "", 0),  # class del awg0 1:45
+            ("", "", 0),  # class del awg0 1:145
             (filter_show_output_ifb, "", 0),  # filter show ifb0
             ("", "", 0),  # filter del ifb0 prio 1 handle 901::901
-            ("", "", 0),  # class del ifb0 1:45
+            ("", "", 0),  # class del ifb0 1:145
         ]
         ssh.run_sudo_command.side_effect = responses
         result = remove_speed_limit(ssh, "amnezia-awg", "awg0", "10.8.1.45")
