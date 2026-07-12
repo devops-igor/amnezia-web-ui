@@ -1016,6 +1016,53 @@ async def api_update_awg_speed_limit_config(
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
+@router.post("/{server_id}/awg/apply-default-speed-limits")
+async def api_apply_default_speed_limits(
+    request: Request,
+    server_id: int,
+    user: dict = Depends(require_admin),
+):
+    """Apply default speed limits to all existing AWG connections."""
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+
+        normalized_proto = normalize_protocol("awg")
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        if not proto_info.get("installed"):
+            return JSONResponse(
+                {"error": "AWG protocol is not installed on this server"},
+                status_code=400,
+            )
+
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        try:
+            manager = get_protocol_manager(ssh, normalized_proto)
+            if not hasattr(manager, "bulk_apply_default_speed_limits"):
+                return JSONResponse(
+                    {"error": "Protocol does not support bulk default speed limits"},
+                    status_code=400,
+                )
+            result = await asyncio.to_thread(
+                manager.bulk_apply_default_speed_limits,
+                normalized_proto,
+                server.get("protocols", {}),
+            )
+        finally:
+            await asyncio.to_thread(ssh.disconnect)
+
+        if result.get("status") == "error":
+            return JSONResponse({"error": result.get("message")}, status_code=400)
+
+        return JSONResponse(result, status_code=200)
+    except Exception as e:
+        logger.exception("Error applying default speed limits to all AWG connections")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
 def _parse_combined_stats(raw: str) -> dict:
     """Parse combined server stats output into a dict keyed by section name.
 
