@@ -216,6 +216,9 @@
             <button class="btn btn-primary" onclick="saveAwgSpeedLimitConfig()" style="flex:1" id="saveAwgSpeedLimitBtn">
                 {{ _('save') }}
             </button>
+            <button class="btn btn-secondary" onclick="applyDefaultSpeedLimits()" style="flex:1" id="applyDefaultSpeedLimitBtn">
+                {{ _('apply_to_all') }}
+            </button>
         </div>
         <div id="awgSpeedLimitStatus" style="margin-top: var(--space-sm); text-align: center; font-size: 0.85rem;"></div>
     </div>
@@ -1464,6 +1467,46 @@
         } finally {
             btn.disabled = false;
             btn.textContent = _('save');
+        }
+    }
+
+    async function applyDefaultSpeedLimits() {
+        const defaultDown = document.getElementById('defaultSpeedLimitDown').value;
+        const defaultUp = document.getElementById('defaultSpeedLimitUp').value;
+        
+        if (defaultDown === '' && defaultUp === '') {
+            document.getElementById('awgSpeedLimitStatus').textContent = _('apply_to_all_error');
+            document.getElementById('awgSpeedLimitStatus').style.color = 'var(--danger)';
+            return;
+        }
+        
+        const msg = _('apply_to_all_confirm').replace('{down}', defaultDown || '∞').replace('{up}', defaultUp || '∞');
+        if (!confirm(msg)) return;
+        
+        const btn = document.getElementById('applyDefaultSpeedLimitBtn');
+        const statusEl = document.getElementById('awgSpeedLimitStatus');
+        btn.disabled = true;
+        btn.textContent = '...';
+        
+        try {
+            const result = await apiCall(`/api/servers/${SERVER_ID}/awg/apply-default-speed-limits`, 'POST', {});
+            if (result.errors && result.errors.length > 0) {
+                statusEl.textContent = _('apply_to_all_partial').replace('{applied}', result.applied).replace('{errors}', result.errors.length);
+                statusEl.style.color = 'var(--warning)';
+            } else {
+                statusEl.textContent = _('apply_to_all_success').replace('{count}', result.applied);
+                statusEl.style.color = 'var(--success)';
+            }
+            setTimeout(() => { statusEl.textContent = ''; }, 5000);
+            // Reload connections to show updated speed limit badges
+            loadConnections();
+        } catch (err) {
+            statusEl.textContent = _('apply_to_all_error');
+            statusEl.style.color = 'var(--danger)';
+            setTimeout(() => { statusEl.textContent = ''; }, 5000);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = _('apply_to_all');
         }
     }
 
