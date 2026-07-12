@@ -39,15 +39,20 @@ DEFAULT_CLASS_RATE = "10gbit"
 # Global pool class ID (used on both awg0 and ifb0)
 GLOBAL_POOL_CLASS_ID = 1
 
+# Offset added to the peer IP last octet to avoid collision with reserved
+# class IDs such as GLOBAL_POOL_CLASS_ID (1) and DEFAULT_CLASS_ID (9999).
+CLASS_ID_OFFSET = 100
+
 
 def _peer_to_class_id(peer_ip: str) -> int:
-    """Convert a peer IP address to an HTB class ID (last octet).
+    """Convert a peer IP address to an HTB class ID.
 
     Args:
         peer_ip: WireGuard peer IP, e.g. '10.8.1.45'.
 
     Returns:
-        Integer class ID derived from the last octet (e.g. 45).
+        Integer class ID derived from the last octet plus CLASS_ID_OFFSET
+        (e.g. 145 for '10.8.1.45').
 
     Raises:
         ValueError: If the IP is not in a valid format.
@@ -58,7 +63,7 @@ def _peer_to_class_id(peer_ip: str) -> int:
     last_octet = int(parts[3])
     if last_octet < 1 or last_octet > 253:
         raise ValueError(f"IP last octet {last_octet} out of usable range 1-253: {peer_ip}")
-    return last_octet
+    return last_octet + CLASS_ID_OFFSET
 
 
 def _tc_exec(
