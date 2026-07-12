@@ -1531,6 +1531,59 @@ AllowedIPs = {client_ip}/32
 
             return updated_entry
 
+    def bulk_apply_default_speed_limits(self, protocol_type, server_protocols):
+        """Apply configured default speed limits to all existing AWG clients.
+
+        Reads the server's awg_speed_limit_config from server_protocols and
+        applies those defaults to every client in the container's clientsTable
+        using the existing update_client_speed_limit() method.
+
+        Args:
+            protocol_type: Protocol type (always "awg").
+            server_protocols: The full server protocols dict from the database.
+
+        Returns:
+            Dict with status "ok" and counts applied/skipped/errors, or
+            {"status": "error", "message": "No default speed limits configured"}.
+        """
+        awg_cfg = server_protocols.get("awg", {}).get("awg_speed_limit_config", {})
+        default_down = awg_cfg.get("default_speed_limit_down")
+        default_up = awg_cfg.get("default_speed_limit_up")
+
+        if default_down is None and default_up is None:
+            return {"status": "error", "message": "No default speed limits configured"}
+
+        # Normalize 0 to None (unlimited), same as the PATCH endpoint.
+        if default_down == 0:
+            default_down = None
+        if default_up == 0:
+            default_up = None
+
+        clients_table = self._get_clients_table(protocol_type) or []
+        applied = 0
+        skipped = 0
+        errors = []
+
+        for client in clients_table:
+            client_id = client.get("clientId")
+            if not client_id:
+                skipped += 1
+                continue
+
+            try:
+                result = self.update_client_speed_limit(
+                    protocol_type, client_id, default_down, default_up
+                )
+                if result is None:
+                    skipped += 1
+                else:
+                    applied += 1
+            except Exception as e:
+                logger.warning(f"Failed to apply default speed limit to {client_id}: {e}")
+                errors.append(f"{client_id}: {e}")
+
+        return {"status": "ok", "applied": applied, "skipped": skipped, "errors": errors}
+
     def get_speed_limit_config(self, protocol_type):
         """Get the global and default per-connection speed limit config for a server.
 
