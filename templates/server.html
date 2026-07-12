@@ -160,8 +160,8 @@
     </div>
 </div>
 
-<div class="protocol-cards hidden" id="management-grid" style="margin-bottom: var(--space-xl);">
-    <div class="card" style="margin-bottom: var(--space-md); width:100%; max-width:600px;">
+<div class="hidden" id="management-grid" style="margin-bottom: var(--space-xl); display: flex; flex-direction: column; gap: var(--space-lg); max-width: 600px;">
+    <div class="card" style="width:100%;">
         <div class="card-title">{{ _('server_management') }}</div>
         <div class="card-subtitle" style="margin-bottom: var(--space-md);">
             {{ _('server_management_desc') }}
@@ -183,7 +183,7 @@
     </div>
 
     <!-- AWG Speed Limit Settings -->
-    <div class="card" id="awgSpeedLimitSettingsCard" style="width:100%; max-width:600px;">
+    <div class="card" id="awgSpeedLimitSettingsCard" style="width:100%;">
         <div class="card-title">{{ _('awg_speed_limit_settings') }}</div>
         <div class="card-subtitle" style="margin-bottom: var(--space-md);">
             {{ _('global_pool_hint') }}
