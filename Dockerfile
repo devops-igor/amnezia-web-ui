@@ -35,7 +35,6 @@ COPY schema.sql ./
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY translations/ ./translations/
-COPY protocol_telemt/ ./protocol_telemt/
 
 # Create data directory and set ownership to non-root user
 RUN mkdir -p /app/data && chown -R appuser:appgroup /app

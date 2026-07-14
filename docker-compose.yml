@@ -7,12 +7,6 @@
 #   With BunkerWeb WAF (port 80/443):
 #     docker compose --profile bunkerweb up -d
 #
-#   With Telemt metrics (port 18443):
-#     docker compose --profile telemt up -d
-#
-#   All profiles combined:
-#     docker compose --profile bunkerweb --profile telemt up -d
-#
 # Environment: copy .env.example to .env and fill in values.
 
 services:
@@ -186,67 +180,6 @@ services:
       options:
         max-file: "3"
         max-size: "50m"
-
-  # ---------------------------------------------------------------------------
-  # Telemt — network telemetry collector (metrics / SNMP / flow)
-  # https://github.com/raylabpro/telemt
-  # ---------------------------------------------------------------------------
-  telemt:
-    image: raylabpro/telemt:debian
-    container_name: telemt
-    profiles:
-      - telemt
-    environment:
-      - RUST_LOG=${TELEMT_LOG:-info}
-      - TZ=${TZ:-UTC}
-    networks:
-      - bw-net
-    ports:
-      # Default 18443 avoids conflict with bunkerweb on 443.
-      # Change TELEMT_PORT in .env if you need 443 (only when bunkerweb profile is OFF).
-      - "${TELEMT_PORT:-18443}:443"
-      - "127.0.0.1:9090:9090"
-      - "127.0.0.1:9091:9091"
-    cap_add:
-      - NET_BIND_SERVICE
-    cap_drop:
-      - ALL
-    read_only: true
-    tmpfs:
-      - /tmp:rw,nosuid,nodev,noexec,size=16m
-    ulimits:
-      nofile:
-        hard: 65536
-        soft: 65536
-    volumes:
-      - /etc/timezone:/etc/timezone:ro
-      - /etc/localtime:/etc/localtime:ro
-      # Volume mount for telemt config. The container is read_only, but Docker
-      # bind mounts bypass that restriction — telemt can write new users here.
-      # MUST contain config.toml before starting telemt. Copy the template:
-      #   mkdir -p telemt-config && cp protocol_telemt/config.toml telemt-config/config.toml
-      - ${TELEMT_CONFIG_DIR:-./telemt-config}:/etc/telemt/
-    deploy:
-      resources:
-        limits:
-          cpus: "0.50"
-          memory: 256M
-    healthcheck:
-      # Telemt is a Rust binary — no Python/curl available in the minimal image.
-      # Use pidof to check if the process is running.
-      test: ["CMD-SHELL", "pidof telemt || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    logging:
-      driver: json-file
-      options:
-        max-file: "3"
-        max-size: 10m
-    restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
 
 networks:
   bw-net:
