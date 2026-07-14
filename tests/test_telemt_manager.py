@@ -6,7 +6,7 @@ calls for user management instead of SSH-tunneled curl and config parsing.
 """
 
 import hashlib
-import os
+import io
 import re
 
 import pytest
@@ -15,6 +15,26 @@ from unittest.mock import MagicMock, patch
 from integrity import IntegrityError
 from app.managers import TelemtManager
 from schemas import InstallProtocolRequest
+
+# ----------------------------------------------------------------------
+# Module-level mock config.toml content used by tests that patch
+# install_protocol() file reads after protocol_telemt/ was deleted.
+# Must contain all fields that install_protocol() reads/patches.
+# ----------------------------------------------------------------------
+_MOCK_CONFIG_CONTENT = """[general]
+tls_emulation = false
+tls_domain = ""
+max_connections = 0
+# public_host = "old.example.com"
+# public_port = 8443
+
+[general.links]
+public_host = "10.0.0.1"
+public_port = 443
+
+[access.users]
+hello = "testsecret1234"
+"""
 
 
 class TestTelemtManagerInit:
@@ -1047,10 +1067,14 @@ class TestInstallProtocolIntegrityChecks:
         self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
         self.manager = TelemtManager(self.mock_ssh)
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_integrity_checks_pass(self, mock_load_hash, mock_verify_file):
+    def test_install_protocol_integrity_checks_pass(
+        self, mock_load_hash, mock_verify_file, mock_open
+    ):
         """install_protocol succeeds when all integrity checks pass."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
         # Should have called load_expected_hash for 1 template file (config.toml only)
@@ -1058,55 +1082,63 @@ class TestInstallProtocolIntegrityChecks:
         # Should have called verify_integrity for 1 template file (config.toml only)
         assert mock_verify_file.call_count == 1
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=False)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_config_tampered_raises(self, mock_load_hash, mock_verify):
+    def test_install_protocol_config_tampered_raises(self, mock_load_hash, mock_verify, mock_open):
         """IntegrityError raised when config.toml template is tampered."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         with pytest.raises(IntegrityError, match="Config template integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash")
-    def test_install_protocol_missing_hash_file_raises(self, mock_load_hash, mock_verify):
+    def test_install_protocol_missing_hash_file_raises(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """FileNotFoundError raised when .sha256 file is missing."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         mock_load_hash.side_effect = FileNotFoundError("config.toml.sha256 not found")
         with pytest.raises(FileNotFoundError):
             self.manager.install_protocol("telemt", port="443")
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash")
-    def test_install_protocol_empty_hash_file_raises(self, mock_load_hash, mock_verify):
+    def test_install_protocol_empty_hash_file_raises(self, mock_load_hash, mock_verify, mock_open):
         """IntegrityError raised when .sha256 file is empty."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         mock_load_hash.side_effect = IntegrityError("Hash file is empty")
         with pytest.raises(IntegrityError, match="empty"):
             self.manager.install_protocol("telemt", port="443")
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_remote_config_verification(self, mock_load_hash, mock_verify):
+    def test_install_protocol_remote_config_verification(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """Verify remote hash check after config.toml upload passes when hashes match."""
-        # Read the actual template and compute what the patched hash will be
-        local_dir = os.path.join(os.path.dirname(__file__), "..", "protocol_telemt")
-        config_path = os.path.join(local_dir, "config.toml")
-        with open(config_path, "r", encoding="utf-8") as f:
-            config_content = f.read()
-
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         # Apply the same patches install_protocol does (default params)
         config_content = re.sub(
             r"tls_emulation\s*=\s*(true|false|True|False)",
             "tls_emulation = true",
-            config_content,
+            _MOCK_CONFIG_CONTENT,
         )
         config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
         # Replace hello user with admin user (matches install_protocol behavior)
         config_content = re.sub(
-            r'^hello\s*=\s*".*?"',
+            r"hello\s*=\s*\".*?\"",
             'admin = "00000000000000000000000000000000"',
             config_content,
             flags=re.MULTILINE,
         )
         config_content = re.sub(
-            r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
+            r"#?\s*public_host\s*=\s*\".*?\"",
+            'public_host = "10.0.0.1"',
+            config_content,
         )
 
         patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
@@ -1122,10 +1154,14 @@ class TestInstallProtocolIntegrityChecks:
             result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_remote_config_mismatch_raises(self, mock_load_hash, mock_verify):
+    def test_install_protocol_remote_config_mismatch_raises(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """IntegrityError raised when remote config.toml hash doesn't match after upload."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         # Set up mock to return different hash for remote config check
         call_count = [0]
 
@@ -1141,18 +1177,24 @@ class TestInstallProtocolIntegrityChecks:
         with pytest.raises(IntegrityError, match="Remote config.toml integrity check failed"):
             self.manager.install_protocol("telemt", port="443")
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_remote_hash_check_skipped_if_empty(self, mock_load_hash, mock_verify):
+    def test_install_protocol_remote_hash_check_skipped_if_empty(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """Remote hash check is skipped gracefully if sha256sum returns empty."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         # Default mock returns empty string for run_command
         result = self.manager.install_protocol("telemt", port="443")
         assert result["status"] == "success"
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_patched_hash_logged(self, mock_load_hash, mock_verify):
+    def test_install_protocol_patched_hash_logged(self, mock_load_hash, mock_verify, mock_open):
         """Patched config.toml SHA256 hash is logged for audit trail."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         with patch("app.managers.telemt_manager.logger") as mock_logger:
             self.manager.install_protocol("telemt", port="443")
             # Check that logger.info was called with patched hash
@@ -1170,10 +1212,12 @@ class TestInstallProtocolComposeProfile:
         self.mock_ssh.run_sudo_command.return_value = ("", "", 0)
         self.manager = TelemtManager(self.mock_ssh)
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_uses_compose_profile(self, mock_load_hash, mock_verify):
+    def test_install_protocol_uses_compose_profile(self, mock_load_hash, mock_verify, mock_open):
         """install_protocol uses docker compose --profile bunkerweb --profile telemt up -d."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         self.manager.install_protocol("telemt", port="443")
 
         calls = [call[0][0] for call in self.mock_ssh.run_sudo_command.call_args_list]
@@ -1184,10 +1228,12 @@ class TestInstallProtocolComposeProfile:
         # Verify NO --build flag
         assert not any("--build" in c for c in compose_calls)
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_no_dockerfile_upload(self, mock_load_hash, mock_verify):
+    def test_install_protocol_no_dockerfile_upload(self, mock_load_hash, mock_verify, mock_open):
         """install_protocol does not upload a Dockerfile."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         self.manager.install_protocol("telemt", port="443")
 
         upload_calls = [
@@ -1197,10 +1243,12 @@ class TestInstallProtocolComposeProfile:
         ]
         assert len(upload_calls) == 0
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_no_compose_upload(self, mock_load_hash, mock_verify):
+    def test_install_protocol_no_compose_upload(self, mock_load_hash, mock_verify, mock_open):
         """install_protocol does not upload a docker-compose.yml."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         self.manager.install_protocol("telemt", port="443")
 
         upload_calls = [
@@ -1210,10 +1258,12 @@ class TestInstallProtocolComposeProfile:
         ]
         assert len(upload_calls) == 0
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_writes_env_file(self, mock_load_hash, mock_verify):
+    def test_install_protocol_writes_env_file(self, mock_load_hash, mock_verify, mock_open):
         """install_protocol writes .env with TELEMT_PORT when port is non-default."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         self.manager.install_protocol("telemt", port="8443")
 
         upload_calls = [
@@ -1224,10 +1274,14 @@ class TestInstallProtocolComposeProfile:
         env_content = str(upload_calls[0])
         assert "TELEMT_PORT=8443" in env_content
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_default_port_no_env_override(self, mock_load_hash, mock_verify):
+    def test_install_protocol_default_port_no_env_override(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """When port=443 (default), TELEMT_PORT IS always written to .env."""
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
         self.manager.install_protocol("telemt", port="443")
 
         upload_calls = [
@@ -1239,29 +1293,32 @@ class TestInstallProtocolComposeProfile:
         # TELEMT_CONFIG_DIR should still be present
         assert "TELEMT_CONFIG_DIR=/opt/amnezia/telemt-config" in env_content
 
+    @patch("app.managers.telemt_manager.open")
     @patch("app.managers.telemt_manager.verify_integrity", return_value=True)
     @patch("app.managers.telemt_manager.load_expected_hash", return_value="a" * 64)
-    def test_install_protocol_existing_container_down_before_up(self, mock_load_hash, mock_verify):
+    def test_install_protocol_existing_container_down_before_up(
+        self, mock_load_hash, mock_verify, mock_open
+    ):
         """When container exists, compose --profile telemt down is called before up."""
-        # Read the actual template and compute patched hash
-        local_dir = os.path.join(os.path.dirname(__file__), "..", "protocol_telemt")
-        with open(os.path.join(local_dir, "config.toml"), "r", encoding="utf-8") as f:
-            config_content = f.read()
+        mock_open.return_value = io.StringIO(_MOCK_CONFIG_CONTENT)
+        # Apply the same patches install_protocol does (default params)
         config_content = re.sub(
             r"tls_emulation\s*=\s*(true|false|True|False)",
             "tls_emulation = true",
-            config_content,
+            _MOCK_CONFIG_CONTENT,
         )
         config_content = re.sub(r"public_port\s*=\s*\d+", "public_port = 443", config_content)
         # Replace hello user with admin user (matches install_protocol behavior)
         config_content = re.sub(
-            r'^hello\s*=\s*".*?"',
+            r"hello\s*=\s*\".*?\"",
             'admin = "00000000000000000000000000000000"',
             config_content,
             flags=re.MULTILINE,
         )
         config_content = re.sub(
-            r'#?\s*public_host\s*=\s*".*?"', 'public_host = "10.0.0.1"', config_content
+            r"#?\s*public_host\s*=\s*\".*?\"",
+            'public_host = "10.0.0.1"',
+            config_content,
         )
         patched_hash = hashlib.sha256(config_content.encode("utf-8")).hexdigest()
 
