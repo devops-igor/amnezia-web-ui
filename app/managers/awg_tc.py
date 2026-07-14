@@ -625,6 +625,154 @@ def set_global_limit(
     }
 
 
+def _build_batch_tc_script(
+    container_name: str,
+    clients_table_data: list[dict],
+    global_limit_down: int | None = None,
+    global_limit_up: int | None = None,
+) -> tuple[str, str]:
+    """Build a single shell script that executes ALL tc setup commands.
+
+    Produces two scripts:
+      1. A teardown + infrastructure setup script (idempotent, ignore errors)
+      2. A per-client class+filter script (errors reported)
+
+    Args:
+        container_name: Docker container name.
+        clients_table_data: List of client dicts. Each must have
+            'clientIp' (str) and may have 'speed_limit_down' (int|null)
+            and 'speed_limit_up' (int|null) in 'userData'.
+        global_limit_down: Optional global download cap in Mbps.
+        global_limit_up: Optional global upload cap in Mbps.
+
+    Returns:
+        Tuple of (infra_script, client_script) shell script strings.
+    """
+
+    # ------------------------------------------------------------------ #
+    # Helper to emit a docker exec line
+    # ------------------------------------------------------------------ #
+    def sh(cmd: str) -> str:
+        return f"docker exec -i {container_name} sh -c {cmd!r}"
+
+    # ------------------------------------------------------------------ #
+    # Phase 1: Teardown + IFB + qdisc infrastructure (idempotent)
+    # ------------------------------------------------------------------ #
+    infra_commands: list[str] = []
+
+    # Tear down any existing qdiscs (ignore errors — fine if nothing exists)
+    infra_commands.append(
+        sh(
+            f"tc qdisc del dev {DEFAULT_INTERFACE} root 2>/dev/null; "
+            f"tc qdisc del dev {IFB_DEVICE} root 2>/dev/null; true"
+        )
+    )
+
+    # Create + up ifb0 (ignore errors if already exists)
+    infra_commands.append(
+        sh("ip link add ifb0 type ifb 2>/dev/null; ip link set ifb0 up 2>/dev/null; true")
+    )
+
+    # Ingress redirect: qdisc + filter on awg0 (ignore errors if exists)
+    infra_commands.append(
+        sh(
+            f"tc qdisc add dev {DEFAULT_INTERFACE} handle ffff: ingress 2>/dev/null; "
+            f"tc filter add dev {DEFAULT_INTERFACE} parent ffff: protocol ip u32 "
+            f"match u32 0 0 action mirred egress redirect dev {IFB_DEVICE} 2>/dev/null; true"
+        )
+    )
+
+    # HTB qdisc + pool + default on awg0 (download)
+    down_rate = f"{global_limit_down}mbit" if global_limit_down else DEFAULT_CLASS_RATE
+    infra_commands.append(
+        sh(
+            f"tc qdisc del dev {DEFAULT_INTERFACE} root 2>/dev/null; "
+            f"tc qdisc add dev {DEFAULT_INTERFACE} root handle 1: htb default {DEFAULT_CLASS_ID}; "
+            f"tc class add dev {DEFAULT_INTERFACE} parent 1: classid 1:{GLOBAL_POOL_CLASS_ID} "
+            f"htb rate {down_rate}; "
+            f"tc class add dev {DEFAULT_INTERFACE} parent 1:{GLOBAL_POOL_CLASS_ID} "
+            f"classid 1:{DEFAULT_CLASS_ID} htb rate {DEFAULT_CLASS_RATE} ceil {down_rate}; true"
+        )
+    )
+
+    # HTB qdisc + pool + default on ifb0 (upload)
+    up_rate = f"{global_limit_up}mbit" if global_limit_up else DEFAULT_CLASS_RATE
+    infra_commands.append(
+        sh(
+            f"tc qdisc del dev {IFB_DEVICE} root 2>/dev/null; "
+            f"tc qdisc add dev {IFB_DEVICE} root handle 1: htb default {DEFAULT_CLASS_ID}; "
+            f"tc class add dev {IFB_DEVICE} parent 1: classid 1:{GLOBAL_POOL_CLASS_ID} "
+            f"htb rate {up_rate}; "
+            f"tc class add dev {IFB_DEVICE} parent 1:{GLOBAL_POOL_CLASS_ID} "
+            f"classid 1:{DEFAULT_CLASS_ID} htb rate {DEFAULT_CLASS_RATE} ceil {up_rate}; true"
+        )
+    )
+
+    infra_script = "\n".join(infra_commands)
+
+    # ------------------------------------------------------------------ #
+    # Phase 2: Per-client class + filter adds (capture errors)
+    # ------------------------------------------------------------------ #
+    client_commands: list[str] = []
+    client_meta: list[dict] = []
+
+    for client in clients_table_data:
+        user_data = client.get("userData", {})
+        peer_ip = client.get("clientIp") or user_data.get("clientIp")
+        if not peer_ip:
+            continue
+
+        speed_down = user_data.get("speed_limit_down")
+        speed_up = user_data.get("speed_limit_up")
+
+        # Skip if no limits (both null or both 0)
+        if not speed_down and not speed_up:
+            continue
+
+        # Normalize 0 to None
+        down = speed_down if speed_down else None
+        up = speed_up if speed_up else None
+
+        if down is None and up is None:
+            continue
+
+        # Use the other direction's limit if one is missing
+        effective_down = down if down is not None else up
+        effective_up = up if up is not None else down
+
+        if effective_down is None or effective_up is None:
+            continue
+
+        try:
+            class_id = _peer_to_class_id(peer_ip)
+        except ValueError:
+            continue
+
+        # Download: class on awg0, dst match
+        client_commands.append(
+            sh(
+                f"tc class add dev {DEFAULT_INTERFACE} parent 1:{GLOBAL_POOL_CLASS_ID} "
+                f"classid 1:{class_id} htb rate {effective_down}mbit ceil {effective_down}mbit; "
+                f"tc filter add dev {DEFAULT_INTERFACE} parent 1: protocol ip prio 1 "
+                f"u32 match ip dst {peer_ip} flowid 1:{class_id}"
+            )
+        )
+        # Upload: class on ifb0, src match
+        client_commands.append(
+            sh(
+                f"tc class add dev {IFB_DEVICE} parent 1:{GLOBAL_POOL_CLASS_ID} "
+                f"classid 1:{class_id} htb rate {effective_up}mbit ceil {effective_up}mbit; "
+                f"tc filter add dev {IFB_DEVICE} parent 1: protocol ip prio 1 "
+                f"u32 match ip src {peer_ip} flowid 1:{class_id}"
+            )
+        )
+        client_meta.append({"peer_ip": peer_ip, "class_id": class_id})
+
+    client_script = "\n".join(client_commands)
+
+    return infra_script, client_script
+
+
 def reapply_all_limits(
     ssh,
     container_name: str,
@@ -635,6 +783,7 @@ def reapply_all_limits(
 ) -> dict:
     """Tear down existing tc rules, rebuild with current limits + global pool.
 
+    Batches all tc commands into 2 SSH calls instead of 700+.
     Called after awg syncconf or container restart to restore tc rules
     that were lost when the interface was reset.
 
@@ -652,65 +801,48 @@ def reapply_all_limits(
     Returns:
         Dict with 'status', 'applied' (count), and 'errors' (list).
     """
-    # Tear down existing rules
-    teardown_qdisc(ssh, container_name, DEFAULT_INTERFACE)
-    teardown_ifb(ssh, container_name)
-
-    # Set up IFB (for upload shaping)
-    ifb_result = setup_ifb(ssh, container_name)
-    if ifb_result["status"] == "error":
-        return {"status": "error", "applied": 0, "errors": [ifb_result["message"]]}
-
-    # Set up HTB qdiscs with global pool on both interfaces
-    down_result = _setup_qdisc_on_interface(
-        ssh, container_name, DEFAULT_INTERFACE, global_limit_down
+    # Build batch scripts
+    infra_script, client_script = _build_batch_tc_script(
+        container_name, clients_table_data, global_limit_down, global_limit_up
     )
-    if down_result["status"] == "error":
-        return {"status": "error", "applied": 0, "errors": [down_result["message"]]}
 
-    up_result = _setup_qdisc_on_interface(ssh, container_name, IFB_DEVICE, global_limit_up)
-    if up_result["status"] == "error":
-        return {"status": "error", "applied": 0, "errors": [up_result["message"]]}
+    # SSH call 1: Teardown + infrastructure setup (idempotent, ignore errors)
+    logger.info("Running batch tc infra script (teardown + setup)...")
+    _, err, code = ssh.run_sudo_command(infra_script)
+    if code != 0:
+        logger.warning(f"Batch infra script had non-zero exit: {err.strip()}")
 
+    # Count how many clients have limits to apply
     applied = 0
     errors: list[str] = []
-
     for client in clients_table_data:
         user_data = client.get("userData", {})
         peer_ip = client.get("clientIp") or user_data.get("clientIp")
         if not peer_ip:
             continue
-
         speed_down = user_data.get("speed_limit_down")
         speed_up = user_data.get("speed_limit_up")
-
-        # Skip if no limits (both null or both 0)
         if not speed_down and not speed_up:
             continue
-
-        # Normalize 0 to None (unlimited)
         down = speed_down if speed_down else None
         up = speed_up if speed_up else None
-
-        # Only apply if at least one direction has a limit
         if down is None and up is None:
             continue
-
-        # Use the other direction's limit if one is missing
-        # (each direction gets its own class with the specified rate)
         effective_down = down if down is not None else up
         effective_up = up if up is not None else down
-
-        if effective_down is None or effective_up is None:
-            continue
-
-        result = apply_speed_limit(
-            ssh, container_name, interface, peer_ip, effective_down, effective_up
-        )
-        if result["status"] == "ok":
+        if effective_down is not None and effective_up is not None:
             applied += 1
-        else:
-            errors.append(f"{peer_ip}: {result.get('message', 'unknown error')}")
+
+    # SSH call 2: Per-client class + filter adds (capture stderr for errors)
+    if client_script:
+        logger.info(f"Running batch tc client script for {applied} clients...")
+        _, err, code = ssh.run_sudo_command(client_script)
+        if code != 0 and err:
+            # Parse stderr for error lines — each tc class/filter add that fails
+            # prints to stderr. We collect them and report per-peer.
+            error_lines = [ln.strip() for ln in err.strip().splitlines() if ln.strip()]
+            if error_lines:
+                errors.append(f"batch script error: {error_lines[0]}")
 
     logger.info(f"Re-applied {applied} speed limits, {len(errors)} errors")
     return {
