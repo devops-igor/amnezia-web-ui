@@ -1,6 +1,6 @@
 # Amnezia Web Panel — Deployment Guide
 
-This guide covers all deployment scenarios for the Amnezia Web Panel using Docker Compose, from a quick local standalone install to a hardened production stack with BunkerWeb WAF and Telemt telemetry.
+This guide covers all deployment scenarios for the Amnezia Web Panel using Docker Compose, from a quick local standalone install to a hardened production stack with BunkerWeb WAF. MTProxyL is installed separately on the host.
 
 ---
 
@@ -18,19 +18,14 @@ The panel ships as a Docker Compose setup with three components:
                          |   amnezia-panel    |  <-- panel + web UI
                          |   (port 5000)      |
                          +-------------------+
-                                   |
-                         +---------v---------+
-                         |     telemt        |
-                         |  (port 18443)     |  <-- network telemetry
-                         +-------------------+
 ```
 
 | Component | Image | Purpose | Port |
 |-----------|-------|---------|------|
 | `amnezia-panel` | `ghcr.io/devops-igor/amnezia-web-ui` | Admin + user web panel | 5000 |
 | `bunkerweb` | `bunkerity/bunkerweb-all-in-one` | WAF + reverse proxy + SSL | 80/443 |
-| `telemt` | `raylabpro/telemt:debian` | Network telemetry collector | 18443 |
 | `docker-proxy` | `tecnativa/docker-socket-proxy` | Restricted Docker API for BunkerWeb | — |
+| `mtproxyl` | host-installed | MTProto proxy daemon | 18443 |
 
 Profiles control which services start:
 
@@ -38,9 +33,6 @@ Profiles control which services start:
 |---------|-----------------|
 | `docker compose up -d` | panel only |
 | `docker compose --profile bunkerweb up -d` | panel + bunkerweb + docker-proxy |
-| `docker compose --profile telemt up -d` | panel + telemt |
-| `docker compose --profile bunkerweb --profile telemt up -d` | all three |
-| `docker compose --profile bunkerweb --profile telemt -d` | all three |
 
 ---
 
@@ -49,9 +41,9 @@ Profiles control which services start:
 - **Docker** with the compose plugin (v2+) — verify with `docker compose version`
 - **Domain name** pointed to your server (for production HTTPS/Let's Encrypt)
 - **Ports 80 and 443** open on the server firewall
-- **Ports 5000 and 18443** accessible if you use standalone or telemt directly
+- **Ports 5000** accessible for standalone panel access
 - **UFW or iptables** to restrict access to admin ports
-- For Telemt: a `config.toml` file in your config directory (see [Telemt config](#adding-telemt))
+- For MTProxyL: installed via `mtproxyl install` on the host (see [Adding MTProxyL](#adding-mtproxyl))
 
 ---
 
@@ -198,30 +190,44 @@ Credentials are created on first access — you'll be prompted to set an admin p
 
 ---
 
-## Adding Telemt
+## Adding MTProxyL
 
-Telemt is a network telemetry collector (MTProxy, SNMP, flow monitoring). It runs alongside the panel and bunkerweb.
+MTProxyL is installed on the host as a system service, not via Docker Compose. The panel communicates with the MTProxyL daemon running on the host.
 
 ### Prerequisites
 
-Create a config directory with a `config.toml`:
+Install MTProxyL on the host:
 
 ```bash
-mkdir -p telemt-config
-# Place your config.toml or other telemt config in telemt-config/
+# Clone and install
+git clone https://github.com/yrncf/mtproxyl.git /opt/mtproxyl
+cd /opt/mtproxyl
+./install.sh
 ```
 
-### Start with Telemt
+The installer sets up the service at `/opt/mtproxyl/` with a default `config.toml`.
+
+### Configuration
+
+Edit the MTProxyL config at `/opt/mtproxyl/config.toml` to add your Telegram servers and secrets. Refer to the MTProxyL documentation for configuration options.
+
+### Managing MTProxyL
 
 ```bash
-# With BunkerWeb + Telemt
-docker compose --profile bunkerweb --profile telemt up -d
+# Check status
+mtproxyl status
 
-# Standalone + Telemt
-docker compose --profile telemt up -d
+# View logs
+mtproxyl logs
+
+# Health check
+mtproxyl health
+
+# Restart after config changes
+mtproxyl restart
 ```
 
-Telemt is available at `http://localhost:18443` (standalone) or via the reverse proxy when bunkerweb is active.
+MTProxyL runs on port 18443 by default. The panel reads the port from `TELEMT_PORT` in `.env`.
 
 ---
 
@@ -339,9 +345,8 @@ The BunkerWeb UI creates admin credentials on first access. When you open the UI
 | `USE_BAD_BEHAVIOR` | `yes` | No | Block known malicious bots via Bad Behavior module |
 | `USE_LIMIT_REQ` | `yes` | No | Enable ModSecurity request rate limiting |
 | `USE_LIMIT_CONN` | `yes` | No | Enable ModSecurity connection limiting |
-| `TELEMT_LOG` | `info` | No | Telemt log level: `trace`, `debug`, `info`, `warn`, `error` |
-| `TZ` | `UTC` | No | Server timezone for Telemt timestamps |
-| `TELEMT_CONFIG_DIR` | `./telemt-config` | No | Host directory containing telemt `config.toml` |
+| `TELEMT_PORT` | `18443` | No | Port where MTProxyL listens (default 18443; use 443 when bunkerweb is off) |
+| `TZ` | `UTC` | No | Server timezone for timestamps |
 
 ---
 
@@ -614,17 +619,21 @@ curl -v http://localhost:5000/
 curl -v https://vpn.example.com/ -k  # -k to skip cert verify if not ready
 ```
 
-### Telemt Not Starting
+### MTProxyL Not Starting
 
-1. Check that `telemt-config/` exists and contains a valid config file:
+1. Check that MTProxyL is installed:
    ```bash
-   ls -la telemt-config/
+   mtproxyl status
    ```
-2. Check Telemt logs:
+2. Check MTProxyL logs:
    ```bash
-   docker compose logs telemt
+   mtproxyl logs
    ```
-3. Verify port 18443 is not in use:
+3. Run a health check:
+   ```bash
+   mtproxyl health
+   ```
+4. Verify port 18443 is not in use:
    ```bash
    sudo lsof -i :18443
    ```
@@ -678,9 +687,10 @@ After running the stack, your directory looks like:
 ├── .env
 ├── data/                  # Panel data (persist this)
 │   └── panel.db           # SQLite database
-├── telemt-config/         # Telemt config (create if using telemt)
-│   └── config.toml
 └── bw-data/               # BunkerWeb certs and cache (Docker volume)
+
+# MTProxyL is installed at /opt/mtproxyl/ — its config and logs are managed there.
+# MTProxyL is NOT part of the docker-compose stack.
 ```
 
 > Never delete the `data/` directory — it contains your SQLite DB with all users and servers.
