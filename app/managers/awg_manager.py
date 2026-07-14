@@ -1534,9 +1534,11 @@ AllowedIPs = {client_ip}/32
     def bulk_apply_default_speed_limits(self, protocol_type, server_protocols):
         """Apply configured default speed limits to all existing AWG clients.
 
-        Reads the server's awg_speed_limit_config from server_protocols and
-        applies those defaults to every client in the container's clientsTable
-        using the existing update_client_speed_limit() method.
+        Performs a single batch operation:
+        1. Reads the container's clientsTable once.
+        2. Updates every client's userData in memory.
+        3. Saves the clientsTable once.
+        4. Rebuilds all tc rules in one pass via awg_tc.reapply_all_limits().
 
         Args:
             protocol_type: Protocol type (always "awg").
@@ -1559,28 +1561,47 @@ AllowedIPs = {client_ip}/32
         if default_up == 0:
             default_up = None
 
-        clients_table = self._get_clients_table(protocol_type) or []
-        applied = 0
-        skipped = 0
-        errors = []
+        # 1. Read clientsTable once; 2. Update all entries in memory;
+        # 3. Save clientsTable once.
+        with self._lock:
+            clients_table = self._get_clients_table(protocol_type) or []
+            applied = 0
+            skipped = 0
 
-        for client in clients_table:
-            client_id = client.get("clientId")
-            if not client_id:
-                skipped += 1
-                continue
-
-            try:
-                result = self.update_client_speed_limit(
-                    protocol_type, client_id, default_down, default_up
-                )
-                if result is None:
+            for client in clients_table:
+                client_id = client.get("clientId")
+                if not client_id:
                     skipped += 1
-                else:
-                    applied += 1
-            except Exception as e:
-                logger.warning(f"Failed to apply default speed limit to {client_id}: {e}")
-                errors.append(f"{client_id}: {e}")
+                    continue
+
+                user_data = client.setdefault("userData", {})
+                user_data["speed_limit_down"] = default_down
+                user_data["speed_limit_up"] = default_up
+                applied += 1
+
+            self._save_clients_table(protocol_type, clients_table)
+
+        # 4. Apply tc rules in a single batch rebuild.
+        container_name = self._container_name(protocol_type)
+        iface = self._interface_name(protocol_type)
+        global_down = awg_cfg.get("global_speed_limit_down")
+        global_up = awg_cfg.get("global_speed_limit_up")
+
+        errors = []
+        try:
+            result = awg_tc.reapply_all_limits(
+                self.ssh,
+                container_name,
+                iface,
+                clients_table,
+                global_limit_down=global_down,
+                global_limit_up=global_up,
+            )
+            if result.get("errors"):
+                errors = result["errors"]
+        except Exception as e:
+            logger.warning(f"Failed to batch apply tc rules: {e}")
+            errors.append(f"tc batch apply: {e}")
 
         return {"status": "ok", "applied": applied, "skipped": skipped, "errors": errors}
 
