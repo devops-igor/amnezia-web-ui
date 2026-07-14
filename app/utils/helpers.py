@@ -228,14 +228,9 @@ def get_protocol_manager(ssh, protocol: str):
     if protocol == "xray":
         return XrayManager(ssh)
     elif protocol == "telemt":
-        from app.managers import TelemtManager
-        from config import get_db
+        from app.managers import MTProxyLManager
 
-        db = get_db()
-        protocol_paths = db.get_setting("protocol_paths", {})
-        config_dir = protocol_paths.get("telemt_config_dir", "/opt/amnezia/telemt-config")
-        compose_dir = protocol_paths.get("compose_dir", "/opt/amnezia")
-        return TelemtManager(ssh, config_dir=config_dir, compose_dir=compose_dir)
+        return MTProxyLManager(ssh)
     elif protocol == "dns":
         from dns_manager import DNSManager
 
