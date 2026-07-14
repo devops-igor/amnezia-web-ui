@@ -190,11 +190,11 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label">{{ _('global_speed_limit_down') }} ({{ _('mbps') }})</label>
+                <label class="form-label" style="white-space: nowrap;">{{ _('global_speed_limit_down') }} ({{ _('mbps') }})</label>
                 <input class="form-input" type="number" id="globalSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label">{{ _('global_speed_limit_up') }} ({{ _('mbps') }})</label>
+                <label class="form-label" style="white-space: nowrap;">{{ _('global_speed_limit_up') }} ({{ _('mbps') }})</label>
                 <input class="form-input" type="number" id="globalSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
             </div>
         </div>
@@ -204,19 +204,19 @@
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label">{{ _('default_speed_limit_down') }} ({{ _('mbps') }})</label>
+                <label class="form-label" style="white-space: nowrap;">{{ _('default_speed_limit_down') }} ({{ _('mbps') }})</label>
                 <input class="form-input" type="number" id="defaultSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label">{{ _('default_speed_limit_up') }} ({{ _('mbps') }})</label>
+                <label class="form-label" style="white-space: nowrap;">{{ _('default_speed_limit_up') }} ({{ _('mbps') }})</label>
                 <input class="form-input" type="number" id="defaultSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
             </div>
         </div>
         <div class="flex gap-sm">
-            <button class="btn btn-primary" onclick="saveAwgSpeedLimitConfig()" style="flex:1" id="saveAwgSpeedLimitBtn">
+            <button class="btn btn-primary" onclick="saveAwgSpeedLimitConfig()" style="flex:1; min-width:0;" id="saveAwgSpeedLimitBtn">
                 {{ _('save') }}
             </button>
-            <button class="btn btn-secondary" onclick="applyDefaultSpeedLimits()" style="flex:1" id="applyDefaultSpeedLimitBtn">
+            <button class="btn btn-secondary" onclick="applyDefaultSpeedLimits()" style="flex:1; min-width:0;" id="applyDefaultSpeedLimitBtn">
                 {{ _('apply_to_all') }}
             </button>
         </div>

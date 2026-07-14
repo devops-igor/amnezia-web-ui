@@ -26,22 +26,72 @@ class TestBulkApplyDefaultSpeedLimits:
     """Unit tests for AWGManager.bulk_apply_default_speed_limits."""
 
     def test_bulk_apply_all_clients(self):
-        """All 3 clients in clientsTable receive the default limits."""
+        """All 3 clients in clientsTable receive the default limits via batch."""
         clients = [
-            {"clientId": "client-1", "userData": {}},
-            {"clientId": "client-2", "userData": {}},
-            {"clientId": "client-3", "userData": {}},
+            {"clientId": "client-1", "userData": {}, "clientIp": "10.8.1.2"},
+            {"clientId": "client-2", "userData": {}, "clientIp": "10.8.1.3"},
+            {"clientId": "client-3", "userData": {}, "clientIp": "10.8.1.4"},
         ]
         manager = _make_manager_with_clients(clients)
 
-        with patch.object(
-            manager,
-            "update_client_speed_limit",
-            side_effect=lambda proto, cid, down, up: {
-                "clientId": cid,
-                "userData": {"speed_limit_down": down, "speed_limit_up": up},
-            },
-        ) as mock_update:
+        server_protocols = {
+            "awg": {
+                "awg_speed_limit_config": {
+                    "default_speed_limit_down": 100,
+                    "default_speed_limit_up": 50,
+                }
+            }
+        }
+
+        with patch("app.managers.awg_manager.awg_tc.reapply_all_limits") as mock_reapply:
+            mock_reapply.return_value = {"status": "ok", "applied": 3, "errors": []}
+            result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
+
+        assert result["status"] == "ok"
+        assert result["applied"] == 3
+        assert result["skipped"] == 0
+        assert result["errors"] == []
+        manager._get_clients_table.assert_called_once_with("awg")
+        manager._save_clients_table.assert_called_once_with("awg", clients)
+        mock_reapply.assert_called_once_with(
+            manager.ssh,
+            manager._container_name("awg"),
+            manager._interface_name("awg"),
+            clients,
+            global_limit_down=None,
+            global_limit_up=None,
+        )
+
+        # Verify each client has the new limits set in memory before save.
+        for client in clients:
+            assert client["userData"]["speed_limit_down"] == 100
+            assert client["userData"]["speed_limit_up"] == 50
+
+    def test_bulk_apply_no_defaults_configured(self):
+        """If no default speed limits are set, return error status."""
+        manager = _make_manager_with_clients([])
+        server_protocols = {"awg": {"awg_speed_limit_config": {}}}
+
+        result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
+
+        assert result["status"] == "error"
+        assert "No default speed limits configured" in result["message"]
+
+    def test_bulk_apply_partial_failure(self):
+        """3 clients, reapply returns errors -> applied=3, errors populated."""
+        clients = [
+            {"clientId": "client-1", "userData": {}, "clientIp": "10.8.1.2"},
+            {"clientId": "client-2", "userData": {}, "clientIp": "10.8.1.3"},
+            {"clientId": "client-3", "userData": {}, "clientIp": "10.8.1.4"},
+        ]
+        manager = _make_manager_with_clients(clients)
+
+        with patch("app.managers.awg_manager.awg_tc.reapply_all_limits") as mock_reapply:
+            mock_reapply.return_value = {
+                "status": "partial",
+                "applied": 2,
+                "errors": ["10.8.1.3: tc filter failed"],
+            }
             server_protocols = {
                 "awg": {
                     "awg_speed_limit_config": {
@@ -55,82 +105,37 @@ class TestBulkApplyDefaultSpeedLimits:
         assert result["status"] == "ok"
         assert result["applied"] == 3
         assert result["skipped"] == 0
-        assert result["errors"] == []
-        assert mock_update.call_count == 3
-        for call in mock_update.call_args_list:
-            assert call.kwargs == {}
-            assert call.args == ("awg", call.args[1], 100, 50)
-
-    def test_bulk_apply_no_defaults_configured(self):
-        """If no default speed limits are set, return error status."""
-        manager = _make_manager_with_clients([])
-        server_protocols = {"awg": {"awg_speed_limit_config": {}}}
-
-        result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
-
-        assert result["status"] == "error"
-        assert "No default speed limits configured" in result["message"]
-
-    def test_bulk_apply_partial_failure(self):
-        """3 clients, one update returns None -> applied=2, skipped=1."""
-        clients = [
-            {"clientId": "client-1", "userData": {}},
-            {"clientId": "client-2", "userData": {}},
-            {"clientId": "client-3", "userData": {}},
-        ]
-        manager = _make_manager_with_clients(clients)
-
-        def fake_update(proto, client_id, down, up):
-            if client_id == "client-2":
-                return None
-            return {"clientId": client_id, "userData": {"speed_limit_down": down}}
-
-        with patch.object(manager, "update_client_speed_limit", side_effect=fake_update):
-            server_protocols = {
-                "awg": {
-                    "awg_speed_limit_config": {
-                        "default_speed_limit_down": 100,
-                        "default_speed_limit_up": 50,
-                    }
-                }
-            }
-            result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
-
-        assert result["status"] == "ok"
-        assert result["applied"] == 2
-        assert result["skipped"] == 1
-        assert result["errors"] == []
+        assert result["errors"] == ["10.8.1.3: tc filter failed"]
+        manager._get_clients_table.assert_called_once_with("awg")
+        manager._save_clients_table.assert_called_once_with("awg", clients)
 
     def test_bulk_apply_zero_means_unlimited(self):
         """Default limits of 0 are normalized to None before applying."""
         clients = [
-            {"clientId": "client-1", "userData": {}},
+            {"clientId": "client-1", "userData": {}, "clientIp": "10.8.1.2"},
         ]
         manager = _make_manager_with_clients(clients)
 
-        def fake_update(proto, client_id, down, up):
-            return {
-                "clientId": client_id,
-                "userData": {"speed_limit_down": down, "speed_limit_up": up},
-            }
-
-        with patch.object(
-            manager, "update_client_speed_limit", side_effect=fake_update
-        ) as mock_update:
-            server_protocols = {
-                "awg": {
-                    "awg_speed_limit_config": {
-                        "default_speed_limit_down": 0,
-                        "default_speed_limit_up": 0,
-                    }
+        server_protocols = {
+            "awg": {
+                "awg_speed_limit_config": {
+                    "default_speed_limit_down": 0,
+                    "default_speed_limit_up": 0,
                 }
             }
+        }
+
+        with patch("app.managers.awg_manager.awg_tc.reapply_all_limits") as mock_reapply:
+            mock_reapply.return_value = {"status": "ok", "applied": 0, "errors": []}
             result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
 
         assert result["status"] == "ok"
         assert result["applied"] == 1
         assert result["skipped"] == 0
-        mock_update.assert_called_once_with("awg", "client-1", None, None)
+        assert result["errors"] == []
+        assert clients[0]["userData"]["speed_limit_down"] is None
+        assert clients[0]["userData"]["speed_limit_up"] is None
+        manager._save_clients_table.assert_called_once_with("awg", clients)
 
     def test_bulk_apply_empty_clients_table(self):
         """Empty clientsTable returns applied=0, skipped=0."""
@@ -144,14 +149,55 @@ class TestBulkApplyDefaultSpeedLimits:
             }
         }
 
-        with patch.object(manager, "update_client_speed_limit") as mock_update:
+        with patch("app.managers.awg_manager.awg_tc.reapply_all_limits") as mock_reapply:
+            mock_reapply.return_value = {"status": "ok", "applied": 0, "errors": []}
             result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
 
         assert result["status"] == "ok"
         assert result["applied"] == 0
         assert result["skipped"] == 0
         assert result["errors"] == []
-        mock_update.assert_not_called()
+        mock_reapply.assert_called_once_with(
+            manager.ssh,
+            manager._container_name("awg"),
+            manager._interface_name("awg"),
+            [],
+            global_limit_down=None,
+            global_limit_up=None,
+        )
+        manager._save_clients_table.assert_called_once_with("awg", [])
+
+    def test_bulk_apply_passes_global_limits(self):
+        """Default and global speed limits are forwarded to reapply_all_limits."""
+        clients = [
+            {"clientId": "client-1", "userData": {}, "clientIp": "10.8.1.2"},
+        ]
+        manager = _make_manager_with_clients(clients)
+        server_protocols = {
+            "awg": {
+                "awg_speed_limit_config": {
+                    "default_speed_limit_down": 100,
+                    "default_speed_limit_up": 50,
+                    "global_speed_limit_down": 500,
+                    "global_speed_limit_up": 250,
+                }
+            }
+        }
+
+        with patch("app.managers.awg_manager.awg_tc.reapply_all_limits") as mock_reapply:
+            mock_reapply.return_value = {"status": "ok", "applied": 1, "errors": []}
+            result = manager.bulk_apply_default_speed_limits("awg", server_protocols)
+
+        assert result["status"] == "ok"
+        assert result["applied"] == 1
+        mock_reapply.assert_called_once_with(
+            manager.ssh,
+            manager._container_name("awg"),
+            manager._interface_name("awg"),
+            clients,
+            global_limit_down=500,
+            global_limit_up=250,
+        )
 
 
 class TestBulkApplyEndpoint:
