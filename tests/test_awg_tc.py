@@ -29,6 +29,7 @@ from app.managers.awg_tc import (
     set_global_limit,
     reapply_all_limits,
     teardown_qdisc,
+    _build_batch_tc_script,
 )
 
 # -------------------------------------------------------------------------- #
@@ -700,33 +701,121 @@ class TestSetGlobalLimit:
 
 
 # -------------------------------------------------------------------------- #
+# TestBuildBatchTcScript
+# -------------------------------------------------------------------------- #
+
+
+class TestBuildBatchTcScript:
+    """Test _build_batch_tc_script builds correct infra and client scripts."""
+
+    def test_empty_clients_returns_empty_client_script(self) -> None:
+        infra, client = _build_batch_tc_script("amnezia-awg", [], None, None)
+        assert "docker exec" in infra
+        assert client == ""
+
+    def test_infra_contains_teardown_and_setup(self) -> None:
+        infra, _ = _build_batch_tc_script("amnezia-awg", [], None, None)
+        assert "tc qdisc del dev awg0 root" in infra
+        assert "tc qdisc del dev ifb0 root" in infra
+        assert "ip link add ifb0 type ifb" in infra
+        assert "ip link set ifb0 up" in infra
+        assert "tc qdisc add dev awg0 handle ffff: ingress" in infra
+        assert "redirect dev ifb0" in infra
+        assert "tc qdisc add dev awg0 root handle 1: htb default 9999" in infra
+        assert "tc qdisc add dev ifb0 root handle 1: htb default 9999" in infra
+
+    def test_infra_uses_global_limits(self) -> None:
+        infra, _ = _build_batch_tc_script(
+            "amnezia-awg", [], global_limit_down=100, global_limit_up=50
+        )
+        assert "100mbit" in infra
+        assert "50mbit" in infra
+
+    def test_infra_uses_default_rate_when_no_global_limit(self) -> None:
+        infra, _ = _build_batch_tc_script("amnezia-awg", [], None, None)
+        # Default is 10gbit
+        assert "10gbit" in infra
+
+    def test_client_script_contains_class_and_filter_commands(self) -> None:
+        clients = [
+            {
+                "clientId": "abc",
+                "clientIp": "10.8.1.2",
+                "userData": {"speed_limit_down": 10, "speed_limit_up": 5},
+            },
+        ]
+        _, client = _build_batch_tc_script("amnezia-awg", clients, None, None)
+        # Class ID for 10.8.1.2 is 102 (2 + 100)
+        assert "tc class add dev awg0" in client
+        assert "classid 1:102" in client
+        assert "rate 10mbit" in client
+        assert "tc filter add dev awg0" in client
+        assert "match ip dst 10.8.1.2" in client
+        assert "tc class add dev ifb0" in client
+        assert "match ip src 10.8.1.2" in client
+
+    def test_client_script_skips_clients_without_limits(self) -> None:
+        clients = [
+            {"clientId": "abc", "clientIp": "10.8.1.2", "userData": {}},
+        ]
+        _, client = _build_batch_tc_script("amnezia-awg", clients, None, None)
+        assert client == ""
+
+    def test_client_script_handles_only_down_limit(self) -> None:
+        clients = [
+            {
+                "clientId": "abc",
+                "clientIp": "10.8.1.2",
+                "userData": {"speed_limit_down": 10},
+            },
+        ]
+        infra, client = _build_batch_tc_script("amnezia-awg", clients, None, None)
+        # When only down is specified, up uses the down value (both = 10mbit)
+        assert "rate 10mbit" in client  # per-client rate in client script
+        # Infra uses default 10gbit since no global limits passed
+        assert "10gbit" in infra
+
+    def test_client_script_handles_only_up_limit(self) -> None:
+        clients = [
+            {
+                "clientId": "abc",
+                "clientIp": "10.8.1.2",
+                "userData": {"speed_limit_up": 5},
+            },
+        ]
+        infra, client = _build_batch_tc_script("amnezia-awg", clients, None, None)
+        # When only up is specified, down uses the up value
+        assert "rate 5mbit" in client  # awg0 download uses up value
+
+    def test_client_script_uses_down_rate_for_awg0_even_if_only_up_set(self) -> None:
+        # This tests the cross-fill: if only speed_limit_up is set,
+        # effective_down = up, effective_up = up
+        clients = [
+            {
+                "clientId": "abc",
+                "clientIp": "10.8.1.2",
+                "userData": {"speed_limit_up": 5},
+            },
+        ]
+        _, client = _build_batch_tc_script("amnezia-awg", clients, None, None)
+        # effective_down = up = 5, effective_up = up = 5
+        # awg0 gets 5mbit, ifb0 gets 5mbit
+        assert "rate 5mbit" in client
+
+
+# -------------------------------------------------------------------------- #
 # TestReapplyAllLimits
 # -------------------------------------------------------------------------- #
 
 
 class TestReapplyAllLimits:
-    """Test reapply_all_limits: teardown + setup + apply for all clients."""
+    """Test reapply_all_limits: batch tc commands in 2 SSH calls."""
 
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    @patch("app.managers.awg_tc.apply_speed_limit")
-    def test_reapply_with_limits(
-        self,
-        mock_apply: MagicMock,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "ok"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-        mock_apply.return_value = {"status": "ok", "message": "applied"}
-
+    def test_reapply_with_limits(self) -> None:
+        """Two clients with limits → 2 SSH calls, applied=2, no errors."""
         ssh = MagicMock()
+        ssh.run_sudo_command.return_value = ("", "", 0)
+
         clients = [
             {
                 "clientId": "abc",
@@ -744,69 +833,37 @@ class TestReapplyAllLimits:
         assert result["status"] == "ok"
         assert result["applied"] == 2
         assert result["errors"] == []
-        assert mock_apply.call_count == 2
+        assert ssh.run_sudo_command.call_count == 2
 
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    def test_reapply_no_limits(
-        self,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "ok"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-
+    def test_reapply_no_limits(self) -> None:
+        """Client with no limits → applied=0, infra script only (1 SSH call)."""
         ssh = MagicMock()
+        ssh.run_sudo_command.return_value = ("", "", 0)
+
         clients = [{"clientId": "abc", "clientIp": "10.8.1.2", "userData": {}}]
         result = reapply_all_limits(ssh, "amnezia-awg", "awg0", clients)
         assert result["applied"] == 0
+        # infra script called, client script is empty so not called
+        assert ssh.run_sudo_command.call_count == 1
 
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    def test_reapply_empty_list(
-        self,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "ok"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-
+    def test_reapply_empty_list(self) -> None:
+        """Empty client list → applied=0, infra script only."""
         ssh = MagicMock()
+        ssh.run_sudo_command.return_value = ("", "", 0)
+
         result = reapply_all_limits(ssh, "amnezia-awg", "awg0", [])
         assert result["applied"] == 0
+        assert ssh.run_sudo_command.call_count == 1
 
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    @patch("app.managers.awg_tc.apply_speed_limit")
-    def test_reapply_partial_failure(
-        self,
-        mock_apply: MagicMock,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "ok"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-        mock_apply.return_value = {"status": "error", "message": "RTNETLINK error"}
-
+    def test_reapply_client_script_failure(self) -> None:
+        """Client script returns non-zero → status=partial, error recorded."""
         ssh = MagicMock()
+        # First call (infra) succeeds, second call (client) fails
+        ssh.run_sudo_command.side_effect = [
+            ("", "", 0),  # infra script
+            ("", "RTNETLINK: No such file or directory", 1),  # client script
+        ]
+
         clients = [
             {
                 "clientId": "abc",
@@ -816,54 +873,15 @@ class TestReapplyAllLimits:
         ]
         result = reapply_all_limits(ssh, "amnezia-awg", "awg0", clients)
         assert result["status"] == "partial"
-        assert result["applied"] == 0
+        assert result["applied"] == 1
         assert len(result["errors"]) == 1
+        assert "batch script error" in result["errors"][0]
 
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    def test_reapply_setup_ifb_fails(
-        self,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "error", "message": "Failed to create ifb0"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-
+    def test_reapply_with_global_limits(self) -> None:
+        """Global limits are passed into the batch infra script."""
         ssh = MagicMock()
-        clients = [
-            {"clientId": "abc", "clientIp": "10.8.1.2", "userData": {"speed_limit_down": 10}},
-        ]
-        result = reapply_all_limits(ssh, "amnezia-awg", "awg0", clients)
-        assert result["status"] == "error"
-        assert result["applied"] == 0
-        assert "Failed to create ifb0" in result["errors"][0]
+        ssh.run_sudo_command.return_value = ("", "", 0)
 
-    @patch("app.managers.awg_tc.apply_speed_limit")
-    @patch("app.managers.awg_tc._setup_qdisc_on_interface")
-    @patch("app.managers.awg_tc.setup_ifb")
-    @patch("app.managers.awg_tc.teardown_ifb")
-    @patch("app.managers.awg_tc.teardown_qdisc")
-    def test_reapply_with_global_limits(
-        self,
-        mock_teardown_qdisc: MagicMock,
-        mock_teardown_ifb: MagicMock,
-        mock_setup_ifb: MagicMock,
-        mock_setup_qdisc: MagicMock,
-        mock_apply: MagicMock,
-    ) -> None:
-        mock_teardown_qdisc.return_value = {"status": "ok"}
-        mock_teardown_ifb.return_value = {"status": "ok"}
-        mock_setup_ifb.return_value = {"status": "ok"}
-        mock_setup_qdisc.return_value = {"status": "ok"}
-        mock_apply.return_value = {"status": "ok"}
-
-        ssh = MagicMock()
         clients = [
             {
                 "clientId": "abc",
@@ -880,15 +898,12 @@ class TestReapplyAllLimits:
             global_limit_up=50,
         )
         assert result["status"] == "ok"
-        # Verify _setup_qdisc_on_interface was called with global limits
-        assert mock_setup_qdisc.call_count == 2  # awg0 and ifb0
-        # Check that global_limit_down and global_limit_up were passed
-        for c in mock_setup_qdisc.call_args_list:
-            _, kwargs = c
-            if kwargs.get("interface") == "awg0":
-                assert kwargs.get("global_limit_mbps") == 100
-            elif kwargs.get("interface") == "ifb0":
-                assert kwargs.get("global_limit_mbps") == 50
+        assert result["applied"] == 1
+        # Verify the infra script contained global limits
+        infra_call = ssh.run_sudo_command.call_args_list[0]
+        infra_script = infra_call[0][0]
+        assert "100mbit" in infra_script
+        assert "50mbit" in infra_script
 
 
 # -------------------------------------------------------------------------- #
