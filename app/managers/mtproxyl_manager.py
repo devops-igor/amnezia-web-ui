@@ -160,15 +160,17 @@ class MTProxyLManager:
     # -------------------------------------------------------------------------
 
     def get_clients(self, protocol_type: str) -> list[dict[str, Any]]:
-        """Get all clients by parsing secrets.conf and enriching with traffic data."""
+        """Get all clients by parsing secrets.conf and enriching with traffic and connection data."""
         clients = self._parse_secrets()
         traffic = self._parse_traffic()
+        connections = self._parse_connections()
 
         for client in clients:
             label = client["clientId"]
             if label in traffic:
                 client["userData"]["total_octets"] = traffic[label]["total"]
-                client["userData"]["current_connections"] = traffic[label]["connections"]
+            if label in connections:
+                client["userData"]["current_connections"] = connections[label]
 
         return clients
 
@@ -376,7 +378,7 @@ class MTProxyLManager:
                         "tg_link": "",
                         "total_octets": 0,
                         "current_connections": 0,
-                        "active_ips": int(max_ips) if max_ips and max_ips != "0" else 0,
+                        "active_ips": int(max_ips) if max_ips and max_ips != "0" else None,
                         "quota": int(quota) if quota and quota not in ("0", "") else None,
                         "expiry": expires if expires and expires not in ("0", "") else None,
                     },
@@ -442,6 +444,45 @@ class MTProxyLManager:
             traffic[label]["total"] = int(total_bytes)
 
         return traffic
+
+    def _parse_connections(self) -> dict[str, int]:
+        """Parse `mtproxyl connections` output for per-user active connection counts.
+
+        Output format:
+            ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО
+            ──────────────────────────────────────
+            tg_proxy                6    1.68 МБ   61.83 МБ
+
+        Returns:
+            Dict mapping label -> active_connections count.
+        """
+        out, _, code = self._run_cli("connections")
+        if code != 0:
+            return {}
+
+        connections: dict[str, int] = {}
+        in_data = False
+
+        for line in out.splitlines():
+            line = line.strip()
+            # Skip until we pass the separator line
+            if "─────" in line:
+                in_data = True
+                continue
+            if not in_data or not line:
+                continue
+            # Skip summary lines
+            if line.startswith("Всего"):
+                continue
+            # Match: LABEL  COUNT  ...
+            # Label is alphanumeric + _ + -, count is the first integer
+            match = re.match(r"^([a-zA-Z0-9_-]+)\s+(\d+)", line)
+            if match:
+                label = match.group(1)
+                count = int(match.group(2))
+                connections[label] = count
+
+        return connections
 
     def _check_mtproxyl_installed(self) -> bool:
         """Check if the mtproxyl binary exists on the remote server."""
