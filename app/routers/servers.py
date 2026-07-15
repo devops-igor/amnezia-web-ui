@@ -521,10 +521,11 @@ async def api_server_config(
 
             config = _json.dumps(data_json, indent=2, ensure_ascii=False) if data_json else ""
         elif req.protocol == "telemt":
-            from app.managers import TelemtManager
+            from app.managers import MTProxyLManager
 
-            mgr = TelemtManager(ssh)
-            config = await asyncio.to_thread(mgr._get_server_config)
+            mgr = MTProxyLManager(ssh)
+            config = await asyncio.to_thread(mgr._run_cli, "config show")
+            config = config[0] if isinstance(config, tuple) else config
         else:
             mgr = AWGManager(ssh)
             config = await asyncio.to_thread(mgr._get_server_config, req.protocol)
@@ -561,10 +562,13 @@ async def api_server_config_save(
                 return JSONResponse({"error": "Invalid JSON format"}, status_code=400)
             await asyncio.to_thread(mgr._save_server_json, data_json)
         elif req.protocol == "telemt":
-            from app.managers import TelemtManager
+            from app.managers import MTProxyLManager
 
-            mgr = TelemtManager(ssh)
-            await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
+            mgr = MTProxyLManager(ssh)
+            out, err, code = await asyncio.to_thread(mgr._run_cli, "config import")
+            if code != 0:
+                await asyncio.to_thread(ssh.disconnect)
+                return JSONResponse({"error": err or "Config import failed"}, status_code=400)
         else:
             mgr = AWGManager(ssh)
             await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
