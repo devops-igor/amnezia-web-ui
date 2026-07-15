@@ -263,11 +263,11 @@
             <h3 class="card-title" style="margin-bottom: var(--space-lg);">🛠 {{ _('protocol_paths') }}</h3>
             <form id="protocolPathsForm">
                 <div class="form-group">
-                    <label class="form-label">{{ _('telemt_config_dir') }}</label>
+                    <label class="form-label">{{ _('mtproxyl_config_dir') }}</label>
                     <input type="text" class="form-input" name="telemt_config_dir"
                         value="{{ settings.get('protocol_paths', {}).get('telemt_config_dir', '/opt/amnezia/telemt') }}"
                         placeholder="/opt/amnezia/telemt">
-                    <p class="form-hint">{{ _('telemt_config_dir_hint') }}</p>
+                    <p class="form-hint">{{ _('mtproxyl_config_dir_hint') }}</p>
                 </div>
             </form>
         </div>
