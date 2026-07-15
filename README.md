@@ -73,30 +73,6 @@ Users can switch language from the UI header; translations are stored in `transl
 
 ## Screenshots
 
-### Login Page
-
-![Login Page](docs/login-dark.png)
-
-Login page with captcha and dark theme.
-
-### Servers Dashboard
-
-![Servers Dashboard](docs/dashboard-servers.png)
-
-Servers dashboard showing server cards with protocol badges.
-
-### Server Management
-
-![Server Management](docs/server-management.png)
-
-Server management with protocol cards (AWG, Xray, MTProxyL) and connections list.
-
-### Speed Limit Settings
-
-![Speed Limit Settings](docs/management-speed-limits.png)
-
-AWG speed limit settings with global bandwidth pool and default per-connection limits.
-
 ### Setup Wizard
 
 ![Setup Wizard](docs/setup-wizard.png)
