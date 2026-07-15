@@ -1,4 +1,4 @@
-"""Manager modules for SSH, WireGuard (AWG), Xray, Telemt, and MTProxyL."""
+"""Manager modules for SSH, WireGuard (AWG), Xray, and MTProxyL."""
 
 from app.managers.ssh_manager import SSHManager, SSHHostKeyError
 from app.managers.awg_manager import (
@@ -8,7 +8,6 @@ from app.managers.awg_manager import (
     generate_awg_params,
 )
 from app.managers.xray_manager import XrayManager, XRAY_VERSION
-from app.managers.telemt_manager import TelemtManager
 from app.managers.mtproxyl_manager import MTProxyLManager
 
 __all__ = [
@@ -20,6 +19,5 @@ __all__ = [
     "generate_awg_params",
     "XrayManager",
     "XRAY_VERSION",
-    "TelemtManager",
     "MTProxyLManager",
 ]

@@ -185,7 +185,7 @@
                 document.getElementById('configText').textContent = result.config;
                 document.getElementById('vpnLinkText').textContent = currentVpnLink;
 
-                // Telemt (MTProxy) doesn't have a "VPN Link" (vpn://) format in Amnezia
+                // MTProxyL doesn't have a "VPN Link" (vpn://) format in Amnezia
                 const vpnTab = document.querySelectorAll('.config-tab')[1];
                 const vpnPanel = document.getElementById('panel-vpn');
                 if (proto === 'telemt') {
@@ -234,7 +234,7 @@
         const protoDisplay = {
             awg: 'AmneziaWG',
             xray: 'Xray',
-            telemt: 'Telemt',
+            telemt: 'MTProxyL',
             dns: 'AmneziaDNS'
         };
         const date = conn.created_at ? conn.created_at.substring(0, 10) : '';
@@ -298,7 +298,7 @@
         const protoNames = {
             awg: 'AmneziaWG',
             xray: 'Xray (VLESS-Reality)',
-            telemt: 'Telemt (Telegram Proxy)',
+            telemt: 'MTProxyL (Telegram Proxy)',
             dns: 'AmneziaDNS'
         };
 
@@ -442,7 +442,7 @@
                 document.getElementById('configText').textContent = result.config;
                 document.getElementById('vpnLinkText').textContent = currentVpnLink;
 
-                // Hide VPN tab for Telemt
+                // Hide VPN tab for MTProxyL
                 const vpnTab = document.querySelectorAll('.config-tab')[1];
                 if (conn && conn.protocol === 'telemt') {
                     vpnTab.style.display = 'none';

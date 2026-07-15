@@ -109,13 +109,13 @@
         </div>
     </div>
 
-    <!-- Telemt Card -->
+    <!-- MTProxyL Card -->
     <div class="card card-hover protocol-card protocol-telemt" id="proto-telemt">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--space-sm);">
             <div class="protocol-icon">✈</div>
             <div class="flex gap-sm" id="telemt-ctrl" style="display:none!important;"></div>
         </div>
-        <div class="protocol-name">Telemt (Telegram Proxy)</div>
+        <div class="protocol-name">MTProxyL (Telegram Proxy)</div>
         <div class="protocol-desc">
             {{ _('telemt_desc') }}
         </div>
@@ -236,7 +236,7 @@
                 style="width:auto; min-width:160px;">
                 <option value="awg">AmneziaWG</option>
                 <option value="xray">Xray</option>
-                <option value="telemt">Telemt</option>
+                <option value="telemt">MTProxyL</option>
             </select>
             <button class="btn btn-primary btn-sm" onclick="openAddConnectionModal()">
                 <span>＋</span> {{ _('add') }}
@@ -559,7 +559,7 @@
         switch (proto) {
             case 'awg': return 'AmneziaWG';
             case 'xray': return 'Xray';
-            case 'telemt': return 'Telemt';
+            case 'telemt': return 'MTProxyL';
             case 'dns': return 'AmneziaDNS';
             default: return proto;
         }
