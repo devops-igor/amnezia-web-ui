@@ -56,3 +56,4 @@ VERIFICATION_REPORT*.md
 =0.9.0
 tests/e2e/screenshots/
 TASKS_OVERVIEW.md
+CICD_ERRORS.md

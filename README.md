@@ -1,6 +1,6 @@
 # Amnezia Web Panel
 
-A self-hosted web administration panel for managing AmneziaWG, Xray (XTLS-Reality), Telemt, and AmneziaDNS servers. Forked from [PRVTPRO/Amnezia-Web-Panel](https://github.com/PRVTPRO/Amnezia-Web-Panel), but rebuilt from the ground up with a new data layer, expanded protocol support, and a self-service user portal.
+A self-hosted web administration panel for managing AmneziaWG, Xray (XTLS-Reality), MTProxyL, and AmneziaDNS servers. Forked from [PRVTPRO/Amnezia-Web-Panel](https://github.com/PRVTPRO/Amnezia-Web-Panel), but rebuilt from the ground up with a new data layer, expanded protocol support, and a self-service user portal.
 
 Originally inspired by AmneziaVPN, this panel lets administrators manage users, servers, and VPN connections through a modern web interface — while end users can provision and manage their own connections without admin involvement.
 
@@ -14,15 +14,17 @@ Originally inspired by AmneziaVPN, this panel lets administrators manage users, 
 |----------|-------------|
 | **AmneziaWG** | WireGuard-based with S3/S4 obfuscation to defeat deep packet inspection (DPI) |
 | **Xray (XTLS-Reality)** | Stealthy protocol masking VPN traffic as standard HTTPS |
-| **Telemt (MTProxy)** | High-performance Telegram MTProxy with TLS emulation, quotas, IP limits, and session tracking |
+| **MTProxyL (Telegram Proxy)** | Full-featured Telegram MTProxy with TLS emulation, NFT Smart By-MEKO, Selfmask, geo-blocking, quotas, IP limits, and session tracking |
 | **AmneziaDNS** | Internal DNS resolver preventing leaks and blocking |
 
 ### User Self-Service Portal
 
 Regular (non-admin) users get their own **My Connections** page at `/my`:
+
 - Create VPN connections — select server and protocol, no admin needed
 - View connection details — server name, protocol, creation date
 - Download configuration files, QR codes, or VPN key links
+- Generate password-protected share links for configs
 - Fully compatible with official AmneziaVPN and AmneziaWG clients
 
 ### Admin Capabilities
@@ -31,10 +33,16 @@ Regular (non-admin) users get their own **My Connections** page at `/my`:
 - Install and uninstall protocols per server
 - User management — create, suspend, set traffic limits and expiration
 - Per-user connection rate limiting and global connection quotas
-- Server health monitoring and one-click reboot
+- **AWG per-connection speed limiting** — bidirectional IFB shaping (download/upload)
+- **Global bandwidth pool** and **default per-connection speed limits**
+- **Bulk apply** default speed limits to all connections
+- Password-protected share links for configs
 - Remnawave user sync
+- Server health monitoring and one-click reboot
+- Startup reconciliation — automatic stale connection cleanup
+- Background task supervisor — quota enforcement, overquota disable, traffic sync
 - Traffic usage leaderboard
-- Generate password-protected share links for configs
+- Dark/light mode toggle
 
 ### Security
 
@@ -43,6 +51,63 @@ Regular (non-admin) users get their own **My Connections** page at `/my`:
 - Per-user traffic limits with auto-disable on exhaustion
 - Account expiration enforcement
 - SSH keys preferred over passwords
+- CSRF protection (`starlette-csrf`)
+- Login captcha (`multicolorcaptcha`)
+- Credential encryption at rest (Fernet via `cryptography`)
+
+---
+
+## Internationalization
+
+The panel ships with runtime language switching for 5 languages:
+
+- English (`en`)
+- Russian (`ru`)
+- Chinese (`zh`)
+- French (`fr`)
+- Farsi (`fa`)
+
+Users can switch language from the UI header; translations are stored in `translations/`.
+
+---
+
+## Screenshots
+
+### Login Page
+
+![Login Page](docs/login-dark.png)
+
+Login page with captcha and dark theme.
+
+### Servers Dashboard
+
+![Servers Dashboard](docs/dashboard-servers.png)
+
+Servers dashboard showing server cards with protocol badges.
+
+### Server Management
+
+![Server Management](docs/server-management.png)
+
+Server management with protocol cards (AWG, Xray, MTProxyL) and connections list.
+
+### Speed Limit Settings
+
+![Speed Limit Settings](docs/management-speed-limits.png)
+
+AWG speed limit settings with global bandwidth pool and default per-connection limits.
+
+### Setup Wizard
+
+![Setup Wizard](docs/setup-wizard.png)
+
+First-run setup wizard — create the admin account.
+
+### Dashboard After Setup
+
+![Dashboard after setup](docs/dashboard-after-setup.png)
+
+Dashboard after completing setup.
 
 ---
 
@@ -85,17 +150,11 @@ The panel will be available at `http://localhost:5000`.
 
 On first startup with an empty database, the panel redirects all requests to the **Setup Wizard** at `/setup`. You choose your own username and password — no random credentials in logs, no forced password change.
 
-![Setup Wizard — create admin account](docs/setup-wizard.png)
-
-After creating the account, you're automatically logged in and taken to the dashboard:
-
-![Dashboard after setup](docs/dashboard-after-setup.png)
-
 ---
 
 ## Running with Docker
 
-The recommended way to run the panel is with Docker Compose. See the [Deployment Guide](docs/deployment.md) for full production setup including HTTPS/WAF via BunkerWeb and network telemetry via Telemt.
+The recommended way to run the panel is with Docker Compose. See the [Deployment Guide](docs/deployment.md) for full production setup including HTTPS/WAF via BunkerWeb.
 
 ### Quick Start (Standalone)
 
@@ -113,18 +172,13 @@ Panel available at **http://localhost:5000**. API docs at http://localhost:5000/
 
 ```bash
 # Point your domain DNS A record to this server first
-# Edit .env — set SERVER_NAME, EMAIL_LETS_ENCRYPT, SECRET_KEY
+# Edit .env — set PANEL_DOMAIN, EMAIL_LETS_ENCRYPT, SECRET_KEY
 docker compose --profile bunkerweb up -d
 ```
 
 Panel available at **https://your-domain.com** with automatic Let's Encrypt SSL.
 
-### Telemt (Network Telemetry)
-
-```bash
-# Requires telemt-config/config.toml in your config directory
-docker compose --profile telemt up -d
-```
+> **Note:** MTProxyL is installed on the host as a system service (`mtproxyl install`), not as a Docker Compose profile. The panel communicates with the MTProxyL daemon running on the host. See [docs/deployment.md](docs/deployment.md) for MTProxyL installation steps.
 
 For full setup details (SSL, IP whitelisting, security hardening, troubleshooting), see [docs/deployment.md](docs/deployment.md).
 
@@ -153,11 +207,22 @@ Note: API authentication is session-based (cookie). A dedicated public REST API 
 ### Rate Limiting
 
 Connection rate limits are configurable globally via **Settings → Connection Limits**:
+
 - Connection rate limit (requests per time window)
 
 ### Traffic Limits
 
 Admins can set per-user traffic limits (bytes). When a user hits their limit, their account is automatically suspended.
+
+### AWG Speed Limits
+
+Per-server AWG speed limits are configured via **Settings → AWG Speed Limit Settings**:
+
+- **Global bandwidth pool** — total download/upload ceiling for the server (Mbps, `0` = unlimited)
+- **Default per-connection speed limits** — download/upload applied to new AWG connections (Mbps, `0` = unlimited)
+- **Bulk apply** — push the default limits to all existing AWG connections with one action
+
+Per-connection overrides can also be set when adding or editing an AWG connection.
 
 ---
 
@@ -167,18 +232,58 @@ Admins can set per-user traffic limits (bytes). When a user hits their limit, th
 - **Frontend**: Vanilla JS, Jinja2 templates, custom CSS (glassmorphism design, dark/light mode)
 - **Database**: SQLite (WAL mode) — threaded, concurrent-safe
 - **SSH**: Paramiko
-- **Security**: bcrypt password hashing, CSRF protection, rate limiting (slowapi)
-- **Testing**: pytest (765+ tests), Playwright E2E
+- **Security**: bcrypt password hashing, CSRF protection (`starlette-csrf`), login captcha (`multicolorcaptcha`), rate limiting (`slowapi`), credential encryption at rest (`cryptography` / Fernet)
+- **Background Tasks**: async orchestrator with startup reconciliation
+- **Testing**: pytest (1008 tests), Playwright E2E
+- **i18n**: 5-language runtime translations
+
+---
+
+## Testing
+
+The project uses pytest as its primary test runner:
+
+```bash
+pytest
+```
+
+- **1008 non-E2E tests** covering managers, routers, schemas, database, and background tasks
+- **Playwright E2E tests** for critical user flows (run with `pytest -m e2e`)
+- **black** formatting enforced (`black --check .`)
+- **flake8** linting enforced (`flake8 .`)
+
+CI runs the full suite on every PR.
 
 ---
 
 ## Security Recommendations
 
-- Run behind a reverse proxy (Nginx/Caddy) with SSL termination
+- Run behind a reverse proxy (Nginx/Caddy/BunkerWeb) with SSL termination
 - Set a strong `SECRET_KEY` environment variable in production
 - Prefer SSH keys over passwords for server connections
 - Restrict access to the panel via firewall/network segmentation
+- Enable IP whitelisting in BunkerWeb for the panel domain
 - The first-run setup wizard ensures no credentials are exposed in container logs
+
+---
+
+## Recent Changes
+
+Major updates since the last README refresh:
+
+- **MTProxyL migration** — replaced Telemt with MTProxyL (SSH+CLI based); 13 users migrated
+- **AWG per-connection speed limiting** — IFB-based bidirectional shaping (download/upload)
+- **Global bandwidth pool and default limits** — configurable per server
+- **Bulk apply speed limits** — apply defaults to all connections at once
+- **Batch tc commands** — reduced "Apply to all" from 700+ SSH calls to 2
+- **Startup reconciliation** — automatic cleanup of stale connections on boot
+- **Share links** — password-protected config sharing
+- **Background task orchestrator** — centralized traffic sync, quota enforcement, Remnawave sync
+- **CSRF protection and login captcha**
+- **Credential encryption at rest**
+- **Dark/light mode toggle**
+- **i18n** — English, Russian, Chinese, French, Farsi
+- **Test suite** — grew to 1008 tests
 
 ---
 
@@ -188,3 +293,4 @@ Issues and pull requests are welcome. When submitting a PR, please ensure:
 
 - All pytest tests pass (`pytest`)
 - No black formatting violations (`black --check .`)
+- No flake8 linting violations (`flake8 .`)
