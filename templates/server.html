@@ -1045,7 +1045,7 @@
                 if (proto === 'telemt') {
                     if (userData.total_octets) metaHtml += `<span class="traffic-badge">📊 ${escapeHtml(formatBytes(userData.total_octets))}</span>`;
                     if (userData.current_connections !== undefined) metaHtml += `<span>🔌 ${escapeHtml(String(userData.current_connections))} conns</span>`;
-                    if (userData.active_ips !== undefined) metaHtml += `<span>📍 ${escapeHtml(String(userData.active_ips))} IPs</span>`;
+                    if (userData.active_ips) metaHtml += `<span>📍 ${escapeHtml(String(userData.active_ips))} IPs</span>`;
                     if (userData.quota) metaHtml += `<span class="badge" style="font-size:0.65rem;">Quota: ${escapeHtml(formatBytes(userData.quota))}</span>`;
                     if (userData.expiry) metaHtml += `<span class="badge" style="font-size:0.65rem;">⌛ ${escapeHtml(formatDate(userData.expiry))}</span>`;
                 } else {
