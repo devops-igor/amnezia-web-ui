@@ -138,8 +138,6 @@ class TestGetServerStatus:
             ('{"status":"running","port":18443,"domain":"cloud.hostup.se"}', "", 0),
             # _parse_secrets
             (secrets_content, "", 0),
-            # _parse_traffic
-            ("", "", 0),
         ]
         status = manager.get_server_status("telemt")
         assert status["container_exists"] is True
@@ -195,6 +193,16 @@ class TestParseSecrets:
         # "0" expiry means "never" — returned as None for consistency with TelemtManager
         assert c2["userData"]["expiry"] is None
 
+    def test_active_ips_unlimited_is_none(self, manager, mock_ssh):
+        mock_ssh.run_command.return_value = (
+            "no_limit|ee161655fa13a99629c566dcc682dac3|1783512971|true|0|0|0|0|\n",
+            "",
+            0,
+        )
+        clients = manager._parse_secrets()
+        assert len(clients) == 1
+        assert clients[0]["userData"]["active_ips"] is None
+
     def test_empty_secrets(self, manager, mock_ssh):
         mock_ssh.run_command.return_value = ("# MTProxyL secrets\n", "", 0)
         assert manager._parse_secrets() == []
@@ -234,6 +242,7 @@ class TestGetClients:
         mock_ssh.run_command.side_effect = [
             (secrets_content, "", 0),
             ("", "", 0),
+            ("", "", 0),
         ]
         clients = manager.get_clients("telemt")
         assert isinstance(clients, list)
@@ -243,15 +252,42 @@ class TestGetClients:
     def test_enriches_with_traffic(self, manager, mock_ssh):
         secrets_content = "tg_proxy|ee161655|1783512971|true|0|0|0|0|\n"
         traffic_output = "● tg_proxy: ↓ 1.96 ГБ  ↑ 96.64 ГБ  соед: 41\n"
+        connections_output = (
+            "  ► АКТИВНЫЕ СОЕДИНЕНИЯ\n"
+            "  ─────────────────────\n"
+            "\n"
+            "  Всего активных: 6\n"
+            "\n"
+            "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n"
+            "  ──────────────────────────────────────────────────────\n"
+            "  tg_proxy                6    1.68 МБ   61.83 МБ\n"
+        )
         mock_ssh.run_command.side_effect = [
             (secrets_content, "", 0),
             (traffic_output, "", 0),
+            (connections_output, "", 0),
         ]
         clients = manager.get_clients("telemt")
         assert len(clients) == 1
         # 1.96 GB + 96.64 GB in bytes
         assert clients[0]["userData"]["total_octets"] > 0
-        assert clients[0]["userData"]["current_connections"] == 41
+        assert clients[0]["userData"]["current_connections"] == 6
+
+    def test_enriches_connections_when_traffic_missing(self, manager, mock_ssh):
+        secrets_content = "tg_proxy|ee161655|1783512971|true|0|0|0|0|\n"
+        connections_output = (
+            "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n"
+            "  ──────────────────────────────────────\n"
+            "  tg_proxy                3    0 Б       0 Б\n"
+        )
+        mock_ssh.run_command.side_effect = [
+            (secrets_content, "", 0),
+            ("", "", 0),
+            (connections_output, "", 0),
+        ]
+        clients = manager.get_clients("telemt")
+        assert clients[0]["userData"]["total_octets"] == 0
+        assert clients[0]["userData"]["current_connections"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -486,9 +522,11 @@ class TestDisableOverquotaUsers:
             "underuser|ee161656|1783512972|true|0|0|100000000|0|\n"
         )
         traffic = "● overuser: ↓ 2 МБ  ↑ 0 КБ  соед: 1\n" "● underuser: ↓ 1 КБ  ↑ 0 КБ  соед: 0\n"
+        connections = "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n  ─────────────────────\n  overuser                1    0 Б       0 Б\n"
         mock_ssh.run_command.side_effect = [
             (secrets, "", 0),
             (traffic, "", 0),
+            (connections, "", 0),
             # toggle calls
             ("disabled", "", 0),
         ]
@@ -501,6 +539,7 @@ class TestDisableOverquotaUsers:
         secrets = "user1|ee161655|1783512971|true|0|0|0|0|\n"
         mock_ssh.run_command.side_effect = [
             (secrets, "", 0),
+            ("", "", 0),
             ("", "", 0),
         ]
         disabled = manager.disable_overquota_users("telemt")
@@ -683,3 +722,68 @@ class TestParseTraffic:
     def test_no_per_user_lines(self, manager, mock_ssh):
         mock_ssh.run_command.return_value = ("Общий трафик:\n  ↓ 10 ГБ\n", "", 0)
         assert manager._parse_traffic() == {}
+
+
+# ---------------------------------------------------------------------------
+# TestParseConnections
+# ---------------------------------------------------------------------------
+
+
+class TestParseConnections:
+    """Tests for _parse_connections()."""
+
+    def test_parses_multiple_users(self, manager, mock_ssh):
+        output = (
+            "  ► АКТИВНЫЕ СОЕДИНЕНИЯ\n"
+            "  ─────────────────────\n"
+            "\n"
+            "  Всего активных: 6\n"
+            "\n"
+            "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n"
+            "  ──────────────────────────────────────────────────────\n"
+            "  tg_proxy                6    1.68 МБ   61.83 МБ\n"
+            "  Andrey_TELEGA           0    0 Б       0 Б\n"
+        )
+        mock_ssh.run_command.return_value = (output, "", 0)
+        result = manager._parse_connections()
+        assert result == {"tg_proxy": 6, "Andrey_TELEGA": 0}
+
+    def test_empty_output(self, manager, mock_ssh):
+        mock_ssh.run_command.return_value = ("", "", 0)
+        assert manager._parse_connections() == {}
+
+    def test_command_fails(self, manager, mock_ssh):
+        mock_ssh.run_command.return_value = ("", "error", 1)
+        assert manager._parse_connections() == {}
+
+    def test_only_headers(self, manager, mock_ssh):
+        output = (
+            "  ► АКТИВНЫЕ СОЕДИНЕНИЯ\n"
+            "  ─────────────────────\n"
+            "\n"
+            "  Всего активных: 0\n"
+            "\n"
+            "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n"
+            "  ──────────────────────────────────────────────────────\n"
+        )
+        mock_ssh.run_command.return_value = (output, "", 0)
+        assert manager._parse_connections() == {}
+
+    def test_user_with_zero_connections(self, manager, mock_ssh):
+        output = (
+            "  ПОЛЬЗОВАТЕЛЬ СОЕД. СКАЧАНО ОТПРАВЛЕНО\n"
+            "  ──────────────────────────────────────\n"
+            "  idle_user               0    0 Б       0 Б\n"
+        )
+        mock_ssh.run_command.return_value = (output, "", 0)
+        assert manager._parse_connections() == {"idle_user": 0}
+
+    def test_skips_lines_before_separator(self, manager, mock_ssh):
+        output = (
+            "  ► АКТИВНЫЕ СОЕДИНЕНИЯ\n"
+            "  random_stuff 999\n"
+            "  ─────────────────────\n"
+            "  tg_proxy                2    1 МБ      1 МБ\n"
+        )
+        mock_ssh.run_command.return_value = (output, "", 0)
+        assert manager._parse_connections() == {"tg_proxy": 2}
