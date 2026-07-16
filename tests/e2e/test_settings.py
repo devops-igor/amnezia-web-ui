@@ -74,11 +74,6 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
             "limits": (
                 settings_result.get("limits", {}) if isinstance(settings_result, dict) else {}
             ),
-            "protocol_paths": (
-                settings_result.get("protocol_paths", {})
-                if isinstance(settings_result, dict)
-                else {}
-            ),
         },
         csrf_token,
     )
@@ -127,11 +122,6 @@ def test_change_title(authenticated_page: Page, base_url: str, csrf_token: str) 
             ),
             "limits": (
                 settings_result.get("limits", {}) if isinstance(settings_result, dict) else {}
-            ),
-            "protocol_paths": (
-                settings_result.get("protocol_paths", {})
-                if isinstance(settings_result, dict)
-                else {}
             ),
         },
         csrf_token,
@@ -184,11 +174,6 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
             "limits": (
                 settings_result.get("limits", {}) if isinstance(settings_result, dict) else {}
             ),
-            "protocol_paths": (
-                settings_result.get("protocol_paths", {})
-                if isinstance(settings_result, dict)
-                else {}
-            ),
         },
         csrf_token,
     )
@@ -234,11 +219,6 @@ def test_captcha_toggle(authenticated_page: Page, base_url: str, csrf_token: str
             ),
             "limits": (
                 settings_result.get("limits", {}) if isinstance(settings_result, dict) else {}
-            ),
-            "protocol_paths": (
-                settings_result.get("protocol_paths", {})
-                if isinstance(settings_result, dict)
-                else {}
             ),
         },
         csrf_token,
