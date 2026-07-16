@@ -717,21 +717,42 @@
                 return;
             }
             listEl.innerHTML = '';
+
+            const maxTraffic = data.connections.reduce((max, c) => {
+                const total = c.traffic_total || 0;
+                return total > max ? total : max;
+            }, 0);
+
             data.connections.forEach(c => {
+                const isTopConsumer = maxTraffic > 0 && (c.traffic_total || 0) === maxTraffic;
+                const totalRx = c.traffic_total_rx || 0;
+                const totalTx = c.traffic_total_tx || 0;
+                const trafficStr = (totalRx > 0 || totalTx > 0)
+                    ? `<span class="traffic-badge">📊 ↓ ${formatBytes(totalRx)} ↑ ${formatBytes(totalTx)}</span>`
+                    : '';
+                const protoDisplay = {
+                    awg: 'AmneziaWG',
+                    xray: 'Xray',
+                    telemt: 'MTProxyL',
+                    dns: 'AmneziaDNS',
+                };
+                const protoLabel = protoDisplay[c.protocol] || (c.protocol ? c.protocol.toUpperCase() : '');
+
                 listEl.innerHTML += `
-                    <div class="client-item">
+                    <div class="client-item${isTopConsumer ? ' top-consumer' : ''}">
                         <div class="client-info">
                             <div class="client-avatar">🔗</div>
                             <div>
                                 <div class="client-name">${escapeHtml(c.name || 'Connection')}</div>
                                 <div class="client-meta">
                                     <span>🖥 ${escapeHtml(c.server_name || '')}</span>
-                                    <span>${c.protocol === 'awg' ? 'AmneziaWG' : (c.protocol === 'xray' ? 'Xray' : escapeHtml(c.protocol.toUpperCase()))}</span>
+                                    <span>${escapeHtml(protoLabel)}</span>
+                                    ${trafficStr}
                                 </div>
                             </div>
                         </div>
                         <div class="client-actions">
-                            <button class="btn btn-secondary btn-sm btn-icon" data-sid="${c.server_id}" data-cid="${escapeHtml(c.client_id)}" data-proto="${escapeHtml(c.protocol)}" data-cname="${escapeHtml(c.name || 'VPN')}" onclick="showUserConnectionConfig(Number(this.dataset.sid), this.dataset.cid, this.dataset.proto, this.dataset.cname)" title="${_('config')}">📄</button>
+                            <button class="btn btn-secondary btn-sm btn-icon" data-sid="${escapeHtml(String(c.server_id))}" data-cid="${escapeHtml(c.client_id)}" data-proto="${escapeHtml(c.protocol)}" data-cname="${escapeHtml(c.name || 'VPN')}" onclick="showUserConnectionConfig(Number(this.dataset.sid), this.dataset.cid, this.dataset.proto, this.dataset.cname)" title="${_('config')}">📄</button>
                         </div>
                     </div>
                 `;

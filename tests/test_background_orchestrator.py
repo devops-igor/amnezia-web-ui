@@ -226,6 +226,261 @@ class TestSyncTraffic:
             # Verify SSH was disconnected
             mock_ssh.disconnect.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_sync_traffic_accumulates_per_connection_totals(self, orchestrator):
+        """sync_traffic() accumulates traffic_total_rx/tx/total per connection."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_conn = {
+            "id": "conn1",
+            "server_id": "srv1",
+            "protocol": "awg",
+            "client_id": "peer1",
+            "user_id": "user1",
+            "last_rx": 1000,
+            "last_tx": 500,
+            "traffic_total_rx": 2000,
+            "traffic_total_tx": 1000,
+            "traffic_total": 3000,
+        }
+
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = [mock_conn]
+        mock_db.get_connection_by_id.return_value = mock_conn
+        mock_db.get_all_users.return_value = []
+
+        mock_ssh = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.get_clients.return_value = [
+            {
+                "clientId": "peer1",
+                "userData": {"dataReceivedBytes": 1500, "dataSentBytes": 700},
+            }
+        ]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            mock_db.update_connection.assert_called_once()
+            call_args = mock_db.update_connection.call_args
+            assert call_args[0][0] == "conn1"
+            assert call_args[0][1]["traffic_total_rx"] == 2500
+            assert call_args[0][1]["traffic_total_tx"] == 1200
+            assert call_args[0][1]["traffic_total"] == 3700
+
+    @pytest.mark.asyncio
+    async def test_sync_traffic_increments_existing_total(self, orchestrator):
+        """Existing traffic_total is incremented by delta, not replaced."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_conn = {
+            "id": "conn1",
+            "server_id": "srv1",
+            "protocol": "awg",
+            "client_id": "peer1",
+            "user_id": "user1",
+            "last_rx": 1000,
+            "last_tx": 500,
+            "traffic_total_rx": 5000,
+            "traffic_total_tx": 3000,
+            "traffic_total": 8000,
+        }
+
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = [mock_conn]
+        mock_db.get_connection_by_id.return_value = mock_conn
+        mock_db.get_all_users.return_value = []
+
+        mock_ssh = MagicMock()
+        mock_manager = MagicMock()
+        # Delta = 200 rx + 100 tx = 300
+        mock_manager.get_clients.return_value = [
+            {
+                "clientId": "peer1",
+                "userData": {"dataReceivedBytes": 1200, "dataSentBytes": 600},
+            }
+        ]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            call_args = mock_db.update_connection.call_args
+            assert call_args[0][1]["traffic_total"] == 8300
+            assert call_args[0][1]["traffic_total_rx"] == 5200
+            assert call_args[0][1]["traffic_total_tx"] == 3100
+
+    @pytest.mark.asyncio
+    async def test_sync_traffic_multiple_cycles_accumulate(self, orchestrator):
+        """Multiple sync cycles accumulate per-connection traffic correctly."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_conn = {
+            "id": "conn1",
+            "server_id": "srv1",
+            "protocol": "awg",
+            "client_id": "peer1",
+            "user_id": "user1",
+            "last_rx": 1000,
+            "last_tx": 500,
+            "traffic_total_rx": 0,
+            "traffic_total_tx": 0,
+            "traffic_total": 0,
+        }
+
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = [mock_conn]
+        mock_db.get_connection_by_id.return_value = mock_conn
+        mock_db.get_all_users.return_value = []
+
+        mock_ssh = MagicMock()
+        mock_manager = MagicMock()
+        # First sync: bytes move from 1000/500 to 1500/700 (delta 500/200)
+        mock_manager.get_clients.return_value = [
+            {
+                "clientId": "peer1",
+                "userData": {"dataReceivedBytes": 1500, "dataSentBytes": 700},
+            }
+        ]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+            first_call = mock_db.update_connection.call_args
+            first_fields = first_call[0][1]
+            assert first_fields["traffic_total"] == 700
+            assert first_fields["traffic_total_rx"] == 500
+            assert first_fields["traffic_total_tx"] == 200
+
+            # Simulate persisted state: next sync starts from last_rx/last_tx
+            mock_conn.update(
+                {
+                    "last_rx": first_fields["last_rx"],
+                    "last_tx": first_fields["last_tx"],
+                    "traffic_total_rx": first_fields["traffic_total_rx"],
+                    "traffic_total_tx": first_fields["traffic_total_tx"],
+                    "traffic_total": first_fields["traffic_total"],
+                }
+            )
+            mock_manager.get_clients.return_value = [
+                {
+                    "clientId": "peer1",
+                    "userData": {"dataReceivedBytes": 2000, "dataSentBytes": 900},
+                }
+            ]
+
+            await orchestrator.sync_traffic()
+            second_call = mock_db.update_connection.call_args
+            second_fields = second_call[0][1]
+            assert second_fields["traffic_total"] == 1400
+            assert second_fields["traffic_total_rx"] == 1000
+            assert second_fields["traffic_total_tx"] == 400
+
+    @pytest.mark.asyncio
+    async def test_sync_traffic_update_connection_includes_all_fields(self, orchestrator):
+        """The single db.update_connection() call includes all 5 fields."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
+        mock_conn = {
+            "id": "conn1",
+            "server_id": "srv1",
+            "protocol": "awg",
+            "client_id": "peer1",
+            "user_id": "user1",
+            "last_rx": 1000,
+            "last_tx": 500,
+            "traffic_total_rx": 0,
+            "traffic_total_tx": 0,
+            "traffic_total": 0,
+        }
+
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = [mock_conn]
+        mock_db.get_connection_by_id.return_value = mock_conn
+        mock_db.get_all_users.return_value = []
+
+        mock_ssh = MagicMock()
+        mock_manager = MagicMock()
+        mock_manager.get_clients.return_value = [
+            {
+                "clientId": "peer1",
+                "userData": {"dataReceivedBytes": 1500, "dataSentBytes": 700},
+            }
+        ]
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_manager,
+            ),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            call_args = mock_db.update_connection.call_args
+            fields = call_args[0][1]
+            assert set(fields.keys()) == {
+                "last_rx",
+                "last_tx",
+                "traffic_total_rx",
+                "traffic_total_tx",
+                "traffic_total",
+            }
+            assert fields["last_rx"] == 1500
+            assert fields["last_tx"] == 700
+
 
 # ---------------------------------------------------------------------------
 # 6. sync_remnawave enable/disable

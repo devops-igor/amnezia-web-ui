@@ -9,9 +9,14 @@
             <span class="icon">🔗</span>
             {{ _('my_connections_title') }}
         </h1>
-        <button class="btn btn-primary" onclick="openCreateConnectionModal()">
-            <span>+</span> {{ _('create_connection') }}
-        </button>
+        <div class="flex items-center gap-sm">
+            <button class="btn btn-secondary btn-sm sort-toggle" id="sortToggle" onclick="toggleSortOrder()">
+                📊 {{ _('sort_by_traffic') }}
+            </button>
+            <button class="btn btn-primary" onclick="openCreateConnectionModal()">
+                <span>+</span> {{ _('create_connection') }}
+            </button>
+        </div>
     </div>
 
     {# Always render the list container so JS can insert into it without reload #}
@@ -29,6 +34,11 @@
                         </span>
                         {% if c.created_at %}
                         <span>📅 {{ c.created_at[:10] }}</span>
+                        {% endif %}
+                        {% if c.traffic_total_rx or c.traffic_total_tx %}
+                        <span class="traffic-badge" data-rx="{{ c.traffic_total_rx or 0 }}" data-tx="{{ c.traffic_total_tx or 0 }}">
+                            📊 ↓ <span class="rx"></span> ↑ <span class="tx"></span>
+                        </span>
                         {% endif %}
                     </div>
                 </div>
@@ -229,37 +239,50 @@
         }
     }
 
+
     // Render a single connection item HTML
-    function renderConnectionItem(conn) {
+    function renderConnectionItem(conn, isTopConsumer) {
         const protoDisplay = {
             awg: 'AmneziaWG',
             xray: 'Xray',
             telemt: 'MTProxyL',
             dns: 'AmneziaDNS'
         };
-        const date = conn.created_at ? conn.created_at.substring(0, 10) : '';
+        const name = escapeHtml(conn.name || 'VPN Connection');
+        const serverName = escapeHtml(conn.server_name || '');
+        const proto = escapeHtml(conn.protocol || '');
+        const protoLabel = escapeHtml(protoDisplay[conn.protocol] || (conn.protocol ? conn.protocol.toUpperCase() : ''));
+        const date = conn.created_at ? escapeHtml(conn.created_at.substring(0, 10)) : '';
+        const connId = escapeHtml(conn.id);
+        const totalRx = conn.traffic_total_rx || 0;
+        const totalTx = conn.traffic_total_tx || 0;
+        const trafficStr = totalRx > 0 || totalTx > 0
+            ? `<span class="traffic-badge">📊 ↓ ${formatBytes(totalRx)} ↑ ${formatBytes(totalTx)}</span>`
+            : '';
+        const topClass = isTopConsumer ? ' top-consumer' : '';
         return `
-        <div class="client-item" data-id="${conn.id}">
+        <div class="client-item${topClass}" data-id="${connId}">
             <div class="client-info">
                 <div class="client-avatar">🔗</div>
                 <div>
-                    <div class="client-name">${conn.name || 'VPN Connection'}</div>
+                    <div class="client-name">${name}</div>
                     <div class="client-meta">
-                        <span>🖥 ${conn.server_name}</span>
+                        <span>🖥 ${serverName}</span>
                         <span class="badge badge-info" style="font-size:0.65rem;">
-                            ${protoDisplay[conn.protocol] || conn.protocol.toUpperCase()}
+                            ${protoLabel}
                         </span>
                         ${date ? `<span>📅 ${date}</span>` : ''}
+                        ${trafficStr}
                     </div>
                 </div>
             </div>
             <div class="client-actions">
                 <button class="btn btn-secondary btn-sm"
-                    onclick="showRenameModal('${conn.id}', '${conn.name || 'Connection'}')">
+                    onclick="showRenameModal('${escapeJs(conn.id)}', '${escapeJs(conn.name || 'Connection')}')">
                     ✏️ {{ _('rename') }}
                 </button>
                 <button class="btn btn-primary btn-sm"
-                    onclick="showMyConfig('${conn.id}', '${conn.name || 'Connection'}', '${conn.protocol}')">
+                    onclick="showMyConfig('${escapeJs(conn.id)}', '${escapeJs(conn.name || 'Connection')}', '${escapeJs(conn.protocol)}')">
                     {{ _('show_config') }}
                 </button>
             </div>
@@ -320,12 +343,28 @@
         // Protocol changed - any future protocol-specific logic goes here
     });
 
+    const sortTrafficLabel = "{{ _('sort_by_traffic') }}";
+    const sortDateLabel = "{{ _('sort_by_date') }}";
+
+    let sortBy = 'traffic';
+
+    function toggleSortOrder() {
+        sortBy = sortBy === 'traffic' ? 'date' : 'traffic';
+        const label = sortBy === 'traffic' ? sortTrafficLabel : sortDateLabel;
+        document.getElementById('sortToggle').textContent = '📊 ' + label;
+        const connections = currentConnections || [];
+        renderConnectionsList(connections);
+    }
+
+    let currentConnections = [];
+
     // Re-render the full connections list from an array of connection objects
     function renderConnectionsList(connections) {
+        currentConnections = connections || [];
         const listEl = document.getElementById('myConnectionsList');
         const emptyEl = document.getElementById('emptyState');
 
-        if (!connections || connections.length === 0) {
+        if (!currentConnections || currentConnections.length === 0) {
             listEl.classList.add('hidden');
             emptyEl.classList.remove('hidden');
             return;
@@ -334,14 +373,22 @@
         emptyEl.classList.add('hidden');
         listEl.classList.remove('hidden');
 
-        // Sort by created_at descending (newest first)
-        const sorted = [...connections].sort((a, b) => {
+        const sorted = [...currentConnections].sort((a, b) => {
+            if (sortBy === 'traffic') {
+                const ta = a.traffic_total || 0;
+                const tb = b.traffic_total || 0;
+                return tb - ta;
+            }
             const da = a.created_at ? new Date(a.created_at).getTime() : 0;
             const db = b.created_at ? new Date(b.created_at).getTime() : 0;
             return db - da;
         });
 
-        listEl.innerHTML = sorted.map(c => renderConnectionItem(c)).join('');
+        const maxTrafficConn = sorted.length > 0
+            ? sorted.reduce((max, c) => (c.traffic_total || 0) > (max.traffic_total || 0) ? c : max)
+            : null;
+
+        listEl.innerHTML = sorted.map(c => renderConnectionItem(c, maxTrafficConn && c.id === maxTrafficConn.id)).join('');
     }
 
     // Fetch connections from API and re-render the list
@@ -351,6 +398,13 @@
             const result = await apiCall('/api/my/connections', 'GET');
             console.log('Fetched connections:', result);
             renderConnectionsList(result.connections || []);
+            // Server-side rendered traffic badges can now be formatted by JS
+            document.querySelectorAll('.traffic-badge[data-rx]').forEach(el => {
+                const rx = parseInt(el.dataset.rx || '0', 10);
+                const tx = parseInt(el.dataset.tx || '0', 10);
+                el.querySelector('.rx').textContent = formatBytes(rx);
+                el.querySelector('.tx').textContent = formatBytes(tx);
+            });
         } catch (err) {
             console.error('Failed to refresh connections:', err);
         }
@@ -513,5 +567,15 @@
             showToast("{{ _('rename_failed') }}", 'error');
         }
     }
+    function formatInitialTrafficBadges() {
+        document.querySelectorAll('.traffic-badge[data-rx]').forEach(el => {
+            const rx = parseInt(el.dataset.rx || '0', 10);
+            const tx = parseInt(el.dataset.tx || '0', 10);
+            el.querySelector('.rx').textContent = formatBytes(rx);
+            el.querySelector('.tx').textContent = formatBytes(tx);
+        });
+    }
+
+    formatInitialTrafficBadges();
 </script>
 {% endblock %}
