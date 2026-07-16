@@ -228,6 +228,153 @@ class TestApiMyAddConnection:
             app.app.dependency_overrides.clear()
 
 
+class TestApiConnectionTrafficFields:
+    """Tests that per-connection traffic fields are exposed in API responses."""
+
+    def setup_method(self):
+        """Set up a temporary database with a user, admin, server and connection."""
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
+
+        self.db.create_user(
+            {
+                "id": "test-user-1",
+                "username": "testuser",
+                "password_hash": "hashed_password",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        self.db.create_user(
+            {
+                "id": "admin-1",
+                "username": "admin",
+                "password_hash": "hashed_password",
+                "enabled": True,
+                "role": "admin",
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        self.db.create_server(
+            {
+                "name": "Test Server",
+                "host": "test.example.com",
+                "protocols": {"awg": {"installed": True, "port": "55424"}},
+            }
+        )
+        server_id = self.db.get_all_servers()[0]["id"]
+        self.db.create_connection(
+            {
+                "id": "conn-1",
+                "user_id": "test-user-1",
+                "server_id": server_id,
+                "protocol": "awg",
+                "client_id": "client-1",
+                "name": "Connection 1",
+                "created_at": "2024-01-01T00:00:00",
+                "traffic_total_rx": 1024,
+                "traffic_total_tx": 2048,
+                "traffic_total": 3072,
+            }
+        )
+
+    def teardown_method(self):
+        """Clean up the temporary database."""
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
+    @patch("app.routers.connections.get_db")
+    def test_my_connections_includes_traffic_fields(self, mock_get_db):
+        """GET /api/my/connections must include traffic_total_rx/tx/total."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            client = create_csrf_client()
+            response = client.get(
+                "/api/my/connections",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["connections"]) == 1
+            conn = data["connections"][0]
+            assert conn["traffic_total_rx"] == 1024
+            assert conn["traffic_total_tx"] == 2048
+            assert conn["traffic_total"] == 3072
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.users.get_db")
+    def test_user_connections_includes_traffic_fields(self, mock_get_db):
+        """GET /api/users/{id}/connections must include traffic_total_rx/tx/total."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("admin-1")
+        try:
+            client = create_csrf_client()
+            response = client.get(
+                "/api/users/test-user-1/connections",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["connections"]) == 1
+            conn = data["connections"][0]
+            assert conn["traffic_total_rx"] == 1024
+            assert conn["traffic_total_tx"] == 2048
+            assert conn["traffic_total"] == 3072
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.connections.get_ssh")
+    @patch("app.routers.connections.get_protocol_manager")
+    @patch("app.routers.connections.get_db")
+    def test_add_connection_response_includes_traffic_fields(
+        self,
+        mock_get_db,
+        mock_get_protocol_manager,
+        mock_get_ssh,
+    ):
+        """POST /api/my/connections/add must return connection with zeroed traffic fields."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            server_id = self.db.get_all_servers()[0]["id"]
+            mock_ssh = MagicMock()
+            mock_get_ssh.return_value = mock_ssh
+            mock_manager = MagicMock()
+            mock_manager.add_client.return_value = {"client_id": "new-client-1"}
+            mock_get_protocol_manager.return_value = mock_manager
+
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/add",
+                json={"server_id": server_id, "protocol": "awg", "name": "New Connection"},
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert "connection" in data
+            conn = data["connection"]
+            assert conn["traffic_total_rx"] == 0
+            assert conn["traffic_total_tx"] == 0
+            assert conn["traffic_total"] == 0
+        finally:
+            app.app.dependency_overrides.clear()
+
+
 class TestApiAddConnectionTelemtFailure:
     """Tests for telemt API failure handling in /api/servers/{server_id}/connections/add"""
 
