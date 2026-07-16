@@ -292,6 +292,7 @@
     // === Create Connection ===
     // servers data passed from backend
     const availableServers = {{ servers | tojson }};
+    const initialConnections = {{ connections | tojson }};
 
     function openCreateConnectionModal() {
         // Reset form
@@ -356,7 +357,7 @@
         renderConnectionsList(connections);
     }
 
-    let currentConnections = [];
+    let currentConnections = initialConnections || [];
 
     // Re-render the full connections list from an array of connection objects
     function renderConnectionsList(connections) {

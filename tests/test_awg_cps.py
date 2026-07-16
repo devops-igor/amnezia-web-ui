@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 from app.managers.awg_cps import (
     FALLBACK_DOMAINS,
+    QUIC_DOMAINS,
     gen_dns,
     gen_quic_initial,
     gen_quic_short,
@@ -220,7 +221,7 @@ class TestDomainProbing:
 
         domain = select_mimicry_domain(mock_ssh, protocol="quic")
         assert domain is not None
-        assert domain != FALLBACK_DOMAINS["quic"]
+        assert domain in QUIC_DOMAINS
         assert call_count[0] >= 1
 
     def test_domain_probing_ssh_exception(self):
