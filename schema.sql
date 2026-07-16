@@ -52,6 +52,9 @@ CREATE TABLE IF NOT EXISTS user_connections (
     last_tx INTEGER DEFAULT 0,
     traffic_delta_rx INTEGER DEFAULT 0,
     traffic_delta_tx INTEGER DEFAULT 0,
+    traffic_total_rx INTEGER DEFAULT 0,
+    traffic_total_tx INTEGER DEFAULT 0,
+    traffic_total INTEGER DEFAULT 0,
     created_at TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );

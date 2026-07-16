@@ -909,6 +909,27 @@ button:focus-visible,
     flex-wrap: nowrap;
 }
 
+.traffic-badge {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    white-space: nowrap;
+}
+
+.top-consumer {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.06) 0%, rgba(139, 92, 246, 0.02) 100%);
+    box-shadow: 0 0 0 1px var(--accent);
+}
+
+.sort-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+}
+
 /* ===== Config Display ===== */
 .config-display {
     position: relative;
