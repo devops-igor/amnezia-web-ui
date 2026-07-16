@@ -114,9 +114,6 @@ def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
                 "connection_rate_limit_count": 5,
                 "connection_rate_limit_window": 60,
             },
-            "protocol_paths": {
-                "telemt_config_dir": "/opt/amnezia/telemt",
-            },
         },
     )
 

@@ -206,7 +206,6 @@ class TestAuthBypass:
                     "telegram": {"enabled": False, "token": ""},
                     "ssl": {},
                     "limits": {},
-                    "protocol_paths": {},
                 },
             )
             assert (

@@ -23,7 +23,6 @@ def test_schemas_importable():
         "CaptchaSettings",
         "SSLSettings",
         "ConnectionLimits",
-        "ProtocolPaths",
         "UpdateUserRequest",
         "SaveSettingsRequest",
         "ToggleUserRequest",

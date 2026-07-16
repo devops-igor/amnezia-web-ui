@@ -25,7 +25,6 @@ from schemas import (
     CaptchaSettings,
     SSLSettings,
     ConnectionLimits,
-    ProtocolPaths,
     UpdateUserRequest,
     SaveSettingsRequest,
     ToggleUserRequest,
@@ -570,29 +569,6 @@ class TestConnectionLimits:
     def test_window_too_high(self):
         with pytest.raises(ValidationError):
             ConnectionLimits(connection_rate_limit_window=86401)
-
-
-# ======================== ProtocolPaths ========================
-
-
-class TestProtocolPaths:
-    """Tests for ProtocolPaths model."""
-
-    def test_defaults(self):
-        req = ProtocolPaths()
-        assert req.telemt_config_dir == "/opt/amnezia/telemt"
-
-    def test_valid_path(self):
-        req = ProtocolPaths(telemt_config_dir="/etc/telemt")
-        assert req.telemt_config_dir == "/etc/telemt"
-
-    def test_path_traversal_rejected(self):
-        with pytest.raises(ValidationError):
-            ProtocolPaths(telemt_config_dir="/opt/../etc/passwd")
-
-    def test_empty_path_rejected(self):
-        with pytest.raises(ValidationError):
-            ProtocolPaths(telemt_config_dir="")
 
 
 # ======================== UpdateUserRequest ========================
