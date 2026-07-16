@@ -597,18 +597,6 @@ class ConnectionLimits(BaseModel):
     connection_rate_limit_window: int = Field(default=60, ge=1, le=86400)
 
 
-class ProtocolPaths(BaseModel):
-    telemt_config_dir: str = Field(default="/opt/amnezia/telemt", min_length=1, max_length=4096)
-
-    @field_validator("telemt_config_dir")
-    @classmethod
-    def validate_path_no_traversal(cls, v: str) -> str:
-        """Validate path: no directory traversal."""
-        if ".." in v:
-            raise ValueError("path must not contain directory traversal (..)")
-        return v
-
-
 class SaveSettingsRequest(BaseModel):
     appearance: AppearanceSettings
     sync: SyncSettings
@@ -616,7 +604,6 @@ class SaveSettingsRequest(BaseModel):
     telegram: dict = Field(default_factory=dict)
     ssl: SSLSettings
     limits: ConnectionLimits = ConnectionLimits()
-    protocol_paths: ProtocolPaths = ProtocolPaths()
 
 
 # ===== Response Models (Phase 5D) =====

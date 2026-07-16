@@ -49,7 +49,6 @@ async def save_settings(
     db.update_setting("telegram", payload.telegram)
     db.update_setting("ssl", payload.ssl.model_dump())
     db.update_setting("limits", payload.limits.model_dump())
-    db.update_setting("protocol_paths", payload.protocol_paths.model_dump())
     logger.info("Settings saved")
 
     return {"status": "success"}
