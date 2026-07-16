@@ -97,6 +97,9 @@ class Database:
             "last_tx",
             "traffic_delta_rx",
             "traffic_delta_tx",
+            "traffic_total_rx",
+            "traffic_total_tx",
+            "traffic_total",
             "created_at",
         }
     )
@@ -188,6 +191,25 @@ class Database:
             logger.info("Migrating users table: adding password_change_required column")
             conn.execute(
                 "ALTER TABLE users ADD COLUMN password_change_required "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+
+        # Migration: add per-connection traffic total columns
+        try:
+            conn.execute("SELECT traffic_total_rx FROM user_connections LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating user_connections: adding traffic_total_rx/tx/total columns")
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total_rx "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total_tx "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total "
                 "INTEGER NOT NULL DEFAULT 0"
             )
             conn.commit()
@@ -763,8 +785,9 @@ class Database:
             conn.execute(
                 """INSERT INTO user_connections
                    (id, user_id, server_id, protocol, client_id, name,
-                    last_rx, last_tx, traffic_delta_rx, traffic_delta_tx, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
+                    traffic_total_rx, traffic_total_tx, traffic_total, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     connection.get("id", ""),
                     connection.get("user_id", ""),
@@ -776,6 +799,9 @@ class Database:
                     connection.get("last_tx", 0),
                     connection.get("traffic_delta_rx", 0),
                     connection.get("traffic_delta_tx", 0),
+                    connection.get("traffic_total_rx", 0),
+                    connection.get("traffic_total_tx", 0),
+                    connection.get("traffic_total", 0),
                     connection.get("created_at", datetime.now().isoformat()),
                 ),
             )
@@ -1056,8 +1082,9 @@ class Database:
                     conn.execute(
                         """INSERT INTO user_connections
                            (id, user_id, server_id, protocol, client_id, name,
-                            last_rx, last_tx, traffic_delta_rx, traffic_delta_tx, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
+                            traffic_total_rx, traffic_total_tx, traffic_total, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             c.get("id", ""),
                             c.get("user_id", ""),
@@ -1069,6 +1096,9 @@ class Database:
                             c.get("last_tx", 0),
                             c.get("traffic_delta_rx", 0),
                             c.get("traffic_delta_tx", 0),
+                            c.get("traffic_total_rx", 0),
+                            c.get("traffic_total_tx", 0),
+                            c.get("traffic_total", 0),
                             c.get("created_at", datetime.now().isoformat()),
                         ),
                     )
