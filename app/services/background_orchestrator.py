@@ -180,8 +180,20 @@ class BackgroundTaskOrchestrator:
             for uc_id, rx_delta, tx_delta, curr_rx, curr_tx in updates:
                 uc = db.get_connection_by_id(uc_id)
                 if uc:
-                    # Update connection's last_rx/last_tx
-                    db.update_connection(uc_id, {"last_rx": curr_rx, "last_tx": curr_tx})
+                    # Accumulate per-connection traffic totals in one write
+                    new_total_rx = uc.get("traffic_total_rx", 0) + rx_delta
+                    new_total_tx = uc.get("traffic_total_tx", 0) + tx_delta
+                    new_total = uc.get("traffic_total", 0) + rx_delta + tx_delta
+                    db.update_connection(
+                        uc_id,
+                        {
+                            "last_rx": curr_rx,
+                            "last_tx": curr_tx,
+                            "traffic_total_rx": new_total_rx,
+                            "traffic_total_tx": new_total_tx,
+                            "traffic_total": new_total,
+                        },
+                    )
                     uid = uc["user_id"]
                     if uid in users_map:
                         u = users_map[uid]
