@@ -187,6 +187,9 @@ async def api_my_add_connection(
                 "client_id": result["client_id"],
                 "name": req.name,
                 "created_at": now.isoformat(),
+                "traffic_total_rx": 0,
+                "traffic_total_tx": 0,
+                "traffic_total": 0,
             }
             db.create_connection(new_conn)
             db.log_connection_creation(user["id"])
