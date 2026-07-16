@@ -343,11 +343,14 @@
         // Protocol changed - any future protocol-specific logic goes here
     });
 
+    const sortTrafficLabel = "{{ _('sort_by_traffic') }}";
+    const sortDateLabel = "{{ _('sort_by_date') }}";
+
     let sortBy = 'traffic';
 
     function toggleSortOrder() {
         sortBy = sortBy === 'traffic' ? 'date' : 'traffic';
-        const label = sortBy === 'traffic' ? 'Sort by traffic' : 'Sort by date';
+        const label = sortBy === 'traffic' ? sortTrafficLabel : sortDateLabel;
         document.getElementById('sortToggle').textContent = '📊 ' + label;
         const connections = currentConnections || [];
         renderConnectionsList(connections);
