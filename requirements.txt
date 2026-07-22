@@ -51,5 +51,5 @@ urllib3==2.7.0
 uvicorn==0.51.0
 watchfiles==1.2.0
 websockets==16.0
-slowapi==0.1.9
+slowapi==0.1.10
 Werkzeug==3.1.8
