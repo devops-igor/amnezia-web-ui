@@ -187,6 +187,7 @@
   "password_label": "Mot de passe",
   "period_all_time": "Tout le temps",
   "period_label": "Période",
+  "period_last_month": "Mois dernier",
   "period_monthly": "Mensuel",
   "port": "Port",
   "port_default_hint": "Port par défaut : 55424. Assurez-vous qu'il est libre.",

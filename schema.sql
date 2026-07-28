@@ -91,5 +91,18 @@ CREATE TABLE IF NOT EXISTS known_hosts (
     FOREIGN KEY (server_id) REFERENCES servers(id)
 );
 
+CREATE TABLE IF NOT EXISTS leaderboard_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    year INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    username TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    download INTEGER NOT NULL,
+    upload INTEGER NOT NULL,
+    total INTEGER NOT NULL,
+    snapshot_at TEXT NOT NULL,
+    UNIQUE(year, month, username)
+);
+
 -- Schema version is tracked in the settings table with key='schema_version'
 -- See Database.SCHEMA_VERSION and Database.get/set_schema_version()

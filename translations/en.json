@@ -211,6 +211,7 @@
   "passwords_dont_match": "New passwords do not match",
   "period_all_time": "All Time",
   "period_label": "Period",
+  "period_last_month": "Last Month",
   "period_monthly": "Monthly",
   "port": "Port",
   "port_default_hint": "Default port: 55424. Make sure it's not busy",

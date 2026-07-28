@@ -211,6 +211,7 @@
   "passwords_dont_match": "Новые пароли не совпадают",
   "period_all_time": "За всё время",
   "period_label": "Период",
+  "period_last_month": "За прошлый месяц",
   "period_monthly": "За месяц",
   "port": "Порт",
   "port_default_hint": "Порт по умолчанию: 55424. Убедитесь, что он не занят",
