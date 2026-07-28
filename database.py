@@ -590,6 +590,78 @@ class Database:
             )
         return entries
 
+    def save_leaderboard_snapshot(self, year: int, month: int) -> int:
+        """Save the current monthly leaderboard data as a snapshot.
+
+        Reads the current monthly leaderboard (same query as get_leaderboard("monthly"))
+        and inserts each entry into the leaderboard_snapshots table.
+        Uses INSERT OR IGNORE for idempotency — if a snapshot for this year/month/user
+        already exists, it is silently skipped.
+
+        Args:
+            year: The calendar year of the snapshot (e.g. 2026).
+            month: The calendar month of the snapshot (1-12).
+
+        Returns:
+            The number of entries saved.
+        """
+        entries = self.get_leaderboard("monthly")
+        if not entries:
+            return 0
+        snapshot_at = datetime.now().isoformat()
+        saved = 0
+        with self._connection() as conn:
+            for entry in entries:
+                cur = conn.execute(
+                    """INSERT OR IGNORE INTO leaderboard_snapshots
+                       (year, month, username, rank, download, upload, total, snapshot_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        year,
+                        month,
+                        entry["username"],
+                        entry["rank"],
+                        entry["download"],
+                        entry["upload"],
+                        entry["total"],
+                        snapshot_at,
+                    ),
+                )
+                saved += cur.rowcount
+            conn.commit()
+        return saved
+
+    def get_leaderboard_snapshot(self, year: int, month: int) -> List[Dict[str, Any]]:
+        """Retrieve a previously saved leaderboard snapshot.
+
+        Args:
+            year: The calendar year of the snapshot.
+            month: The calendar month of the snapshot (1-12).
+
+        Returns:
+            List of dicts with rank, username, download, upload, total.
+            Returns an empty list if no snapshot exists for the given year/month.
+            Results are sorted by rank ASC (already stored with rank).
+        """
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT username, download, upload, total, rank
+                   FROM leaderboard_snapshots
+                   WHERE year = ? AND month = ?
+                   ORDER BY rank ASC""",
+                (year, month),
+            ).fetchall()
+        return [
+            {
+                "rank": row["rank"],
+                "username": row["username"],
+                "download": row["download"],
+                "upload": row["upload"],
+                "total": row["total"],
+            }
+            for row in rows
+        ]
+
     def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Return a user by id, or None."""
         with self._connection() as conn:

@@ -652,3 +652,196 @@ class TestMonthlyLabel:
                 assert ">April 2026<" not in html or current_month_label not in html
             finally:
                 app.app.dependency_overrides.clear()
+
+
+# ---------- Leaderboard Snapshot Tests ----------
+
+
+class TestSaveLeaderboardSnapshot:
+    """Test Database.save_leaderboard_snapshot()."""
+
+    def test_save_snapshot(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
+        saved = temp_db.save_leaderboard_snapshot(2026, 6)
+        assert saved == 2
+
+    def test_save_snapshot_idempotent(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        temp_db.save_leaderboard_snapshot(2026, 6)
+        # Second save should not add duplicates (INSERT OR IGNORE)
+        saved2 = temp_db.save_leaderboard_snapshot(2026, 6)
+        assert saved2 == 0
+        # Still only 1 entry in snapshot
+        rows = temp_db.get_leaderboard_snapshot(2026, 6)
+        assert len(rows) == 1
+
+    def test_save_snapshot_empty_no_users(self, temp_db):
+        saved = temp_db.save_leaderboard_snapshot(2026, 6)
+        assert saved == 0
+
+    def test_save_snapshot_excludes_zero_traffic(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=0, monthly_tx=0)
+        _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
+        saved = temp_db.save_leaderboard_snapshot(2026, 6)
+        assert saved == 1  # only bob
+
+    def test_save_snapshot_disabled_users_excluded(self, temp_db):
+        _make_user(temp_db, "active", monthly_rx=200, monthly_tx=100, enabled=True)
+        _make_user(temp_db, "disabled", monthly_rx=300, monthly_tx=150, enabled=False)
+        saved = temp_db.save_leaderboard_snapshot(2026, 6)
+        assert saved == 1
+
+
+class TestGetLeaderboardSnapshot:
+    """Test Database.get_leaderboard_snapshot()."""
+
+    def test_get_snapshot_returns_same_format_as_leaderboard(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
+        temp_db.save_leaderboard_snapshot(2026, 6)
+        rows = temp_db.get_leaderboard_snapshot(2026, 6)
+        assert len(rows) == 2
+        assert all(k in rows[0] for k in ("rank", "username", "download", "upload", "total"))
+
+    def test_get_snapshot_not_found(self, temp_db):
+        rows = temp_db.get_leaderboard_snapshot(2026, 99)
+        assert rows == []
+
+    def test_get_snapshot_wrong_year(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        temp_db.save_leaderboard_snapshot(2026, 6)
+        rows = temp_db.get_leaderboard_snapshot(2025, 6)
+        assert rows == []
+
+    def test_get_snapshot_sorted_by_rank(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        _make_user(temp_db, "bob", monthly_rx=2000, monthly_tx=1000)
+        _make_user(temp_db, "charlie", monthly_rx=500, monthly_tx=250)
+        temp_db.save_leaderboard_snapshot(2026, 6)
+        rows = temp_db.get_leaderboard_snapshot(2026, 6)
+        assert rows[0]["username"] == "bob"
+        assert rows[1]["username"] == "charlie"
+        assert rows[2]["username"] == "alice"
+
+
+class TestGetLeaderboardEntriesLastMonth:
+    """Test get_leaderboard_entries('last-month')."""
+
+    def test_helper_last_month_delegates_to_snapshot(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
+        # Save a snapshot for last month (assuming current month != January)
+        now = datetime.now()
+        last_month = 12 if now.month == 1 else now.month - 1
+        last_year = now.year if now.month > 1 else now.year - 1
+        temp_db.save_leaderboard_snapshot(last_year, last_month)
+        with patch("config.get_db", return_value=temp_db):
+            entries = get_leaderboard_entries("last-month")
+        assert len(entries) == 2
+
+    def test_helper_last_month_january_wraps_to_december(self, temp_db):
+        _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        # December 2025 = "last month" when current month is January 2026
+        temp_db.save_leaderboard_snapshot(2025, 12)
+        with patch("config.get_db", return_value=temp_db):
+            with patch("app.utils.helpers.datetime") as mock_dt:
+                mock_dt.now.return_value = datetime(2026, 1, 15)
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+                entries = get_leaderboard_entries("last-month")
+        assert len(entries) == 1
+        assert entries[0]["username"] == "alice"
+
+    def test_helper_last_month_empty_snapshot(self, temp_db):
+        with patch("config.get_db", return_value=temp_db):
+            entries = get_leaderboard_entries("last-month")
+        assert entries == []
+
+
+class TestApiLeaderboardLastMonth:
+    """Test GET /api/leaderboard?period=last-month."""
+
+    def test_last_month_period_accepted(self, temp_db):
+        user = _make_user(temp_db, "testuser")
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/api/leaderboard?period=last-month")
+                assert response.status_code == 200
+                body = response.json()
+                assert body["period"] == "last-month"
+            finally:
+                app.app.dependency_overrides.clear()
+
+    def test_last_month_returns_snapshot_data(self, temp_db):
+        alice = _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
+        _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
+        now = datetime.now()
+        last_month = 12 if now.month == 1 else now.month - 1
+        last_year = now.year if now.month > 1 else now.year - 1
+        temp_db.save_leaderboard_snapshot(last_year, last_month)
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: alice
+            try:
+                response = client.get("/api/leaderboard?period=last-month")
+                assert response.status_code == 200
+                body = response.json()
+                assert len(body["entries"]) == 2
+            finally:
+                app.app.dependency_overrides.clear()
+
+    def test_last_month_label_format(self, temp_db):
+        user = _make_user(temp_db, "testuser")
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/api/leaderboard?period=last-month")
+                body = response.json()
+                assert body["monthly_label"] is not None
+                parts = body["monthly_label"].split(" ")
+                assert len(parts) == 2
+            finally:
+                app.app.dependency_overrides.clear()
+
+    def test_last_month_empty_snapshot(self, temp_db):
+        user = _make_user(temp_db, "testuser")
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/api/leaderboard?period=last-month")
+                body = response.json()
+                assert body["entries"] == []
+            finally:
+                app.app.dependency_overrides.clear()
+
+
+class TestPageLeaderboardLastMonth:
+    """Test GET /leaderboard?period=last-month."""
+
+    def test_page_last_month_returns_200(self, temp_db):
+        user = _make_user(temp_db, "testuser")
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=last-month")
+                assert response.status_code == 200
+            finally:
+                app.app.dependency_overrides.clear()
+
+    def test_page_last_month_shows_label(self, temp_db):
+        user = _make_user(temp_db, "testuser")
+        client = TestClient(app.app)
+        with patch("config.get_db", return_value=temp_db):
+            app.app.dependency_overrides[get_current_user] = lambda: user
+            try:
+                response = client.get("/leaderboard?period=last-month")
+                html = response.text
+                # Should contain the monthly-label span
+                assert 'id="monthly-label"' in html
+            finally:
+                app.app.dependency_overrides.clear()
