@@ -187,6 +187,7 @@
   "password_label": "رمز عبور",
   "period_all_time": "همه زمان‌ها",
   "period_label": "دوره",
+  "period_last_month": "ماه گذشته",
   "period_monthly": "ماهانه",
   "port": "پورت",
   "port_default_hint": "پورت پیش‌فرض: 55424. مطمئن شوید این پورت آزاد است.",
