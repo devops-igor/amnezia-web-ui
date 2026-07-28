@@ -561,6 +561,8 @@ class TestMonthlyRolloverUnconditional:
             "monthly_reset_at": last_month.isoformat(),
         }
         mock_db.get_all_users.return_value = [mock_user]
+        # save_leaderboard_snapshot must return an int, not a MagicMock
+        mock_db.save_leaderboard_snapshot.return_value = 0
 
         with (
             patch("app.services.background_orchestrator.get_db", return_value=mock_db),
@@ -615,6 +617,8 @@ class TestMonthlyRolloverUnconditional:
             "monthly_reset_at": "",  # empty: needs initialization
         }
         mock_db.get_all_users.return_value = [mock_user]
+        # save_leaderboard_snapshot must return an int, not a MagicMock
+        mock_db.save_leaderboard_snapshot.return_value = 0
 
         with (
             patch("app.services.background_orchestrator.get_db", return_value=mock_db),
