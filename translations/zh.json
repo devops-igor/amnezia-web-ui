@@ -187,6 +187,7 @@
   "password_label": "密码",
   "period_all_time": "全部时间",
   "period_label": "周期",
+  "period_last_month": "上个月",
   "period_monthly": "每月",
   "port": "端口",
   "port_default_hint": "默认端口: 55424。请确保端口未被占用。",

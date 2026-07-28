@@ -12,6 +12,7 @@ import ipaddress
 import logging
 import os
 import re
+from datetime import datetime
 
 import bcrypt
 import credential_crypto
@@ -166,15 +167,21 @@ def get_leaderboard_entries(period: str) -> list[dict]:
     """Aggregate traffic data for the leaderboard.
 
     Args:
-        period: "all-time" or "monthly"
+        period: "all-time", "monthly", or "last-month"
 
     Returns:
         list of dicts with rank, username, download, upload, total.
         Users with zero total traffic or disabled accounts are excluded.
+        For "last-month", returns data from the leaderboard_snapshots table.
     """
     from config import get_db
 
     db = get_db()
+    if period == "last-month":
+        now = datetime.now()
+        year = now.year if now.month > 1 else now.year - 1
+        month = now.month - 1 if now.month > 1 else 12
+        return db.get_leaderboard_snapshot(year, month)
     return db.get_leaderboard(period)
 
 
