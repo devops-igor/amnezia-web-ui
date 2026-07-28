@@ -6,7 +6,7 @@ CacheControl==0.14.4
 certifi==2026.6.17
 cffi==2.0.0
 charset-normalizer==3.4.7
-click==8.3.3
+click==8.4.2
 cryptography==48.0.1
 defusedxml==0.7.1
 fastapi==0.136.3
