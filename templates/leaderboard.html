@@ -18,6 +18,8 @@
                 onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
             <button class="btn btn-sm" id="period-month"
                 onclick="switchPeriod('monthly')">{{ _('period_monthly') }}</button>
+            <button class="btn btn-sm" id="period-last"
+                onclick="switchPeriod('last-month')">{{ _('period_last_month') }}</button>
             <span id="monthly-label"
                 style="color: var(--text-muted); font-size: 0.85rem;{% if not monthly_label %} display: none;{% endif %}">{{ monthly_label if monthly_label else '' }}</span>
         </div>
@@ -91,12 +93,20 @@
 <script>
 let currentPeriod = '{{ period }}';
 
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
 function updatePeriodButtons() {
     const allBtn = document.getElementById('period-all');
     const monthBtn = document.getElementById('period-month');
-    if (allBtn && monthBtn) {
+    const lastBtn = document.getElementById('period-last');
+    if (allBtn && monthBtn && lastBtn) {
         allBtn.className = 'btn btn-sm ' + (currentPeriod === 'all-time' ? 'btn-primary' : 'btn-secondary');
         monthBtn.className = 'btn btn-sm ' + (currentPeriod === 'monthly' ? 'btn-primary' : 'btn-secondary');
+        lastBtn.className = 'btn btn-sm ' + (currentPeriod === 'last-month' ? 'btn-primary' : 'btn-secondary');
     }
 }
 
@@ -133,14 +143,14 @@ async function switchPeriod(period) {
             if (emptyState) emptyState.style.display = 'none';
 
             let html = '';
-            const currentUsername = '{{ current_user.username }}';
+            const currentUsername = '{{ current_user.username | e }}';
             const youLabel = '{{ _("you_label") or "you" }}';
             for (const entry of data.entries) {
                 const isCurrentUser = entry.username === currentUsername;
                 const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
                 html += '<tr class="' + (isCurrentUser ? 'current-user' : '') + '">';
                 html += '<td class="rank-cell">' + medal + '</td>';
-                html += '<td class="username-cell">' + entry.username + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">' + youLabel + '</span>' : '') + '</td>';
+                html += '<td class="username-cell">' + escapeHtml(entry.username) + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">' + youLabel + '</span>' : '') + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.download) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.upload) + '</td>';
                 html += '<td class="traffic-cell">' + formatBytes(entry.total) + '</td>';
