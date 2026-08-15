@@ -503,3 +503,203 @@ class TestApiAddConnectionTelemtFailure:
             mock_db.create_connection.assert_called_once()
         finally:
             app.app.dependency_overrides.clear()
+
+
+class TestApiDeleteConnection:
+    """Tests for /api/my/connections/{connection_id}/delete endpoint"""
+
+    def setup_method(self):
+        """Set up test client and mock data"""
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
+
+        # Insert test users
+        self.db.create_user(
+            {
+                "id": "test-user-1",
+                "username": "testuser",
+                "password_hash": "hashed_password",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        self.db.create_user(
+            {
+                "id": "test-user-2",
+                "username": "testuser2",
+                "password_hash": "hashed_password2",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+
+        # Insert a test server
+        self.db.create_server(
+            {
+                "name": "Test Server",
+                "host": "test.example.com",
+                "protocols": {"awg": {"installed": True, "port": "55424"}},
+            }
+        )
+        self.server_id = self.db.get_all_servers()[0]["id"]
+
+        # Insert a connection for user-1
+        self.db.create_connection(
+            {
+                "id": "conn-1",
+                "user_id": "test-user-1",
+                "server_id": self.server_id,
+                "protocol": "awg",
+                "client_id": "client-1",
+                "name": "My Connection",
+                "created_at": "2024-01-01T00:00:00",
+            }
+        )
+
+    def teardown_method(self):
+        """Clean up temporary database."""
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
+    @patch("app.routers.connections.get_ssh")
+    @patch("app.routers.connections.get_protocol_manager")
+    @patch("app.routers.connections.get_db")
+    def test_delete_connection_success(self, mock_get_db, mock_get_protocol_manager, mock_get_ssh):
+        """User deletes own connection: remote remove_client called, local record deleted."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            mock_ssh = MagicMock()
+            mock_get_ssh.return_value = mock_ssh
+            mock_manager = MagicMock()
+            mock_manager.remove_client.return_value = True
+            mock_get_protocol_manager.return_value = mock_manager
+
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/conn-1/delete",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+
+            # Verify remove_client was called on remote
+            mock_manager.remove_client.assert_called_once_with("awg", "client-1")
+            # Verify local record was deleted
+            assert self.db.get_connection_by_id("conn-1") is None
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.connections.get_db")
+    def test_delete_connection_not_owner(self, mock_get_db):
+        """User tries to delete another user's connection -> 404."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-2")
+        try:
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/conn-1/delete",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 404
+            # Original connection must NOT be deleted
+            assert self.db.get_connection_by_id("conn-1") is not None
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.connections.get_db")
+    def test_delete_connection_not_found(self, mock_get_db):
+        """Non-existent connection_id -> 404."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/nonexistent-conn/delete",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 404
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.connections.get_db")
+    def test_delete_connection_server_not_found(self, mock_get_db):
+        """Connection exists but its server was removed -> 404."""
+        import app
+
+        # Mock get_server_by_id to return None while connection still exists
+        mock_db = MagicMock()
+        mock_db.get_connection_by_id.return_value = {
+            "id": "conn-1",
+            "user_id": "test-user-1",
+            "server_id": self.server_id,
+            "protocol": "awg",
+            "client_id": "client-1",
+            "name": "My Connection",
+        }
+        mock_db.get_server_by_id.return_value = None  # Server not found
+        mock_get_db.return_value = mock_db
+
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/conn-1/delete",
+                headers={"Authorization": "Bearer test-token"},
+            )
+            assert response.status_code == 404
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.connections.get_ssh")
+    @patch("app.routers.connections.get_protocol_manager")
+    @patch("app.routers.connections.get_db")
+    def test_delete_connection_remote_failure(
+        self, mock_get_db, mock_get_protocol_manager, mock_get_ssh
+    ):
+        """SSH/manager throws -> 500, local record preserved."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("test-user-1")
+        try:
+            mock_ssh = MagicMock()
+            mock_get_ssh.return_value = mock_ssh
+            mock_manager = MagicMock()
+            mock_manager.remove_client.side_effect = Exception("SSH error")
+            mock_get_protocol_manager.return_value = mock_manager
+
+            client = create_csrf_client()
+            response = client.post(
+                "/api/my/connections/conn-1/delete",
+                headers={"Authorization": "Bearer test-token"},
+            )
+
+            assert response.status_code == 500
+            # Local record must be preserved (not deleted on remote failure)
+            assert self.db.get_connection_by_id("conn-1") is not None
+        finally:
+            app.app.dependency_overrides.clear()
+
+    def test_delete_connection_unauthenticated(self):
+        """No auth -> 401/403."""
+        client = create_csrf_client()
+        response = client.post(
+            "/api/my/connections/conn-1/delete",
+        )
+        assert response.status_code in (401, 403)
