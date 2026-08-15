@@ -1,4 +1,4 @@
-"""Tests for SSH host key fingerprint confirmation flow — Issue #128.
+"""Tests for SSH host key fingerprint confirmation flow â€” Issue #128.
 
 Covers:
 - api_add_server returns pending_fingerprint_confirmation with fingerprint
@@ -13,8 +13,8 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from app.managers import SSHHostKeyError
 from tests.conftest import create_csrf_client
 
@@ -71,10 +71,10 @@ class TestSshFingerprintConfirmation:
         app.app.dependency_overrides.clear()
 
     def _add_and_confirm(self, client, host="10.0.0.1", name="Test Server"):
-        """Full two-phase flow: add → get fingerprint → confirm → return server_id."""
+        """Full two-phase flow: add â†’ get fingerprint â†’ confirm â†’ return server_id."""
         from unittest.mock import patch
 
-        # Phase 1 — wire instance mock, not just the class mock
+        # Phase 1 â€” wire instance mock, not just the class mock
         mock_instance = MagicMock()
         mock_instance.connect.return_value = None
         mock_instance.test_connection.return_value = "Ubuntu 22.04"
@@ -241,7 +241,7 @@ class TestSshFingerprintConfirmation:
         try:
             server_id = self._add_and_confirm(client, "10.0.0.13", "RejectPolicy Server")
 
-            # Now test get_ssh with db — it should pass database and server_id
+            # Now test get_ssh with db â€” it should pass database and server_id
             from app.utils.helpers import get_ssh
 
             server = self.db.get_server_by_id(server_id)

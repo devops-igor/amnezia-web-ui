@@ -1,9 +1,9 @@
 """Tests for end-to-end API integration flows.
 
 Covers multi-step authenticated workflows that span multiple API endpoints:
-- Login → access protected resources → logout → access denied
-- Login → create user → verify user in listing
-- Login → add server → verify server in listing
+- Login â†’ access protected resources â†’ logout â†’ access denied
+- Login â†’ create user â†’ verify user in listing
+- Login â†’ add server â†’ verify server in listing
 - Password change required enforcement
 - Session invalidation after logout
 
@@ -16,8 +16,8 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-secret-key-for-csrf-tests-16bytes!"
@@ -54,18 +54,18 @@ class TestApiIntegration:
         os.unlink(self.tmp_db_path)
 
     # ------------------------------------------------------------------
-    # Test 1: Login → protected access → logout → access denied
+    # Test 1: Login â†’ protected access â†’ logout â†’ access denied
     # ------------------------------------------------------------------
 
     @patch("app.routers.auth.get_db")
     def test_login_logout_flow(self, mock_auth_db):
-        """Full login → access → logout → access denied cycle."""
+        """Full login â†’ access â†’ logout â†’ access denied cycle."""
         mock_auth_db.return_value = self.db
         import app  # noqa: F401
 
         client = create_csrf_client()
 
-        # Login — CSRF is auto-injected by create_csrf_client
+        # Login â€” CSRF is auto-injected by create_csrf_client
         login_resp = client.post(
             "/api/auth/login",
             json={"username": "admin", "password": "AdminPass123"},
@@ -93,12 +93,12 @@ class TestApiIntegration:
         # Logout
         client.get("/logout")
 
-        # Try the protected endpoint again — should fail
+        # Try the protected endpoint again â€” should fail
         response = client.get("/api/my/connections")
         assert response.status_code == 401, f"Expected 401 after logout, got {response.status_code}"
 
     # ------------------------------------------------------------------
-    # Test 2: Login → create user → verify in user list
+    # Test 2: Login â†’ create user â†’ verify in user list
     # ------------------------------------------------------------------
 
     @patch("app.routers.auth.get_db")
@@ -149,7 +149,7 @@ class TestApiIntegration:
             app.app.dependency_overrides.clear()
 
     # ------------------------------------------------------------------
-    # Test 3: Login → add server → verify server in listing
+    # Test 3: Login â†’ add server â†’ verify server in listing
     # ------------------------------------------------------------------
 
     @patch("app.routers.auth.get_db")
@@ -189,7 +189,7 @@ class TestApiIntegration:
 
         app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("admin-1")
         try:
-            # Phase 1: add server — now returns pending_fingerprint_confirmation
+            # Phase 1: add server â€” now returns pending_fingerprint_confirmation
             with patch("app.routers.servers.SSHManager", return_value=mock_ssh):
                 add_resp = client.post(
                     "/api/servers/add",

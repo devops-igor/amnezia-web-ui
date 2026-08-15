@@ -17,7 +17,7 @@ import threading
 
 import pytest
 
-from database import Database
+from app.core.database import Database
 
 # ----------------------------------------------------------------
 # Fixtures
@@ -130,7 +130,7 @@ class TestConnectionAcquisition:
         # Pool stays at POOL_SIZE (extra was closed, not added)
         assert db_no_secret._pool.qsize() == Database.POOL_SIZE
 
-        # Clean up — drain pool
+        # Clean up â€” drain pool
         _drain_pool(db_no_secret)
 
 

@@ -5,7 +5,7 @@ See: tasks/batch-2c-critical-bugs
 
 import tempfile
 import os
-from database import Database
+from app.core.database import Database
 
 
 class TestDeleteServer:

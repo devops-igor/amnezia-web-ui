@@ -7,8 +7,8 @@ from unittest.mock import MagicMock, patch
 import paramiko
 
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-clear-server-secret-key-12345"

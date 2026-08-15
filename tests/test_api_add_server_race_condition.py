@@ -1,4 +1,4 @@
-"""Tests for api_add_server race condition fix — Issue #130.
+"""Tests for api_add_server race condition fix â€” Issue #130.
 
 Also updated for the two-phase fingerprint confirmation flow (Issue #128).
 Verifies that api_add_server returns the fingerprint for admin confirmation
@@ -10,8 +10,8 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-integration-server-key"

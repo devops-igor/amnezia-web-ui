@@ -19,9 +19,9 @@ from app.utils.helpers import (
 )
 from app.utils.rate_limiter import limiter
 from app.utils.templates import tpl
-from config import get_db
-from dependencies import require_admin
-from schemas import ShareAuthRequest, ShareSetupRequest, normalize_protocol
+from app.core.config import get_db
+from app.core.dependencies import require_admin
+from app.models.schemas import ShareAuthRequest, ShareSetupRequest, normalize_protocol
 
 logger = logging.getLogger(__name__)
 

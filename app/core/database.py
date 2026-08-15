@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-import credential_crypto
+from app.core import security
 
 logger = logging.getLogger(__name__)
 
@@ -113,9 +113,9 @@ class Database:
         self._pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=self.POOL_SIZE)
         self._init_db()
         # Initialise Fernet encryption for credentials at DB init time.
-        # The secret_key must be provided — typically the app's SECRET_KEY.
+        # The secret_key must be provided Ã¢â‚¬â€ typically the app's SECRET_KEY.
         if secret_key:
-            credential_crypto._init_fernet(secret_key)
+            security._init_fernet(secret_key)
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a connection from the pool, creating a new one if empty."""
@@ -217,7 +217,7 @@ class Database:
         # Migration: encrypt existing plaintext ssh_pass / ssh_key values
         if self.get_migration_flag("credentials_encrypted") is None:
             logger.info("Migration: encrypting plaintext ssh_pass/ssh_key values")
-            credential_crypto.encrypt_existing_plaintext(self.db_path, self._secret_key)
+            security.encrypt_existing_plaintext(self.db_path, self._secret_key)
             self.set_migration_flag("credentials_encrypted", "1")
             logger.info("Migration: credentials_encrypted complete")
 
@@ -236,7 +236,7 @@ class Database:
                 dirty = False
                 for proto_key in protocols:
                     if isinstance(protocols[proto_key], dict):
-                        for field in credential_crypto.SENSITIVE_PROTOCOL_FIELDS:
+                        for field in security.SENSITIVE_PROTOCOL_FIELDS:
                             if field in protocols[proto_key]:
                                 del protocols[proto_key][field]
                                 dirty = True
@@ -261,15 +261,15 @@ class Database:
             ssl = json.loads(ssl_row["value"]) if ssl_row else {}
             if isinstance(ssl, dict):
                 changed = False
-                if ssl.get("key_text") and not credential_crypto._looks_like_fernet_token(
+                if ssl.get("key_text") and not security._looks_like_fernet_token(
                     ssl["key_text"]
                 ):
-                    ssl["key_text"] = credential_crypto.encrypt_credential(ssl["key_text"])
+                    ssl["key_text"] = security.encrypt_credential(ssl["key_text"])
                     changed = True
-                if ssl.get("cert_text") and not credential_crypto._looks_like_fernet_token(
+                if ssl.get("cert_text") and not security._looks_like_fernet_token(
                     ssl["cert_text"]
                 ):
-                    ssl["cert_text"] = credential_crypto.encrypt_credential(ssl["cert_text"])
+                    ssl["cert_text"] = security.encrypt_credential(ssl["cert_text"])
                     changed = True
                 if changed:
                     conn.execute(
@@ -390,12 +390,12 @@ class Database:
         """
         protocols_raw = server.get("protocols", {})
         if isinstance(protocols_raw, dict):
-            protocols_raw = credential_crypto.strip_sensitive_protocol_fields(protocols_raw)
+            protocols_raw = security.strip_sensitive_protocol_fields(protocols_raw)
         protocols_json = json.dumps(protocols_raw)
         raw_pass = server.get("password") or server.get("ssh_pass", "")
         raw_key = server.get("private_key") or server.get("ssh_key", "")
-        encrypted_pass = credential_crypto.encrypt_credential(raw_pass)
-        encrypted_key = credential_crypto.encrypt_credential(raw_key)
+        encrypted_pass = security.encrypt_credential(raw_pass)
+        encrypted_key = security.encrypt_credential(raw_key)
         cur = conn.execute(
             """INSERT INTO servers (name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
                protocols, created_at)
@@ -455,7 +455,7 @@ class Database:
                     value = json.dumps(value)
                 # Encrypt credential fields before storing
                 if col in ("ssh_pass", "ssh_key"):
-                    value = credential_crypto.encrypt_credential(str(value) if value else "")
+                    value = security.encrypt_credential(str(value) if value else "")
                 set_clauses.append(f"{col} = ?")
                 values.append(value)
             if not set_clauses:
@@ -468,7 +468,7 @@ class Database:
         """Update just the protocols JSON blob for a server by db id."""
         # Strip sensitive fields before storing (defense-in-depth)
         if isinstance(protocols, dict):
-            protocols = credential_crypto.strip_sensitive_protocol_fields(protocols)
+            protocols = security.strip_sensitive_protocol_fields(protocols)
         with self._connection() as conn:
             conn.execute(
                 "UPDATE servers SET protocols = ? WHERE id = ?",
@@ -524,13 +524,13 @@ class Database:
         # Map DB column names back to original JSON field names
         d["username"] = d.pop("ssh_user", "")
         # Decrypt credentials (transparent to callers like SSHManager)
-        d["password"] = credential_crypto.decrypt_credential(d.pop("ssh_pass", ""))
-        d["private_key"] = credential_crypto.decrypt_credential(d.pop("ssh_key", ""))
+        d["password"] = security.decrypt_credential(d.pop("ssh_pass", ""))
+        d["private_key"] = security.decrypt_credential(d.pop("ssh_key", ""))
         if "protocols" in d and isinstance(d["protocols"], str):
             d["protocols"] = json.loads(d["protocols"])
         # Strip sensitive protocol fields (defense-in-depth)
         if isinstance(d.get("protocols"), dict):
-            d["protocols"] = credential_crypto.strip_sensitive_protocol_fields(d["protocols"])
+            d["protocols"] = security.strip_sensitive_protocol_fields(d["protocols"])
         return d
 
     def _server_rows_to_dicts(self, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
@@ -595,7 +595,7 @@ class Database:
 
         Reads the current monthly leaderboard (same query as get_leaderboard("monthly"))
         and inserts each entry into the leaderboard_snapshots table.
-        Uses INSERT OR IGNORE for idempotency — if a snapshot for this year/month/user
+        Uses INSERT OR IGNORE for idempotency Ã¢â‚¬â€ if a snapshot for this year/month/user
         already exists, it is silently skipped.
 
         Args:
@@ -1010,9 +1010,9 @@ class Database:
         # Decrypt SSL key_text/cert_text transparently
         if key == "ssl" and isinstance(result, dict):
             if result.get("key_text"):
-                result["key_text"] = credential_crypto.decrypt_credential_safe(result["key_text"])
+                result["key_text"] = security.decrypt_credential_safe(result["key_text"])
             if result.get("cert_text"):
-                result["cert_text"] = credential_crypto.decrypt_credential_safe(result["cert_text"])
+                result["cert_text"] = security.decrypt_credential_safe(result["cert_text"])
         return result
 
     def get_all_settings(self) -> Dict[str, Any]:
@@ -1029,9 +1029,9 @@ class Database:
         ssl = result.get("ssl")
         if isinstance(ssl, dict):
             if ssl.get("key_text"):
-                ssl["key_text"] = credential_crypto.decrypt_credential_safe(ssl["key_text"])
+                ssl["key_text"] = security.decrypt_credential_safe(ssl["key_text"])
             if ssl.get("cert_text"):
-                ssl["cert_text"] = credential_crypto.decrypt_credential_safe(ssl["cert_text"])
+                ssl["cert_text"] = security.decrypt_credential_safe(ssl["cert_text"])
         return result
 
     def update_setting(self, key: str, value: Any) -> None:
@@ -1043,9 +1043,9 @@ class Database:
         if key == "ssl" and isinstance(value, dict):
             value = dict(value)  # don't mutate caller's dict
             if value.get("key_text"):
-                value["key_text"] = credential_crypto.encrypt_credential(value["key_text"])
+                value["key_text"] = security.encrypt_credential(value["key_text"])
             if value.get("cert_text"):
-                value["cert_text"] = credential_crypto.encrypt_credential(value["cert_text"])
+                value["cert_text"] = security.encrypt_credential(value["cert_text"])
         with self._connection() as conn:
             if isinstance(value, (dict, list)):
                 value = json.dumps(value)
@@ -1066,9 +1066,9 @@ class Database:
                 if key == "ssl" and isinstance(value, dict):
                     value = dict(value)
                     if value.get("key_text"):
-                        value["key_text"] = credential_crypto.encrypt_credential(value["key_text"])
+                        value["key_text"] = security.encrypt_credential(value["key_text"])
                     if value.get("cert_text"):
-                        value["cert_text"] = credential_crypto.encrypt_credential(
+                        value["cert_text"] = security.encrypt_credential(
                             value["cert_text"]
                         )
                 if isinstance(value, (dict, list)):
@@ -1215,11 +1215,11 @@ class Database:
                     if key == "ssl" and isinstance(value, dict):
                         value = dict(value)
                         if value.get("key_text"):
-                            value["key_text"] = credential_crypto.encrypt_credential(
+                            value["key_text"] = security.encrypt_credential(
                                 value["key_text"]
                             )
                         if value.get("cert_text"):
-                            value["cert_text"] = credential_crypto.encrypt_credential(
+                            value["cert_text"] = security.encrypt_credential(
                                 value["cert_text"]
                             )
                     if isinstance(value, (dict, list)):

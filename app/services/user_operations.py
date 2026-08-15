@@ -1,4 +1,4 @@
-"""User server operations — SSH-based delete, toggle, and mass operations."""
+"""User server operations â€” SSH-based delete, toggle, and mass operations."""
 
 import asyncio
 import logging
@@ -6,9 +6,9 @@ import uuid
 from datetime import datetime
 from typing import List
 
-from config import get_db
+from app.core.config import get_db
 from app.utils.helpers import get_ssh, get_protocol_manager
-from schemas import normalize_protocol
+from app.models.schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ async def perform_delete_user(user_id: str):
     """Delete a user and their connections from all servers.
 
     Groups connections by server_id so that only one SSH session is opened
-    per unique server — not one per connection (fixes Issue #132).
+    per unique server â€” not one per connection (fixes Issue #132).
     """
     db = get_db()
     user = db.get_user(user_id)

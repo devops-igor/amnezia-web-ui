@@ -6,7 +6,7 @@ See: tasks/sql-injection-column-names/spec.md
 import pytest
 import tempfile
 import os
-from database import Database
+from app.core.database import Database
 
 
 class TestUpdateServerSqlInjection:

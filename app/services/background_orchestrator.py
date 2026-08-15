@@ -1,4 +1,4 @@
-"""BackgroundTaskOrchestrator — orchestrates periodic background operations with error isolation."""
+"""BackgroundTaskOrchestrator â€” orchestrates periodic background operations with error isolation."""
 
 import asyncio
 import logging
@@ -8,12 +8,12 @@ from typing import Dict
 from typing import List
 from typing import Optional
 
-from config import get_db
+from app.core.config import get_db
 from app.services.background import perform_mass_operations
 from app.services.background import sync_users_with_remnawave
 from app.utils.helpers import get_protocol_manager
 from app.utils.helpers import get_ssh
-from schemas import normalize_protocol
+from app.models.schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 

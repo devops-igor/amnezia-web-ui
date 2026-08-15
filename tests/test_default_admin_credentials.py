@@ -17,7 +17,7 @@ import tempfile
 
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 
 # ======================== Database tests ========================
 
@@ -270,7 +270,7 @@ class TestNoHardcodedAdminPassword:
         lifespan_body = lifespan_match.group(1)
         assert '"password_change_required": True' not in lifespan_body, (
             "password_change_required=True should no longer appear in lifespan "
-            "— the setup wizard handles this instead"
+            "â€” the setup wizard handles this instead"
         )
 
     def test_no_password_printed_to_stdout(self):
@@ -278,7 +278,7 @@ class TestNoHardcodedAdminPassword:
         with open("app.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert "INITIAL ADMIN CREDENTIALS" not in content, (
-            "Initial admin credentials banner should no longer be in startup code — "
+            "Initial admin credentials banner should no longer be in startup code â€” "
             "the setup wizard replaces this"
         )
 
@@ -291,7 +291,7 @@ class TestPasswordChangeValidation:
 
     def test_change_password_request_model_valid(self):
         """ChangePasswordRequest should accept valid input."""
-        from schemas import ChangePasswordRequest
+        from app.models.schemas import ChangePasswordRequest
 
         req = ChangePasswordRequest(
             current_password="oldpass",
@@ -306,7 +306,7 @@ class TestPasswordChangeValidation:
         """ChangePasswordRequest should reject missing fields."""
         from pydantic import ValidationError
 
-        from schemas import ChangePasswordRequest
+        from app.models.schemas import ChangePasswordRequest
 
         import pytest
 
@@ -365,7 +365,7 @@ class TestPasswordChangeIntegration:
         )
 
         # Override the app's database singleton
-        import config as config_module
+        from app.core import config as config_module
 
         self._orig_db_instance = config_module._db_instance
         config_module._db_instance = self.db

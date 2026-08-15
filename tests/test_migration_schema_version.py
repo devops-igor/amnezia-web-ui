@@ -7,7 +7,7 @@ import tempfile
 
 import pytest
 
-from database import Database
+from app.core.database import Database
 from migrate_to_sqlite import _validate_data, migrate_data_json_to_sqlite, migrate_if_needed
 
 
@@ -145,7 +145,7 @@ class TestMigrateDataJsonToSqlite:
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_successful_migration(self):
-        """Happy path: data.json → panel.db + backup."""
+        """Happy path: data.json â†’ panel.db + backup."""
         data = {
             "servers": [{"name": "srv1", "host": "1.2.3.4", "protocols": {}}],
             "users": [{"id": "u1", "username": "alice", "role": "user"}],

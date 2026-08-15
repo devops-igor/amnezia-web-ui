@@ -13,14 +13,14 @@ import tempfile
 
 from fastapi.testclient import TestClient
 
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 
 TEST_SECRET_KEY = "test-secret-key-for-csrf-tests-16bytes!"
 
 
 class TestAuthBypass:
-    """Tests for auth bypass prevention — unauthenticated and non-admin access."""
+    """Tests for auth bypass prevention â€” unauthenticated and non-admin access."""
 
     def setup_method(self):
         """Set up temporary database with admin and regular users, plus a test server."""
@@ -74,7 +74,7 @@ class TestAuthBypass:
         os.unlink(self.tmp_db_path)
 
     # ------------------------------------------------------------------
-    # Unauthenticated tests — no session → 401
+    # Unauthenticated tests â€” no session â†’ 401
     # ------------------------------------------------------------------
 
     def test_unauthenticated_cannot_access_api_servers(self):
@@ -94,7 +94,7 @@ class TestAuthBypass:
     def test_unauthenticated_cannot_access_api_users(self):
         """GET /api/users without authentication must return 401.
 
-        Verifies that require_admin → get_current_user chain rejects
+        Verifies that require_admin â†’ get_current_user chain rejects
         unauthenticated requests at the user listing endpoint.
         """
         import app
@@ -120,7 +120,7 @@ class TestAuthBypass:
         ), f"Expected 401 for unauthenticated POST /api/users/add, got {response.status_code}"
 
     # ------------------------------------------------------------------
-    # Regular-user-trying-admin-endpoint tests — authenticated but not admin → 403
+    # Regular-user-trying-admin-endpoint tests â€” authenticated but not admin â†’ 403
     # ------------------------------------------------------------------
 
     def test_regular_user_cannot_add_server(self):
@@ -154,7 +154,7 @@ class TestAuthBypass:
         """Non-admin user POST /api/users/{id}/delete must return 403.
 
         Verifies that require_admin blocks non-admin users from deleting
-        other users — a dangerous privileged operation.
+        other users â€” a dangerous privileged operation.
         """
         import app
 

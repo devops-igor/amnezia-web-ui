@@ -11,8 +11,8 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException, Request
 
-from database import Database
-from dependencies import get_current_user, get_current_user_optional, require_admin
+from app.core.database import Database
+from app.core.dependencies import get_current_user, get_current_user_optional, require_admin
 
 
 @pytest.fixture
@@ -188,7 +188,7 @@ class TestDependencyOverrides:
         fake_admin = {"id": "admin-1", "username": "admin", "role": "admin"}
         app.app.dependency_overrides[require_admin] = lambda: fake_admin
         try:
-            # POST to /api/servers/add with empty body — 4xx means auth passed
+            # POST to /api/servers/add with empty body â€” 4xx means auth passed
             response = client.post("/api/servers/add", json={})
             assert response.status_code in (400, 422)
         finally:

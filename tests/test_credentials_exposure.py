@@ -5,7 +5,7 @@ Covers:
 - GET /api/servers must not expose private_key field in JSON response
 - The Database layer (get_server_by_id) still returns credentials internally
 
-This verifies the #114 fix — credential stripping happens at the API
+This verifies the #114 fix â€” credential stripping happens at the API
 boundary in the route handler, not at the database level.
 """
 
@@ -13,8 +13,8 @@ import os
 import tempfile
 
 from tests.conftest import create_csrf_client
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 
 TEST_SECRET_KEY = "test-secret-key-for-csrf-tests-16bytes!"
 
@@ -43,7 +43,7 @@ class TestCredentialsExposure:
             }
         )
 
-        # Create a server WITH credentials — they must be stored in DB
+        # Create a server WITH credentials â€” they must be stored in DB
         # but stripped from API responses
         self.db.create_server(
             {
@@ -90,7 +90,7 @@ class TestCredentialsExposure:
     def test_api_list_servers_no_private_key(self):
         """GET /api/servers response must NOT contain the 'private_key' field.
 
-        Private keys are sensitive — they must never appear in the JSON
+        Private keys are sensitive â€” they must never appear in the JSON
         returned to any client, even authenticated admins.
         """
         import app
@@ -118,7 +118,7 @@ class TestCredentialsExposure:
 
         This verifies that the stripping is done at the API boundary only,
         not in the database layer. SSHManager needs these credentials
-        to establish connections — stripping them at the DB would break
+        to establish connections â€” stripping them at the DB would break
         all server operations.
         """
         # Get the actual server ID (SQLite AUTOINCREMENT starts from 1)

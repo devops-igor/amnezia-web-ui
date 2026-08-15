@@ -5,11 +5,11 @@ Tests for API connection endpoints
 import json
 import pytest
 from unittest.mock import MagicMock, patch
-from database import Database
+from app.core.database import Database
 import tempfile
 import os
 
-from dependencies import get_current_user, require_admin
+from app.core.dependencies import get_current_user, require_admin
 from tests.conftest import create_csrf_client
 
 
@@ -206,7 +206,7 @@ class TestApiMyAddConnection:
                 headers={"Authorization": "Bearer test-token"},
             )
 
-            # Verify response — rate limit returns 428
+            # Verify response â€” rate limit returns 428
             assert response.status_code == 428
 
             # Check that response is valid JSON

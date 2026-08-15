@@ -1,9 +1,9 @@
-"""One-time migration script: data.json → SQLite (panel.db).
+"""One-time migration script: data.json â†’ SQLite (panel.db).
 
 On app startup, if panel.db doesn't exist but data.json does, run migration:
 1. Read data.json
 2. Insert all records into SQLite
-3. Rename data.json → data.json.bak
+3. Rename data.json â†’ data.json.bak
 4. On failure: leave data.json untouched, raise exception
 
 Can also be run independently: python3 migrate_to_sqlite.py
@@ -22,9 +22,9 @@ def migrate_if_needed(data_dir: str) -> None:
     """Check if migration is needed and run it.
 
     Called by app.py on startup. Three cases:
-    1. panel.db exists → skip (already migrated)
-    2. data.json exists → migrate to panel.db, rename data.json → data.json.bak
-    3. Neither exists → skip (fresh install, Database.__init__ will create panel.db)
+    1. panel.db exists â†’ skip (already migrated)
+    2. data.json exists â†’ migrate to panel.db, rename data.json â†’ data.json.bak
+    3. Neither exists â†’ skip (fresh install, Database.__init__ will create panel.db)
     """
     data_file = os.path.join(data_dir, "data.json")
     db_path = os.path.join(data_dir, "panel.db")
@@ -34,10 +34,10 @@ def migrate_if_needed(data_dir: str) -> None:
         return
 
     if not os.path.exists(data_file):
-        logger.info("No data.json found. Fresh install — panel.db will be created on first use.")
+        logger.info("No data.json found. Fresh install â€” panel.db will be created on first use.")
         return
 
-    logger.info("data.json found without panel.db — running migration")
+    logger.info("data.json found without panel.db â€” running migration")
     migrate_data_json_to_sqlite(data_file, db_path)
 
 
@@ -118,7 +118,7 @@ def migrate_data_json_to_sqlite(data_file: str, db_path: str) -> None:
     )
 
     # Import Database and create
-    from database import Database
+    from app.core.database import Database
 
     # Run migration
     try:
@@ -157,6 +157,6 @@ if __name__ == "__main__":
         print(f"data.json not found at {data_file}. Nothing to migrate.")
         sys.exit(0)
 
-    print(f"Migrating {data_file} → {db_path} ...")
+    print(f"Migrating {data_file} â†’ {db_path} ...")
     migrate_data_json_to_sqlite(data_file, db_path)
     print("Migration complete!")

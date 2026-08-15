@@ -9,7 +9,7 @@ import tempfile
 
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 
 TEST_SECRET_KEY = "test-super-secret-key-for-testing-purposes!"
 

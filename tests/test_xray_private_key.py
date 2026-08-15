@@ -1,4 +1,4 @@
-"""Tests for Xray private key protection — ensuring private keys are
+"""Tests for Xray private key protection Ã¢â‚¬â€ ensuring private keys are
 never stored in the panel database or returned via API responses.
 
 These tests verify:
@@ -16,9 +16,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import credential_crypto
-from credential_crypto import SENSITIVE_PROTOCOL_FIELDS
-from database import Database
+from app.core import security
+from app.core.security import SENSITIVE_PROTOCOL_FIELDS
+from app.core.database import Database
 
 # ----------------------------------------------------------------
 # Fixtures
@@ -30,15 +30,15 @@ TEST_SECRET_KEY = "test-key-for-xray-private-key-tests-03"
 @pytest.fixture(autouse=True)
 def reset_global_fernet():
     """Reset module-level Fernet before each test."""
-    credential_crypto._fernet = None
+    security._fernet = None
     yield
-    credential_crypto._fernet = None
+    security._fernet = None
 
 
 @pytest.fixture
 def db(tmp_path):
     """Create a temporary Database with Fernet encryption initialised."""
-    from credential_crypto import _init_fernet
+    from app.core.security import _init_fernet
 
     _init_fernet(TEST_SECRET_KEY)
     db_path = str(tmp_path / "test.db")

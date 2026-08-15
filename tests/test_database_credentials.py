@@ -15,12 +15,12 @@ import sqlite3
 
 import pytest
 
-import credential_crypto
-from credential_crypto import (
+from app.core import security
+from app.core.security import (
     _init_fernet,
     decrypt_credential,
 )
-from database import Database
+from app.core.database import Database
 
 # ----------------------------------------------------------------
 # Fixtures
@@ -32,9 +32,9 @@ TEST_SECRET_KEY = "test-secret-key-for-db-credential-tests-02"
 @pytest.fixture(autouse=True)
 def reset_global_fernet():
     """Reset module-level Fernet before each test."""
-    credential_crypto._fernet = None
+    security._fernet = None
     yield
-    credential_crypto._fernet = None
+    security._fernet = None
 
 
 @pytest.fixture

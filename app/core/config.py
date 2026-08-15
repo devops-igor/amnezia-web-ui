@@ -7,14 +7,14 @@ import secrets
 from pathlib import Path
 from typing import Optional
 
-from database import Database
+from app.core.database import Database
 
 logger = logging.getLogger(__name__)
 
 # ======================== Paths ========================
 
-# APP_DIR: directory of config.py — static app files (translations, etc.)
-# DATA_DIR: directory for writable runtime data (DB, secrets) — defaults to APP_DIR
+# APP_DIR: directory of config.py â€” static app files (translations, etc.)
+# DATA_DIR: directory for writable runtime data (DB, secrets) â€” defaults to APP_DIR
 #           but can be overridden for Docker volumes (e.g. DATA_DIR=/app/data)
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("DATA_DIR", APP_DIR)

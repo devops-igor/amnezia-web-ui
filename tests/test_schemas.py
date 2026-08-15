@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 def test_schemas_importable():
     """All schema classes should be importable from schemas module."""
-    import schemas
+    from app.models import schemas
 
     model_names = [
         "LoginRequest",
@@ -49,7 +49,7 @@ def test_schemas_importable():
 
 def test_valid_protocols_importable():
     """VALID_PROTOCOLS should be importable from schemas."""
-    import schemas
+    from app.models import schemas
 
     assert hasattr(schemas, "VALID_PROTOCOLS")
     assert isinstance(schemas.VALID_PROTOCOLS, set)

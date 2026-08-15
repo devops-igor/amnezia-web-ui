@@ -11,7 +11,7 @@ import tempfile
 
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 
 TEST_SECRET_KEY = "test-secret-key-16-bytes-long!"
 
@@ -24,7 +24,7 @@ def _create_test_db(db_path: str, secret_key: str = TEST_SECRET_KEY) -> Database
 def _override_db(db: Database):
     """Context manager helper to override get_db and clear after."""
     import app
-    import config as config_module
+    from app.core import config as config_module
 
     old_db = config_module._db_instance
 
@@ -273,7 +273,7 @@ class TestSetupAPI:
         client = TestClient(app)
 
         # Step 1: GET /setup to load the form and establish both session + csrftoken cookies.
-        # follow_redirects=True hits the middleware chain: GET / → setup_redirect → /setup
+        # follow_redirects=True hits the middleware chain: GET / â†’ setup_redirect â†’ /setup
         # After this, the client has both session (from the redirect chain) and csrftoken cookies.
         get_resp = client.get("/setup", follow_redirects=True)
         assert get_resp.status_code == 200
@@ -314,7 +314,7 @@ class TestSetupAPI:
                 "password": "SecurePass1",
                 "confirm_password": "SecurePass1",
             },
-            # NOTE: no headers={"x-csrf-token": ...} — that's the bug we're testing
+            # NOTE: no headers={"x-csrf-token": ...} â€” that's the bug we're testing
         )
         assert response.status_code == 403, (
             f"Expected 403 (CSRF rejection) but got {response.status_code}. "
@@ -326,7 +326,7 @@ class TestSetupAPI:
 
         Bug #185: Previously setup.html redirected to '/' directly. The 401
         exception handler redirects HTML requests to /login, causing a loop:
-          / → 401 → /login → (session has user_id) → / → 401 → /login → ...
+          / â†’ 401 â†’ /login â†’ (session has user_id) â†’ / â†’ 401 â†’ /login â†’ ...
 
         Fix: setup.html now redirects to /login. With a valid session, GET /login
         hits the `if user: return RedirectResponse(url="/", status_code=302)` check
@@ -336,7 +336,7 @@ class TestSetupAPI:
 
         client = TestClient(app)
 
-        # Perform setup — use GET /setup first so middleware sets up session/csrtoken
+        # Perform setup â€” use GET /setup first so middleware sets up session/csrtoken
         setup_get = client.get("/setup", follow_redirects=True)
         assert setup_get.status_code == 200
 
@@ -427,7 +427,7 @@ class TestSetupRedirectMiddleware:
 
         client = TestClient(app)
         response = client.get("/", follow_redirects=False)
-        # Should NOT redirect to /setup — users exist
+        # Should NOT redirect to /setup â€” users exist
         # It may return 302 to /login (if unauthenticated), but not /setup
         if response.status_code == 302:
             assert response.headers.get("location") != "/setup"
@@ -438,15 +438,15 @@ class TestSetupRedirectMiddleware:
         Regression test for the redirect loop bug (#185):
         Previously the middleware cached _has_users as a class/instance attribute.
         Stale cached state caused a 3-way redirect loop:
-          /setup → /login → / → /setup → ... (infinite)
-        The cache was removed entirely — the DB is now queried every request.
+          /setup â†’ /login â†’ / â†’ /setup â†’ ... (infinite)
+        The cache was removed entirely â€” the DB is now queried every request.
         This test verifies that creating a user mid-session is immediately visible.
         """
         from app import app, SetupRedirectMiddleware
 
         client = TestClient(app)
 
-        # Step 1: Empty DB — verify redirect to /setup
+        # Step 1: Empty DB â€” verify redirect to /setup
         SetupRedirectMiddleware.invalidate_cache()
         response_empty = client.get("/servers", follow_redirects=False)
         assert response_empty.status_code == 302
@@ -463,14 +463,14 @@ class TestSetupRedirectMiddleware:
             }
         )
 
-        # Step 3: Next request queries DB directly — sees new user → passes through
+        # Step 3: Next request queries DB directly â€” sees new user â†’ passes through
         # No invalidate_cache() needed because there's no cache.
         response_with_user = client.get("/servers", follow_redirects=False)
         # Expect 401 (unauthenticated) or 200 or 302 to somewhere OTHER than /setup
         if response_with_user.status_code == 302:
             assert (
                 response_with_user.headers.get("location") != "/setup"
-            ), "Middleware stale state — redirect loop bug still present"
+            ), "Middleware stale state â€” redirect loop bug still present"
         # If it's a 401, the middleware let the request through to the auth check,
         # which is the correct behavior (no /setup redirect).
         assert response_with_user.status_code != 500, f"Unexpected 500: {response_with_user.text}"

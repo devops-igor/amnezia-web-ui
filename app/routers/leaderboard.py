@@ -5,9 +5,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Request, Depends
 
-from dependencies import get_current_user
+from app.core.dependencies import get_current_user
 from app.utils.helpers import get_leaderboard_entries
-from schemas import LeaderboardResponse
+from app.models.schemas import LeaderboardResponse
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["leaderboard"])

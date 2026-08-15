@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from schemas import (
+from app.models.schemas import (
     AddConnectionRequest,
     AwgSpeedLimitConfigRequest,
     EditConnectionRequest,

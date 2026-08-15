@@ -17,7 +17,7 @@ from datetime import datetime
 
 import pytest
 
-from database import Database
+from app.core.database import Database
 
 # ---------- Fixtures ----------
 
@@ -70,7 +70,7 @@ class TestMigration:
 
     def test_user_default_rx_tx_is_zero(self, temp_db, sample_user):
         """If rx/tx fields are not provided, they should default to 0."""
-        # Don't set any rx/tx fields — defaults should be 0
+        # Don't set any rx/tx fields â€” defaults should be 0
         temp_db.create_user(sample_user)
         user = temp_db.get_user(sample_user["id"])
         assert user["traffic_total_rx"] == 0
@@ -306,7 +306,7 @@ class TestMonthlyRollover:
         assert user["monthly_reset_at"] == "2026-04-01T00:00:00"
 
     def test_monthly_reset_happens_even_without_traffic(self, sample_user):
-        """Rollover logic works independently — not gated on traffic deltas.
+        """Rollover logic works independently â€” not gated on traffic deltas.
 
         Regression: the old code only ran monthly rollover inside `if updates:`,
         so zero-traffic sync cycles would skip the reset entirely.
@@ -343,7 +343,7 @@ class TestMonthlyRollover:
         assert user["monthly_tx"] == 0
 
     def test_monthly_rollover_skipped_same_month_no_traffic(self, sample_user):
-        """In same month, rollover is correctly skipped — nothing changes."""
+        """In same month, rollover is correctly skipped â€” nothing changes."""
         user = sample_user
         user["monthly_reset_at"] = "2026-04-01T00:00:00"
         user["monthly_rx"] = 5000
@@ -473,7 +473,7 @@ class TestBackwardCompatibility:
         # The code now reads last_rx and last_tx (defaulting to 0)
         # Existing connections with only last_bytes will get last_rx=0, last_tx=0
         # This means on first sync after upgrade, delta = curr (full count)
-        # This is acceptable — it may overcount once but won't break
+        # This is acceptable â€” it may overcount once but won't break
         uc = {"last_bytes": 1000}
         last_rx = uc.get("last_rx", 0)
         last_tx = uc.get("last_tx", 0)
