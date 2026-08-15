@@ -25,7 +25,7 @@ from app.core.security import (
     decrypt_credential_safe,
     encrypt_credential,
 )
-from app.core.database import SCHEMA_PATH, init_db, migrate_db, Database
+from app.core.database import SCHEMA_PATH, Database
 
 # ----------------------------------------------------------------
 # Fixtures
