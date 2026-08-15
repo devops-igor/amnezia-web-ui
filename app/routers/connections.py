@@ -286,3 +286,37 @@ async def api_my_rename_connection(
     except Exception as e:
         logger.exception("Error renaming connection")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{connection_id}/delete")
+async def api_my_delete_connection(
+    request: Request, connection_id: str, user: dict = Depends(get_current_user)
+):
+    ssh = None
+    try:
+        db = get_db()
+        conn = db.get_connection_by_id(connection_id)
+        if not conn or conn.get("user_id") != user["id"]:
+            return JSONResponse({"error": "Connection not found"}, status_code=404)
+
+        server = db.get_server_by_id(conn["server_id"])
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+
+        normalized_proto = normalize_protocol(conn["protocol"])
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        port = proto_info.get("port", "55424")
+
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        manager = get_protocol_manager(ssh, normalized_proto)
+        await asyncio.to_thread(manager.remove_client, normalized_proto, conn["client_id"])
+
+        db.delete_connection(connection_id)
+        return {"status": "success"}
+    except Exception as e:
+        logger.exception("Error deleting connection")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+    finally:
+        if ssh:
+            await asyncio.to_thread(ssh.disconnect)
