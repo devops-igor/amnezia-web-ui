@@ -31,7 +31,7 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 # Copy application code and assets
 COPY *.py ./
 COPY app/ ./app/
-COPY schema.sql ./
+
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY translations/ ./translations/
