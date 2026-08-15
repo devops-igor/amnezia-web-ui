@@ -509,4 +509,3 @@ class TestBackupRestoreExtendedData:
             conn = db._get_conn()
             conn.close()
             os.unlink(tmp_db_path)
-

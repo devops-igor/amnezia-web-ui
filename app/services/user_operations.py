@@ -117,9 +117,7 @@ async def perform_mass_operations(
             for c, enabled in ops["toggle"]:
                 proto = normalize_protocol(c["protocol"])
                 manager = get_protocol_manager(ssh, proto)
-                await asyncio.to_thread(
-                    manager.toggle_client, proto, c["client_id"], enabled
-                )
+                await asyncio.to_thread(manager.toggle_client, proto, c["client_id"], enabled)
 
             # 3. Creates
             for c_req in ops["create"]:
