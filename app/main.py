@@ -14,7 +14,13 @@ from slowapi.errors import RateLimitExceeded
 from starlette_csrf import CSRFMiddleware
 
 from app.utils.helpers import _get_client_ip, _t, _get_default_lang
-from app.core.config import _get_secret_key, load_translations, get_db, init_db, migrate_awg_protocol_names
+from app.core.config import (
+    _get_secret_key,
+    load_translations,
+    get_db,
+    init_db,
+    migrate_awg_protocol_names,
+)
 
 from app.routers.auth import router as auth_router
 from app.routers.connections import router as connections_router
@@ -255,11 +261,11 @@ app.add_middleware(
 )
 
 
-# Password change required middleware
 # Mount static files & templates
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 app.mount(
     "/static",
-    StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")),
+    StaticFiles(directory=os.path.join(BASE_DIR, "static")),
     name="static",
 )
 
@@ -276,4 +282,3 @@ app.include_router(settings_router)
 app.include_router(share_router)
 app.include_router(users_router)
 app.include_router(leaderboard_router)
-
