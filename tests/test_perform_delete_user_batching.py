@@ -388,3 +388,59 @@ class TestEdgeCases:
         # Only one server processed (srv1), not the missing one
         mock_ssh.connect.assert_called_once()
         assert mock_manager.remove_client.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Test perform_toggle_user
+# ---------------------------------------------------------------------------
+
+
+class TestPerformToggleUser:
+    @pytest.mark.asyncio
+    async def test_toggle_user_not_found(self):
+        """perform_toggle_user returns False when user is not in DB."""
+        mock_db = _make_mock_db(user=None)
+        from app.services.background import perform_toggle_user
+
+        with patch("app.services.user_operations.get_db", return_value=mock_db):
+            res = await perform_toggle_user("missing_user", False)
+        assert res is False
+
+    @pytest.mark.asyncio
+    async def test_toggle_user_calls_mass_operations_and_updates_db(self):
+        """perform_toggle_user updates user in DB and disables active connections on servers."""
+        mock_user = {"id": "u1", "username": "alice", "enabled": True}
+        conn1 = {"id": "c1", "server_id": "srv1", "protocol": "awg", "client_id": "peer1"}
+        mock_srv1 = {
+            "id": "srv1",
+            "host": "1.1.1.1",
+            "ssh_port": 22,
+            "username": "root",
+            "password": "p1",
+        }
+        mock_db = _make_mock_db(
+            user=mock_user,
+            connections_by_user=[conn1],
+            server_by_id={"srv1": mock_srv1},
+        )
+        mock_ssh = MagicMock()
+        mock_manager = MagicMock()
+
+        from app.services.background import perform_toggle_user
+
+        with (
+            patch("app.services.user_operations.get_db", return_value=mock_db),
+            patch("app.services.user_operations.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.user_operations.get_protocol_manager",
+                return_value=mock_manager,
+            ),
+            patch("app.services.user_operations.asyncio.to_thread", side_effect=_fake_to_thread),
+        ):
+            res = await perform_toggle_user("u1", False)
+
+        assert res is True
+        mock_db.update_user.assert_called_once_with("u1", {"enabled": False})
+        mock_ssh.connect.assert_called_once()
+        mock_manager.toggle_client.assert_called_once_with("awg", "peer1", False)
+

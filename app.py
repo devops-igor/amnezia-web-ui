@@ -118,18 +118,25 @@ class SetupRedirectMiddleware:
     """ASGI middleware that redirects to /setup when the database has zero users.
 
     Lets through: /static/, /set_lang/, /setup, /api/auth/setup, /login, /logout.
-    Queries the DB on every request — no caching, no stale state.
+    Caches completion in-memory once users exist to eliminate redundant DB queries.
     """
+
+    _is_setup_done: bool = False
 
     @classmethod
     def invalidate_cache(cls) -> None:
-        """No-op kept for backward compatibility. Cache was removed to eliminate stale-state bugs."""
+        """Reset setup completed flag."""
+        cls._is_setup_done = False
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        if SetupRedirectMiddleware._is_setup_done:
             await self.app(scope, receive, send)
             return
 
@@ -145,6 +152,8 @@ class SetupRedirectMiddleware:
         try:
             db = get_db()
             has_users = bool(db.get_all_users())
+            if has_users:
+                SetupRedirectMiddleware._is_setup_done = True
         except Exception:
             await self.app(scope, receive, send)
             return
@@ -221,7 +230,13 @@ class PasswordChangeRequiredMiddleware:
 
 app.add_middleware(PasswordChangeRequiredMiddleware)
 
-app.add_middleware(SessionMiddleware, secret_key=_get_secret_key())
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=_get_secret_key(),
+    session_cookie="session",
+    max_age=86400 * 7,
+    same_site="lax",
+)
 
 # Add CSRF protection middleware
 # safe_methods: GET, OPTIONS, HEAD, TRACE are considered safe and don't require CSRF

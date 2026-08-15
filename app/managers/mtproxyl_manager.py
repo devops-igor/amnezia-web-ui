@@ -9,6 +9,7 @@ with DB, API endpoints, and schemas.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 import uuid
@@ -154,6 +155,13 @@ class MTProxyLManager:
         self._run_cli("stop")
         # Optionally remove the installation (leave config dir intact)
         # self._run_cli("uninstall")  # disabled — avoid accidental data loss
+
+    def save_server_config(self, config_text: str) -> None:
+        """Save server configuration to settings.conf and restart the proxy."""
+        encoded = base64.b64encode(config_text.encode("utf-8")).decode("utf-8")
+        cmd = f"echo '{encoded}' | base64 -d | sudo tee {self.SETTINGS_FILE} > /dev/null"
+        self.ssh.run_sudo_command(cmd)
+        self._run_cli("restart")
 
     # -------------------------------------------------------------------------
     # Client CRUD

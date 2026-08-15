@@ -1,5 +1,5 @@
 # Stage 1: Build dependencies (contains build tools)
-FROM python:3.14-slim AS builder
+FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
@@ -15,12 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 
 # Stage 2: Production (no build tools — lean image)
-FROM python:3.14-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
 # Copy installed site-packages from builder stage
-COPY --from=builder /usr/local/lib/python3.14/site-packages/ /usr/local/lib/python3.14/site-packages/
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 
 # Copy pip entry-points / scripts from builder (gunicorn, uvicorn, etc.)
 COPY --from=builder /usr/local/bin/ /usr/local/bin/

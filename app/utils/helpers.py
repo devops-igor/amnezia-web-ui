@@ -81,7 +81,7 @@ else:
 _SENSITIVE_PATTERNS = [
     re.compile(r"/[\w/.-]+"),  # File paths
     re.compile(r"\b\d{1,3}(\.\d{1,3}){3}\b"),  # IP addresses
-    re.compile(r"\b[\w.-]+@ [\w.-]+\.\w{2,}\b"),  # Email-like patterns
+    re.compile(r"\b[\w.-]+@[\w.-]+\.\w{2,}\b"),  # Email-like patterns
     re.compile(r"\b0x[0-9a-fA-F]+\b"),  # Hex addresses
 ]
 

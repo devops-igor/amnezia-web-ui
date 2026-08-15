@@ -474,3 +474,4 @@ class TestSetupRedirectMiddleware:
         # If it's a 401, the middleware let the request through to the auth check,
         # which is the correct behavior (no /setup redirect).
         assert response_with_user.status_code != 500, f"Unexpected 500: {response_with_user.text}"
+        assert SetupRedirectMiddleware._is_setup_done is True

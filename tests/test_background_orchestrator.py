@@ -645,6 +645,51 @@ class TestMonthlyRolloverUnconditional:
 
             assert init_found, "update_user should have initialized monthly_reset_at for user2"
 
+    @pytest.mark.asyncio
+    async def test_monthly_rollover_snapshot_called_once_for_multiple_users(self, orchestrator):
+        """When multiple users roll over, save_leaderboard_snapshot is called exactly once."""
+        from datetime import datetime, timedelta
+
+        mock_db = MagicMock()
+        mock_server = {"id": "srv1", "host": "1.2.3.4", "protocols": {"awg": {"port": 51820}}}
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = []
+
+        last_month = datetime.now() - timedelta(days=40)
+        u1 = {
+            "id": "u1",
+            "username": "user1",
+            "enabled": True,
+            "monthly_rx": 1000,
+            "monthly_tx": 2000,
+            "monthly_reset_at": last_month.isoformat(),
+        }
+        u2 = {
+            "id": "u2",
+            "username": "user2",
+            "enabled": True,
+            "monthly_rx": 3000,
+            "monthly_tx": 4000,
+            "monthly_reset_at": last_month.isoformat(),
+        }
+        mock_db.get_all_users.return_value = [u1, u2]
+        mock_db.save_leaderboard_snapshot.return_value = 2
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch(
+                "app.services.background_orchestrator.perform_mass_operations",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await orchestrator.sync_traffic()
+
+            # Snapshot must be called once, not once per user (2 times)
+            assert mock_db.save_leaderboard_snapshot.call_count == 1
+            # But both users must have their monthly counters reset
+            reset_uids = {call[0][0] for call in mock_db.update_user.call_args_list}
+            assert "u1" in reset_uids and "u2" in reset_uids
+
 
 # ---------------------------------------------------------------------------
 # 8. check_expiry

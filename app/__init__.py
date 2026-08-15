@@ -1,18 +1,28 @@
-import os
+"""App package — exports the FastAPI application instance and middlewares."""
 
-# Package shim: transparently load the root-level app.py into this package
-# namespace so that `import app` and `patch.object(app, "get_db", ...)` keep
-# working throughout the incremental split.
+import importlib.util
+import os
+import sys
 
 _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _app_py = os.path.join(_root, "app.py")
 
-with open(_app_py, "r", encoding="utf-8") as _f:
-    _source = _f.read()
+# Load root app.py module cleanly using importlib
+_spec = importlib.util.spec_from_file_location("_root_app", _app_py)
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules["_root_app"] = _mod
+_spec.loader.exec_module(_mod)
 
-_exec_ns = globals()
-_exec_ns["__file__"] = _app_py
-_exec_ns["__name__"] = "app"
-_exec_ns.pop("__cached__", None)
+app = _mod.app
+lifespan = _mod.lifespan
+SetupRedirectMiddleware = _mod.SetupRedirectMiddleware
+PasswordChangeRequiredMiddleware = _mod.PasswordChangeRequiredMiddleware
+get_db = _mod.get_db
 
-exec(compile(_source, _app_py, "exec"), _exec_ns)
+__all__ = [
+    "app",
+    "lifespan",
+    "SetupRedirectMiddleware",
+    "PasswordChangeRequiredMiddleware",
+    "get_db",
+]

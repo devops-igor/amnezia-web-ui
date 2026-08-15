@@ -463,3 +463,47 @@ class TestBackupRestore:
             assert servers[0]["name"] == "Creds Excluded Server"
         finally:
             app.app.dependency_overrides.clear()
+
+
+class TestBackupRestoreExtendedData:
+    """Tests for known_hosts, leaderboard_snapshots, and SSL encryption in save_data / load_data."""
+
+    def test_backup_and_restore_preserves_extended_data(self):
+        tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        tmp_db_path = tmp_db.name
+        tmp_db.close()
+        try:
+            db = Database(tmp_db_path, secret_key=TEST_SECRET_KEY)
+            db.save_known_host_fingerprint(1, "aa:bb:cc:dd")
+            db.save_leaderboard_snapshot(2026, 7)
+
+            data = db.load_data()
+            assert "known_hosts" in data
+            assert "leaderboard_snapshots" in data
+            assert any(kh.get("fingerprint") == "aa:bb:cc:dd" for kh in data["known_hosts"])
+
+            # Test save_data restores known_hosts and encrypts SSL
+            data["settings"]["ssl"] = {
+                "enabled": True,
+                "key_text": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----",
+                "cert_text": "-----BEGIN CERTIFICATE-----\nMIID...\n-----END CERTIFICATE-----",
+            }
+            db.save_data(data)
+
+            # Check known hosts restored
+            kh_restored = db._get_all_known_hosts()
+            assert any(kh.get("fingerprint") == "aa:bb:cc:dd" for kh in kh_restored)
+
+            # Check SSL was encrypted at rest
+            ssl_setting = db.get_setting("ssl")
+            assert ssl_setting["enabled"] is True
+            assert ssl_setting["key_text"] == "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----"
+
+            # Direct raw DB check: the raw string stored in sqlite should NOT be plaintext private key
+            raw_ssl = db.get_setting("ssl", decrypt_ssl=False)
+            assert "-----BEGIN PRIVATE KEY-----" not in raw_ssl["key_text"]
+        finally:
+            conn = db._get_conn()
+            conn.close()
+            os.unlink(tmp_db_path)
+
