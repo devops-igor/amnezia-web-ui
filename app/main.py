@@ -7,7 +7,6 @@ from fastapi.staticfiles import StaticFiles
 
 from fastapi import FastAPI, Request
 from starlette.middleware.sessions import SessionMiddleware
-import uvicorn
 
 from slowapi.errors import RateLimitExceeded
 
