@@ -61,7 +61,6 @@ async def perform_toggle_user(user_id: str, enabled: bool):
     user = db.get_user(user_id)
     if not user:
         return False
-    db.update_user(user_id, {"enabled": enabled})
     await perform_mass_operations(toggle_uids=[(user_id, enabled)])
     return True
 

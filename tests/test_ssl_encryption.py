@@ -25,7 +25,7 @@ from app.core.security import (
     decrypt_credential_safe,
     encrypt_credential,
 )
-from app.core.database import Database
+from app.core.database import SCHEMA_PATH, init_db, migrate_db, Database
 
 # ----------------------------------------------------------------
 # Fixtures
@@ -317,7 +317,7 @@ class TestSslMigration:
 
         # Write plaintext SSL settings BEFORE Database init
         conn = sqlite3.connect(db_path)
-        with open("/home/igor/Amnezia-Web-Panel/schema.sql") as f:
+        with open(SCHEMA_PATH) as f:
             conn.executescript(f.read())
         plaintext_key = "-----BEGIN PRIVATE KEY-----\nOLDPLAIN\n-----END PRIVATE KEY-----"
         old_ssl = {
@@ -374,7 +374,7 @@ class TestSslMigration:
         }
         # Write directly to DB (bypassing update_setting so it stays as-is)
         conn = sqlite3.connect(db_path)
-        with open("/home/igor/Amnezia-Web-Panel/schema.sql") as f:
+        with open(SCHEMA_PATH) as f:
             conn.executescript(f.read())
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",

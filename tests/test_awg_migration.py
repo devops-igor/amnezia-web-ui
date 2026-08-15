@@ -42,7 +42,7 @@ class TestMigrateAWGProtocolNames:
     def _setup_db_mock(self, monkeypatch):
         """Mock the database so we don't touch real data."""
         self.mock_db = MagicMock()
-        monkeypatch.setattr("config.get_db", lambda: self.mock_db)
+        monkeypatch.setattr("app.core.config.get_db", lambda: self.mock_db)
 
     def _setup_mock_server(self, protocols: dict) -> dict:
         """Create a mock server dict with given protocols."""
