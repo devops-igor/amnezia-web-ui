@@ -44,15 +44,15 @@
                 </div>
             </div>
             <div class="client-actions">
-                <button class="btn btn-secondary btn-sm" onclick="showRenameModal('{{ c.id }}', '{{ c.name or 'Connection' }}')">
+                <button class="btn btn-secondary btn-sm" onclick="showRenameModal('{{ c.id }}', this.dataset.name)" data-name="{{ (c.name or 'Connection') | e }}">
                     ✏️ {{ _('rename') }}
                 </button>
                 <button class="btn btn-primary btn-sm"
-                    onclick="showMyConfig('{{ c.id }}', '{{ c.name or 'Connection' }}', '{{ c.protocol }}')">
+                    onclick="showMyConfig('{{ c.id }}', this.dataset.name, '{{ c.protocol }}')" data-name="{{ (c.name or 'Connection') | e }}">
                     {{ _('show_config') }}
                 </button>
                 <button class="btn btn-danger btn-sm"
-                    onclick="deleteConnection('{{ c.id }}', '{{ (c.name or 'Connection') | e }}')">
+                    onclick="deleteConnection('{{ c.id }}', this.dataset.name)" data-name="{{ (c.name or 'Connection') | e }}">
                     🗑️ {{ _('delete') }}
                 </button>
             </div>

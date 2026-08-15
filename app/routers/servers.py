@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
+from app.utils.rate_limiter import limiter
 from config import get_db
 from dependencies import get_current_user, require_admin
 from schemas import (
@@ -172,6 +173,7 @@ async def api_delete_server(request: Request, server_id: int, user: dict = Depen
 
 
 @router.post("/{server_id}/reboot")
+@limiter.limit("10/minute")
 async def api_reboot_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -195,6 +197,7 @@ async def api_reboot_server(request: Request, server_id: int, user: dict = Depen
 
 
 @router.post("/{server_id}/clear")
+@limiter.limit("10/minute")
 async def api_clear_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -469,6 +472,7 @@ CONTAINER_NAMES = {
 
 
 @router.post("/{server_id}/container/toggle")
+@limiter.limit("10/minute")
 async def api_container_toggle(
     request: Request, server_id: int, req: ProtocolRequest, user: dict = Depends(require_admin)
 ):
@@ -565,10 +569,7 @@ async def api_server_config_save(
             from app.managers import MTProxyLManager
 
             mgr = MTProxyLManager(ssh)
-            out, err, code = await asyncio.to_thread(mgr._run_cli, "config import")
-            if code != 0:
-                await asyncio.to_thread(ssh.disconnect)
-                return JSONResponse({"error": err or "Config import failed"}, status_code=400)
+            await asyncio.to_thread(mgr.save_server_config, req.config)
         else:
             mgr = AWGManager(ssh)
             await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
@@ -1021,6 +1022,7 @@ async def api_update_awg_speed_limit_config(
 
 
 @router.post("/{server_id}/awg/apply-default-speed-limits")
+@limiter.limit("10/minute")
 async def api_apply_default_speed_limits(
     request: Request,
     server_id: int,

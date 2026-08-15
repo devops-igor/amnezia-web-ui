@@ -82,8 +82,10 @@ class SSHManager:
 
         self.client.connect(**kwargs)
 
-        # After successful connect, retrieve the server's actual host key
+        # After successful connect, retrieve the server's actual host key and configure keepalive
         transport = self.client.get_transport()
+        if transport is not None:
+            transport.set_keepalive(30)
         host_key = transport.get_remote_server_key()
         actual_fingerprint = host_key.get_fingerprint()
 

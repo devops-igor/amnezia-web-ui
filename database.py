@@ -125,7 +125,7 @@ class Database:
             conn.execute("SELECT 1")
             return conn
         except queue.Empty:
-            conn = sqlite3.connect(self.db_path, check_same_thread=False)
+            conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
@@ -1117,6 +1117,8 @@ class Database:
             "users": self.get_all_users(),
             "user_connections": self.get_all_connections(),
             "connection_creation_log": self._get_all_creation_log(),
+            "known_hosts": self._get_all_known_hosts(),
+            "leaderboard_snapshots": self._get_all_leaderboard_snapshots(),
             "settings": self.get_all_settings(),
         }
 
@@ -1136,6 +1138,8 @@ class Database:
                 conn.execute("DELETE FROM servers")
                 conn.execute("DELETE FROM settings")
                 conn.execute("DELETE FROM connection_creation_log")
+                conn.execute("DELETE FROM known_hosts")
+                conn.execute("DELETE FROM leaderboard_snapshots")
 
                 # Insert servers
                 for srv in data.get("servers", []):
@@ -1178,8 +1182,44 @@ class Database:
                         (entry.get("user_id", ""), entry.get("timestamp", "")),
                     )
 
-                # Insert settings
+                # Insert known hosts
+                for kh in data.get("known_hosts", []):
+                    if kh.get("server_id") is not None and kh.get("fingerprint"):
+                        conn.execute(
+                            """INSERT INTO known_hosts (server_id, fingerprint)
+                               VALUES (?, ?)
+                               ON CONFLICT(server_id) DO UPDATE SET fingerprint = excluded.fingerprint""",
+                            (kh["server_id"], kh["fingerprint"]),
+                        )
+
+                # Insert leaderboard snapshots
+                for snap in data.get("leaderboard_snapshots", []):
+                    conn.execute(
+                        """INSERT OR IGNORE INTO leaderboard_snapshots
+                           (year, month, username, rank, download, upload, total, snapshot_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            snap.get("year"),
+                            snap.get("month"),
+                            snap.get("username", ""),
+                            snap.get("rank", 0),
+                            snap.get("download", 0),
+                            snap.get("upload", 0),
+                            snap.get("total", 0),
+                            snap.get("snapshot_at", datetime.now().isoformat()),
+                        ),
+                    )
+
+                # Insert settings (encrypt SSL cert/key if present)
                 for key, value in data.get("settings", {}).items():
+                    if key == "ssl" and isinstance(value, dict):
+                        value = dict(value)
+                        if value.get("key_text"):
+                            value["key_text"] = credential_crypto.encrypt_credential(value["key_text"])
+                        if value.get("cert_text"):
+                            value["cert_text"] = credential_crypto.encrypt_credential(
+                                value["cert_text"]
+                            )
                     if isinstance(value, (dict, list)):
                         value = json.dumps(value)
                     elif value is None:
@@ -1203,6 +1243,21 @@ class Database:
                 "SELECT user_id, created_at FROM connection_creation_log ORDER BY id"
             ).fetchall()
         return [{"user_id": row["user_id"], "timestamp": row["created_at"]} for row in rows]
+
+    def _get_all_known_hosts(self) -> List[Dict[str, Any]]:
+        """Return all known hosts entries."""
+        with self._connection() as conn:
+            rows = conn.execute("SELECT server_id, fingerprint FROM known_hosts ORDER BY server_id").fetchall()
+        return _rows_to_dicts(rows)
+
+    def _get_all_leaderboard_snapshots(self) -> List[Dict[str, Any]]:
+        """Return all leaderboard snapshots."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT year, month, username, rank, download, upload, total, snapshot_at "
+                "FROM leaderboard_snapshots ORDER BY year, month, rank"
+            ).fetchall()
+        return _rows_to_dicts(rows)
 
     # ----------------------------------------------------------------
     # Migration flags
