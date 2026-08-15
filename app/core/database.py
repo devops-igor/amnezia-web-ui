@@ -261,14 +261,10 @@ class Database:
             ssl = json.loads(ssl_row["value"]) if ssl_row else {}
             if isinstance(ssl, dict):
                 changed = False
-                if ssl.get("key_text") and not security._looks_like_fernet_token(
-                    ssl["key_text"]
-                ):
+                if ssl.get("key_text") and not security._looks_like_fernet_token(ssl["key_text"]):
                     ssl["key_text"] = security.encrypt_credential(ssl["key_text"])
                     changed = True
-                if ssl.get("cert_text") and not security._looks_like_fernet_token(
-                    ssl["cert_text"]
-                ):
+                if ssl.get("cert_text") and not security._looks_like_fernet_token(ssl["cert_text"]):
                     ssl["cert_text"] = security.encrypt_credential(ssl["cert_text"])
                     changed = True
                 if changed:
@@ -1068,9 +1064,7 @@ class Database:
                     if value.get("key_text"):
                         value["key_text"] = security.encrypt_credential(value["key_text"])
                     if value.get("cert_text"):
-                        value["cert_text"] = security.encrypt_credential(
-                            value["cert_text"]
-                        )
+                        value["cert_text"] = security.encrypt_credential(value["cert_text"])
                 if isinstance(value, (dict, list)):
                     value = json.dumps(value)
                 elif value is None:
@@ -1215,13 +1209,9 @@ class Database:
                     if key == "ssl" and isinstance(value, dict):
                         value = dict(value)
                         if value.get("key_text"):
-                            value["key_text"] = security.encrypt_credential(
-                                value["key_text"]
-                            )
+                            value["key_text"] = security.encrypt_credential(value["key_text"])
                         if value.get("cert_text"):
-                            value["cert_text"] = security.encrypt_credential(
-                                value["cert_text"]
-                            )
+                            value["cert_text"] = security.encrypt_credential(value["cert_text"])
                     if isinstance(value, (dict, list)):
                         value = json.dumps(value)
                     elif value is None:
