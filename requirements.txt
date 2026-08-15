@@ -4,7 +4,7 @@ bcrypt==5.0.0
 boolean.py==5.0
 CacheControl==0.14.4
 certifi==2026.7.22
-cffi==2.0.0
+cffi==2.1.0
 charset-normalizer==3.4.7
 click==8.4.2
 cryptography==48.0.1
