@@ -1,9 +1,9 @@
-"""Startup reconciliation — detect and clean up stale protocol connections."""
+"""Startup reconciliation â€” detect and clean up stale protocol connections."""
 
 import logging
 
 from app.utils.helpers import get_protocol_manager, get_ssh
-from config import get_db
+from app.core.config import get_db
 
 logger = logging.getLogger(__name__)
 

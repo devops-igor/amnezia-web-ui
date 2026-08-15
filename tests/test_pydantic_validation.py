@@ -8,7 +8,7 @@ field_validator decorators. Tests follow the VERIFICATION_PLAN.md spec.
 import pytest
 from pydantic import ValidationError
 
-from schemas import (
+from app.models.schemas import (
     VALID_PROTOCOLS,
     LoginRequest,
     AddServerRequest,
@@ -143,7 +143,7 @@ class TestAddServerRequest:
 
 
 class TestInstallProtocolRequest:
-    """Tests for InstallProtocolRequest model — preserves existing tls_domain validator."""
+    """Tests for InstallProtocolRequest model â€” preserves existing tls_domain validator."""
 
     def test_valid_protocol(self):
         req = InstallProtocolRequest(protocol="awg")
@@ -301,7 +301,7 @@ class TestToggleConnectionRequest:
 
 
 class TestAddUserRequest:
-    """Tests for AddUserRequest model — the most validation-heavy model."""
+    """Tests for AddUserRequest model â€” the most validation-heavy model."""
 
     def test_valid_user(self):
         req = AddUserRequest(username="testuser", password="Pass1234", role="admin")
@@ -479,7 +479,7 @@ class TestSyncSettings:
 
 
 class TestCaptchaSettings:
-    """Tests for CaptchaSettings — just a bool, minimal."""
+    """Tests for CaptchaSettings â€” just a bool, minimal."""
 
     def test_defaults(self):
         req = CaptchaSettings()
@@ -608,7 +608,7 @@ class TestUpdateUserRequest:
 
 
 class TestSaveSettingsRequest:
-    """Tests for SaveSettingsRequest — composed model, no direct changes."""
+    """Tests for SaveSettingsRequest â€” composed model, no direct changes."""
 
     def test_defaults(self):
         req = SaveSettingsRequest(
@@ -635,7 +635,7 @@ class TestSaveSettingsRequest:
 
 
 class TestToggleUserRequest:
-    """Tests for ToggleUserRequest — just a bool, minimal."""
+    """Tests for ToggleUserRequest â€” just a bool, minimal."""
 
     def test_toggle(self):
         req = ToggleUserRequest(enabled=True)

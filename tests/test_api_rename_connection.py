@@ -1,13 +1,13 @@
 """
-Tests for connection rename endpoint — POST /api/my/connections/{connection_id}/rename
+Tests for connection rename endpoint â€” POST /api/my/connections/{connection_id}/rename
 """
 
 import os
 import tempfile
 from unittest.mock import patch
 
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 
@@ -148,7 +148,7 @@ class TestRenameConnection:
 
     @patch("app.routers.connections.get_db")
     def test_rename_other_users_connection(self, mock_get_db):
-        """Cannot rename a connection belonging to another user — returns 404."""
+        """Cannot rename a connection belonging to another user â€” returns 404."""
         import app
 
         mock_get_db.return_value = self.db

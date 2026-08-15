@@ -8,8 +8,8 @@ import paramiko
 
 from app.services.startup_reconciliation import cleanup_stale_protocols
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-stale-connections-secret-key-12345"
@@ -372,7 +372,7 @@ class TestStaleConnectionsCleanup:
         self.db.update_server(self.server_id, {"protocols": {"awg": {"installed": True}}})
         self._create_connections(["awg", "telemt"])
 
-        # Phase 2 will SSH and check awg — mock it as healthy so awg survives
+        # Phase 2 will SSH and check awg â€” mock it as healthy so awg survives
         mock_ssh = MagicMock()
         mock_ssh.connect.return_value = None
         mock_ssh.disconnect.return_value = None

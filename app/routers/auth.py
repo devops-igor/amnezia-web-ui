@@ -1,4 +1,4 @@
-"""Auth routes — login page, logout, language switching, CAPTCHA, password change, and first-run setup."""
+"""Auth routes â€” login page, logout, language switching, CAPTCHA, password change, and first-run setup."""
 
 import io
 import logging
@@ -11,9 +11,9 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Stre
 
 from app.utils.helpers import hash_password, verify_password, _get_lang, _t
 from app.utils.templates import tpl
-from config import get_db
-from dependencies import get_current_user, get_current_user_optional
-from schemas import ChangePasswordRequest, LoginRequest, SetupRequest
+from app.core.config import get_db
+from app.core.dependencies import get_current_user, get_current_user_optional
+from app.models.schemas import ChangePasswordRequest, LoginRequest, SetupRequest
 
 try:
     from multicolorcaptcha import CaptchaGenerator
@@ -48,7 +48,7 @@ async def set_lang(lang: str, request: Request):
     ref = request.headers.get("referer", "/")
     # Prevent open redirect: only allow relative paths (same-origin)
     parsed = urlparse(ref)
-    # If there's a scheme/host, it's an external URL — strip to path only
+    # If there's a scheme/host, it's an external URL â€” strip to path only
     if parsed.scheme or parsed.netloc:
         ref = parsed.path or "/"
         if parsed.query:
@@ -147,7 +147,7 @@ async def api_change_password(
 @router.post("/api/auth/setup")
 @limiter.limit("5/minute")
 async def api_setup(request: Request, req: SetupRequest):
-    """First-run setup endpoint — creates the initial admin user.
+    """First-run setup endpoint â€” creates the initial admin user.
 
     Only works when zero users exist. On success, creates user and
     auto-logs them in via session.

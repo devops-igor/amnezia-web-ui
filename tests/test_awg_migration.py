@@ -3,8 +3,8 @@
 import pytest
 from unittest.mock import MagicMock
 
-from schemas import normalize_protocol
-from config import migrate_awg_protocol_names
+from app.models.schemas import normalize_protocol
+from app.core.config import migrate_awg_protocol_names
 
 
 class TestNormalizeProtocol:

@@ -29,10 +29,10 @@ def normalize_protocol(proto: str) -> str:
 
 
 class AWGObfuscationProfile(str, Enum):
-    """AWG obfuscation profile — determines parameter generation ranges.
+    """AWG obfuscation profile â€” determines parameter generation ranges.
 
     lite:      Minimal junk packets, max compatibility (Jc 3-5)
-    standard:  Balanced obfuscation and performance (Jc 5-8) — recommended default
+    standard:  Balanced obfuscation and performance (Jc 5-8) â€” recommended default
     pro:       Maximum obfuscation, more overhead (Jc 4-16)
     """
 
@@ -497,7 +497,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 class SetupRequest(BaseModel):
-    """Request model for the first-run setup wizard — creates the initial admin user."""
+    """Request model for the first-run setup wizard â€” creates the initial admin user."""
 
     username: str = Field(min_length=3, max_length=32, pattern=r"^[a-zA-Z0-9_]+$")
     password: str = Field(min_length=8, max_length=4096)
@@ -509,7 +509,7 @@ class SetupRequest(BaseModel):
 
 class AppearanceSettings(BaseModel):
     title: str = Field(default="Amnezia", min_length=1, max_length=100)
-    logo: str = Field(default="🛡", min_length=1, max_length=100)
+    logo: str = Field(default="ðŸ›¡", min_length=1, max_length=100)
     subtitle: str = Field(default="Web Panel", min_length=1, max_length=200)
     language: str = Field(default="en", min_length=1, max_length=10)
 
@@ -518,7 +518,7 @@ class AppearanceSettings(BaseModel):
     def validate_language(cls, v: str) -> str:
         """Validate language against available translations."""
         if v:  # Skip if empty (default)
-            from config import TRANSLATIONS
+            from app.core.config import TRANSLATIONS
 
             v = v.strip().lower()
             if v not in TRANSLATIONS:

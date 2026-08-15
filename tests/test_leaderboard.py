@@ -18,9 +18,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 from app.utils.helpers import get_leaderboard_entries
-from dependencies import get_current_user
+from app.core.dependencies import get_current_user
 
 import app
 
@@ -217,7 +217,7 @@ class TestGetLeaderboardEntries:
 
     def test_missing_traffic_fields_defaults_to_zero(self, temp_db):
 
-        # Create a user with minimal fields — defaults to 0 traffic
+        # Create a user with minimal fields â€” defaults to 0 traffic
         _make_user(temp_db, "minimal")
         with patch("config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")

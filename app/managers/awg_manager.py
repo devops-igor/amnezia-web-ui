@@ -155,7 +155,7 @@ def generate_awg_params(profile=None):
                 break
             s2 = random.randint(*ranges["response_packet_junk_size"])
         else:
-            # Exhausted retries — force gap by moving s2 away from s1
+            # Exhausted retries â€” force gap by moving s2 away from s1
             s2_min, s2_max = ranges["response_packet_junk_size"]
             if s1 + 10 <= s2_max:
                 s2 = max(s2_min, s1 + 10)
@@ -512,7 +512,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             logger.info(f"Container {container_name} status: {last_status}, waiting...")
             time.sleep(2)
 
-        # Container failed to start — fetch logs for diagnostics
+        # Container failed to start â€” fetch logs for diagnostics
         logs_out, _, _ = self.ssh.run_sudo_command(f"docker logs --tail 50 {container_name} 2>&1")
         raise RuntimeError(
             f"Container {container_name} did not start within {timeout}s "
@@ -547,7 +547,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             if key not in awg_params:
                 continue
             val = awg_params[key]
-            # Must be a string representation of an integer — no newlines,
+            # Must be a string representation of an integer â€” no newlines,
             # shell metacharacters, or floating point
             if not isinstance(val, str) or not val.isdigit():
                 raise ValueError(f"awg_params['{key}'] must be a numeric string, got: {val!r}")
@@ -599,7 +599,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         subnet_ip = AWG_DEFAULTS["subnet_ip"]
         subnet_cidr = AWG_DEFAULTS["subnet_cidr"]
 
-        # Phase 1: Generate keys inside container (safe — no user data in commands)
+        # Phase 1: Generate keys inside container (safe â€” no user data in commands)
         keygen_script = (
             f"mkdir -p /opt/amnezia/awg && "
             f"{wg_bin} genkey > /opt/amnezia/awg/wireguard_server_private_key.key && "
@@ -643,7 +643,7 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
             f"H4 = {awg_params['transport_packet_magic_header']}",
         ]
 
-        # I1-I5 are CLIENT-only parameters — NEVER written to server config
+        # I1-I5 are CLIENT-only parameters â€” NEVER written to server config
         config_content = "\n".join(config_parts) + "\n"
 
         # Upload config via SFTP + docker cp (no user data in shell commands)
@@ -1068,7 +1068,7 @@ tail -f /dev/null
             client_ip = self._get_next_ip(protocol_type)
 
             # Get AWG params from server config (Jc, Jmin, Jmax, S1-S4, H1-H4)
-            # NOTE: I1-I5 are CLIENT-only — they are NOT in the server config.
+            # NOTE: I1-I5 are CLIENT-only â€” they are NOT in the server config.
             # They must be sourced from the database-stored awg_params.
             awg_params = self._get_awg_params_from_config(protocol_type)
 
@@ -1145,7 +1145,7 @@ AllowedIPs = {client_ip}/32
                 except Exception as e:
                     logger.warning(f"Failed to reapply speed limits after syncconf: {e}")
 
-            # Update clients table — store keys for config reconstruction
+            # Update clients table â€” store keys for config reconstruction
             clients_table = self._get_clients_table(protocol_type)
             new_client = {
                 "clientId": client_pub_key,
@@ -1171,7 +1171,7 @@ AllowedIPs = {client_ip}/32
                 port = awg_params["port"]
 
             # Merge CLIENT-only params (I1-I5, MTU) from database storage
-            # These are NOT in the server config file — they come from stored_awg_params
+            # These are NOT in the server config file â€” they come from stored_awg_params
             if stored_awg_params:
                 for key in ("i1", "i2", "i3", "i4", "i5", "mtu"):
                     if key in stored_awg_params and key not in awg_params:
@@ -1341,7 +1341,7 @@ AllowedIPs = {client_ip}/32
 
 """
                 # Read existing config, append peer, write back via SFTP + docker cp
-                # (no shell injection — peer data never enters a shell command)
+                # (no shell injection â€” peer data never enters a shell command)
                 existing_config = self._get_server_config(protocol_type)
                 new_config = existing_config.rstrip("\n") + "\n" + peer_section
                 self.ssh.upload_file(new_config, "/tmp/_amnz_config.conf")
@@ -1649,7 +1649,7 @@ AllowedIPs = {client_ip}/32
         Returns:
             Dict with the updated config, or None on failure.
         """
-        from config import get_db
+        from app.core.config import get_db
 
         # Build the new config
         config = {
@@ -1711,7 +1711,7 @@ AllowedIPs = {client_ip}/32
         Returns:
             Dict with the updated config, or None on failure.
         """
-        from config import get_db
+        from app.core.config import get_db
 
         config = {
             "global_speed_limit_down": global_speed_limit_down,
