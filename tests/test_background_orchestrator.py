@@ -646,12 +646,18 @@ class TestMonthlyRolloverUnconditional:
             assert init_found, "update_user should have initialized monthly_reset_at for user2"
 
     @pytest.mark.asyncio
-    async def test_monthly_rollover_snapshot_called_once_for_multiple_users(self, orchestrator):
+    async def test_monthly_rollover_snapshot_called_once_for_multiple_users(
+        self, orchestrator
+    ):
         """When multiple users roll over, save_leaderboard_snapshot is called exactly once."""
         from datetime import datetime, timedelta
 
         mock_db = MagicMock()
-        mock_server = {"id": "srv1", "host": "1.2.3.4", "protocols": {"awg": {"port": 51820}}}
+        mock_server = {
+            "id": "srv1",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 51820}},
+        }
         mock_db.get_all_servers.return_value = [mock_server]
         mock_db.get_all_connections.return_value = []
 

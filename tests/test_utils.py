@@ -80,4 +80,3 @@ class TestSanitizeError:
         assert "/var/log/amnezia/error.log" not in result
         assert "192.168.1.100" not in result
         assert "***" in result
-

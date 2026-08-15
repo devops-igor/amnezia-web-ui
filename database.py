@@ -1215,7 +1215,9 @@ class Database:
                     if key == "ssl" and isinstance(value, dict):
                         value = dict(value)
                         if value.get("key_text"):
-                            value["key_text"] = credential_crypto.encrypt_credential(value["key_text"])
+                            value["key_text"] = credential_crypto.encrypt_credential(
+                                value["key_text"]
+                            )
                         if value.get("cert_text"):
                             value["cert_text"] = credential_crypto.encrypt_credential(
                                 value["cert_text"]
@@ -1247,7 +1249,9 @@ class Database:
     def _get_all_known_hosts(self) -> List[Dict[str, Any]]:
         """Return all known hosts entries."""
         with self._connection() as conn:
-            rows = conn.execute("SELECT server_id, fingerprint FROM known_hosts ORDER BY server_id").fetchall()
+            rows = conn.execute(
+                "SELECT server_id, fingerprint FROM known_hosts ORDER BY server_id"
+            ).fetchall()
         return _rows_to_dicts(rows)
 
     def _get_all_leaderboard_snapshots(self) -> List[Dict[str, Any]]:

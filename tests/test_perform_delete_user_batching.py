@@ -443,4 +443,3 @@ class TestPerformToggleUser:
         mock_db.update_user.assert_called_once_with("u1", {"enabled": False})
         mock_ssh.connect.assert_called_once()
         mock_manager.toggle_client.assert_called_once_with("awg", "peer1", False)
-

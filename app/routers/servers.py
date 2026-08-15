@@ -10,7 +10,12 @@ import paramiko
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
+from app.utils.helpers import (
+    _sanitize_error,
+    generate_vpn_link,
+    get_protocol_manager,
+    get_ssh,
+)
 from app.utils.rate_limiter import limiter
 from config import get_db
 from dependencies import get_current_user, require_admin
