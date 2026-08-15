@@ -22,7 +22,7 @@
     {# Always render the list container so JS can insert into it without reload #}
     <div class="clients-list{% if not connections %} hidden{% endif %}" id="myConnectionsList">
         {% for c in connections %}
-        <div class="client-item" data-id="{{ c.id }}">
+        <div class="client-item" data-conn-id="{{ c.id }}" data-id="{{ c.id }}">
             <div class="client-info">
                 <div class="client-avatar">🔗</div>
                 <div>
@@ -50,6 +50,10 @@
                 <button class="btn btn-primary btn-sm"
                     onclick="showMyConfig('{{ c.id }}', '{{ c.name or 'Connection' }}', '{{ c.protocol }}')">
                     {{ _('show_config') }}
+                </button>
+                <button class="btn btn-danger btn-sm"
+                    onclick="deleteConnection('{{ c.id }}', '{{ (c.name or 'Connection') | e }}')">
+                    🗑️ {{ _('delete') }}
                 </button>
             </div>
         </div>
@@ -261,7 +265,7 @@
             : '';
         const topClass = isTopConsumer ? ' top-consumer' : '';
         return `
-        <div class="client-item${topClass}" data-id="${connId}">
+        <div class="client-item${topClass}" data-conn-id="${connId}" data-id="${connId}">
             <div class="client-info">
                 <div class="client-avatar">🔗</div>
                 <div>
@@ -284,6 +288,10 @@
                 <button class="btn btn-primary btn-sm"
                     onclick="showMyConfig('${escapeJs(conn.id)}', '${escapeJs(conn.name || 'Connection')}', '${escapeJs(conn.protocol)}')">
                     {{ _('show_config') }}
+                </button>
+                <button class="btn btn-danger btn-sm"
+                    onclick="deleteConnection('${escapeJs(conn.id)}', '${escapeJs(conn.name || 'Connection')}')">
+                    🗑️ {{ _('delete') }}
                 </button>
             </div>
         </div>`;
@@ -536,6 +544,32 @@
     function closeRenameModal() {
         closeModal('renameModal');
         renameConnectionId = null;
+    }
+
+    async function deleteConnection(connectionId, name) {
+        if (!confirm(_('delete_connection_confirm'))) return;
+        try {
+            const res = await fetch(`/api/my/connections/${connectionId}/delete`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': getCsrfToken(),
+                },
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                showToast(data.error || '{{ _('create_conn_error') }}', 'error');
+                return;
+            }
+            // Remove card from DOM
+            const card = document.querySelector(`[data-conn-id="${CSS.escape(connectionId)}"]`);
+            if (card) card.remove();
+            // Refresh list to update counter
+            await refreshConnectionsList();
+            showToast(_('connection_deleted'), 'success');
+        } catch (e) {
+            showToast('{{ _('create_conn_error') }}', 'error');
+        }
     }
 
     async function submitRename() {
