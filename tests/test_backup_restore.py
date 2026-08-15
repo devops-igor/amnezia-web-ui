@@ -497,7 +497,10 @@ class TestBackupRestoreExtendedData:
             # Check SSL was encrypted at rest
             ssl_setting = db.get_setting("ssl")
             assert ssl_setting["enabled"] is True
-            assert ssl_setting["key_text"] == "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----"
+            assert (
+                ssl_setting["key_text"]
+                == "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----"
+            )
 
             # Direct raw DB check: the raw string stored in sqlite should NOT be plaintext private key
             raw_ssl = db.get_setting("ssl", decrypt_ssl=False)

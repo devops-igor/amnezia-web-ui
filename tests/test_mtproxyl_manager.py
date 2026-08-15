@@ -804,4 +804,3 @@ class TestSaveServerConfig:
 
         # Verify restart CLI command was executed
         assert any("restart" in str(call) for call in mock_ssh.run_command.call_args_list)
-

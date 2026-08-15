@@ -137,7 +137,9 @@ class BackgroundTaskOrchestrator:
             if monthly_reset_iso:
                 try:
                     monthly_last = datetime.fromisoformat(monthly_reset_iso)
-                    if (now.month != monthly_last.month or now.year != monthly_last.year) and not rollover_snapshot_taken:
+                    if (
+                        now.month != monthly_last.month or now.year != monthly_last.year
+                    ) and not rollover_snapshot_taken:
                         snapshot_year = monthly_last.year
                         snapshot_month = monthly_last.month
                         saved_count = db.save_leaderboard_snapshot(snapshot_year, snapshot_month)
