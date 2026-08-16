@@ -20,12 +20,16 @@ class TestLifespanAdminCreation:
         mock_db.get_setting.return_value = {}
 
         with (
-            patch("app.init_db"),
-            patch("app.get_db", return_value=mock_db),
+            patch("app.main.init_db"),
+            patch("app.main.get_db", return_value=mock_db),
             patch(
-                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                "app.services.background_supervisor.BackgroundTaskSupervisor.start",
                 new_callable=AsyncMock,
             ) as mock_start,
+            patch(
+                "app.services.background_supervisor.BackgroundTaskSupervisor.stop",
+                new_callable=AsyncMock,
+            ),
         ):
             async with lifespan(mock_app):
                 pass
@@ -45,10 +49,14 @@ class TestLifespanAdminCreation:
         mock_db.get_setting.return_value = {}
 
         with (
-            patch("app.init_db"),
-            patch("app.get_db", return_value=mock_db),
+            patch("app.main.init_db"),
+            patch("app.main.get_db", return_value=mock_db),
             patch(
-                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                "app.services.background_supervisor.BackgroundTaskSupervisor.start",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.background_supervisor.BackgroundTaskSupervisor.stop",
                 new_callable=AsyncMock,
             ),
         ):
@@ -69,18 +77,22 @@ class TestLifespanAdminCreation:
         mock_db.get_setting.return_value = {}
 
         with (
-            patch("app.init_db"),
-            patch("app.get_db", return_value=mock_db),
-            patch("app.logger") as mock_logger,
+            patch("app.main.init_db"),
+            patch("app.main.get_db", return_value=mock_db),
+            patch("app.main.logger") as mock_logger,
             patch(
-                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                "app.services.background_supervisor.BackgroundTaskSupervisor.start",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.background_supervisor.BackgroundTaskSupervisor.stop",
                 new_callable=AsyncMock,
             ),
         ):
             async with lifespan(mock_app):
                 pass
 
-            mock_logger.info.assert_any_call("No users found — setup wizard required at /setup")
+            mock_logger.info.assert_any_call("No users found - setup wizard required at /setup")
 
 
 class TestLifespanShutdown:
@@ -98,10 +110,14 @@ class TestLifespanShutdown:
         mock_db.get_setting.return_value = {}
 
         with (
-            patch("app.init_db"),
-            patch("app.get_db", return_value=mock_db),
+            patch("app.main.init_db"),
+            patch("app.main.get_db", return_value=mock_db),
             patch(
-                "app.services.background_orchestrator.BackgroundTaskOrchestrator.start",
+                "app.services.background_supervisor.BackgroundTaskSupervisor.start",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.background_supervisor.BackgroundTaskSupervisor.stop",
                 new_callable=AsyncMock,
             ),
         ):
