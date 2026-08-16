@@ -13,10 +13,11 @@ logger = logging.getLogger(__name__)
 
 # ======================== Paths ========================
 
-# APP_DIR: directory of config.py â€” static app files (translations, etc.)
-# DATA_DIR: directory for writable runtime data (DB, secrets) â€” defaults to APP_DIR
+# APP_DIR: project root — static app files (translations, templates, static, etc.)
+# config.py lives in app/core/ so project root is two levels up.
+# DATA_DIR: directory for writable runtime data (DB, secrets) — defaults to APP_DIR
 #           but can be overridden for Docker volumes (e.g. DATA_DIR=/app/data)
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.environ.get("DATA_DIR", APP_DIR)
 DB_PATH = os.path.join(DATA_DIR, "panel.db")
 
