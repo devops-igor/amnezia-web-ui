@@ -474,7 +474,7 @@ class TestBackupRestoreExtendedData:
         tmp_db.close()
         try:
             db = Database(tmp_db_path, secret_key=TEST_SECRET_KEY)
-            db.add_server({"name": "Test Server", "host": "1.2.3.4", "protocols": {}})
+            db.create_server({"name": "Test Server", "host": "1.2.3.4", "protocols": {}})
             db.save_known_host_fingerprint(1, "aa:bb:cc:dd")
             db.save_leaderboard_snapshot(2026, 7)
 
@@ -504,7 +504,8 @@ class TestBackupRestoreExtendedData:
             )
 
             # Direct raw DB check: the raw string stored in sqlite should NOT be plaintext private key
-            raw_ssl = db.get_setting("ssl", decrypt_ssl=False)
+            raw_ssl_str = db._get_conn().execute("SELECT value FROM settings WHERE key='ssl'").fetchone()[0]
+            raw_ssl = json.loads(raw_ssl_str)
             assert "-----BEGIN PRIVATE KEY-----" not in raw_ssl["key_text"]
         finally:
             conn = db._get_conn()

@@ -392,21 +392,39 @@ class Database:
         raw_key = server.get("private_key") or server.get("ssh_key", "")
         encrypted_pass = security.encrypt_credential(raw_pass)
         encrypted_key = security.encrypt_credential(raw_key)
-        cur = conn.execute(
-            """INSERT INTO servers (name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
-               protocols, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                server.get("name", ""),
-                server.get("host", ""),
-                server.get("username") or server.get("ssh_user", ""),
-                server.get("ssh_port", 22),
-                encrypted_pass,
-                encrypted_key,
-                protocols_json,
-                server.get("created_at", datetime.now().isoformat()),
-            ),
-        )
+        if "id" in server:
+            cur = conn.execute(
+                """INSERT INTO servers (id, name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
+                   protocols, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server["id"],
+                    server.get("name", ""),
+                    server.get("host", ""),
+                    server.get("username") or server.get("ssh_user", ""),
+                    server.get("ssh_port", 22),
+                    encrypted_pass,
+                    encrypted_key,
+                    protocols_json,
+                    server.get("created_at", datetime.now().isoformat()),
+                ),
+            )
+        else:
+            cur = conn.execute(
+                """INSERT INTO servers (name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
+                   protocols, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server.get("name", ""),
+                    server.get("host", ""),
+                    server.get("username") or server.get("ssh_user", ""),
+                    server.get("ssh_port", 22),
+                    encrypted_pass,
+                    encrypted_key,
+                    protocols_json,
+                    server.get("created_at", datetime.now().isoformat()),
+                ),
+            )
         return cur.lastrowid
 
     def create_server(self, server: Dict[str, Any]) -> int:
@@ -1126,14 +1144,14 @@ class Database:
             conn.execute("BEGIN")
 
             try:
-                # Clear existing data
+                # Clear existing data in correct FK order
+                conn.execute("DELETE FROM connection_creation_log")
                 conn.execute("DELETE FROM user_connections")
+                conn.execute("DELETE FROM known_hosts")
+                conn.execute("DELETE FROM leaderboard_snapshots")
                 conn.execute("DELETE FROM users")
                 conn.execute("DELETE FROM servers")
                 conn.execute("DELETE FROM settings")
-                conn.execute("DELETE FROM connection_creation_log")
-                conn.execute("DELETE FROM known_hosts")
-                conn.execute("DELETE FROM leaderboard_snapshots")
 
                 # Insert servers
                 for srv in data.get("servers", []):
