@@ -504,7 +504,9 @@ class TestBackupRestoreExtendedData:
             )
 
             # Direct raw DB check: the raw string stored in sqlite should NOT be plaintext private key
-            raw_ssl_str = db._get_conn().execute("SELECT value FROM settings WHERE key='ssl'").fetchone()[0]
+            raw_ssl_str = (
+                db._get_conn().execute("SELECT value FROM settings WHERE key='ssl'").fetchone()[0]
+            )
             raw_ssl = json.loads(raw_ssl_str)
             assert "-----BEGIN PRIVATE KEY-----" not in raw_ssl["key_text"]
         finally:
