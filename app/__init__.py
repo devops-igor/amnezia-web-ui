@@ -3,6 +3,7 @@
 from app.main import (
     app,
     lifespan,
+    logger,
     SetupRedirectMiddleware,
     PasswordChangeRequiredMiddleware,
     _rate_limit_exceeded_handler,
@@ -12,6 +13,7 @@ from app.core.config import get_db, init_db
 __all__ = [
     "app",
     "lifespan",
+    "logger",
     "SetupRedirectMiddleware",
     "PasswordChangeRequiredMiddleware",
     "get_db",

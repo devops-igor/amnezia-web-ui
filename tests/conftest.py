@@ -11,7 +11,7 @@ def _reset_rate_limiter():
     try:
         from app.main import app, SetupRedirectMiddleware
 
-        SetupRedirectMiddleware._is_setup_done = False
+        SetupRedirectMiddleware._is_setup_done = True
         limiter = getattr(app.state, "limiter", None)
         if limiter is not None:
             limiter.reset()
