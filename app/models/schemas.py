@@ -509,7 +509,7 @@ class SetupRequest(BaseModel):
 
 class AppearanceSettings(BaseModel):
     title: str = Field(default="Amnezia", min_length=1, max_length=100)
-    logo: str = Field(default="ðŸ›¡", min_length=1, max_length=100)
+    logo: str = Field(default="🛡", min_length=1, max_length=100)
     subtitle: str = Field(default="Web Panel", min_length=1, max_length=200)
     language: str = Field(default="en", min_length=1, max_length=10)
 
