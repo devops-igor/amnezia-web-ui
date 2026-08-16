@@ -17,15 +17,15 @@ import sqlite3
 
 import pytest
 
-import credential_crypto
-from credential_crypto import (
+from app.core import security
+from app.core.security import (
     _init_fernet,
     _looks_like_fernet_token,
     decrypt_credential,
     decrypt_credential_safe,
     encrypt_credential,
 )
-from database import Database
+from app.core.database import SCHEMA_PATH, Database
 
 # ----------------------------------------------------------------
 # Fixtures
@@ -37,9 +37,9 @@ TEST_SECRET_KEY = "test-secret-key-for-ssl-encryption-tests-04"
 @pytest.fixture(autouse=True)
 def reset_global_fernet():
     """Reset module-level Fernet before each test."""
-    credential_crypto._fernet = None
+    security._fernet = None
     yield
-    credential_crypto._fernet = None
+    security._fernet = None
 
 
 @pytest.fixture
@@ -158,7 +158,7 @@ class TestSslEncryptionAtRest:
         assert stored["cert_text"] == ""
 
     def test_key_path_not_encrypted(self, db, tmp_path):
-        """key_path is a file path, not secret material — should NOT be encrypted."""
+        """key_path is a file path, not secret material Ã¢â‚¬â€ should NOT be encrypted."""
         ssl_data = {
             "enabled": True,
             "domain": "example.com",
@@ -179,7 +179,7 @@ class TestSslEncryptionAtRest:
         assert stored["cert_path"] == "/etc/ssl/certs/cert.pem"
 
     def test_cert_path_not_encrypted(self, db, tmp_path):
-        """cert_path should not be encrypted — it's not secret material."""
+        """cert_path should not be encrypted Ã¢â‚¬â€ it's not secret material."""
         ssl_data = {
             "enabled": True,
             "domain": "example.com",
@@ -312,12 +312,12 @@ class TestSslMigration:
         db_path = str(tmp_path / "migrate.db")
 
         # Set up Fernet first
-        credential_crypto._fernet = None
+        security._fernet = None
         _init_fernet(TEST_SECRET_KEY)
 
         # Write plaintext SSL settings BEFORE Database init
         conn = sqlite3.connect(db_path)
-        with open("/home/igor/Amnezia-Web-Panel/schema.sql") as f:
+        with open(SCHEMA_PATH) as f:
             conn.executescript(f.read())
         plaintext_key = "-----BEGIN PRIVATE KEY-----\nOLDPLAIN\n-----END PRIVATE KEY-----"
         old_ssl = {
@@ -336,8 +336,8 @@ class TestSslMigration:
         conn.commit()
         conn.close()
 
-        # Now create Database — migration runs in _init_db() and encrypts the plaintext
-        credential_crypto._fernet = None
+        # Now create Database Ã¢â‚¬â€ migration runs in _init_db() and encrypts the plaintext
+        security._fernet = None
         _init_fernet(TEST_SECRET_KEY)
         db = Database(db_path, secret_key=TEST_SECRET_KEY)
 
@@ -356,7 +356,7 @@ class TestSslMigration:
         """Migration should skip already-encrypted key_text/cert_text."""
         db_path = str(tmp_path / "migrate2.db")
 
-        credential_crypto._fernet = None
+        security._fernet = None
         _init_fernet(TEST_SECRET_KEY)
 
         # Pre-encrypt the key_text
@@ -374,7 +374,7 @@ class TestSslMigration:
         }
         # Write directly to DB (bypassing update_setting so it stays as-is)
         conn = sqlite3.connect(db_path)
-        with open("/home/igor/Amnezia-Web-Panel/schema.sql") as f:
+        with open(SCHEMA_PATH) as f:
             conn.executescript(f.read())
         conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
@@ -391,7 +391,7 @@ class TestSslMigration:
         conn.commit()
         conn.close()
 
-        credential_crypto._fernet = None
+        security._fernet = None
         _init_fernet(TEST_SECRET_KEY)
         Database(db_path, secret_key=TEST_SECRET_KEY)
 
@@ -406,7 +406,7 @@ class TestSslMigration:
         """After migration, ssl_keys_encrypted flag should be set."""
         db_path = str(tmp_path / "migrate3.db")
 
-        credential_crypto._fernet = None
+        security._fernet = None
         _init_fernet(TEST_SECRET_KEY)
         db = Database(db_path, secret_key=TEST_SECRET_KEY)
 

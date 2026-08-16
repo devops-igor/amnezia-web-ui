@@ -1,4 +1,4 @@
-"""Pure helper functions — no route handlers, no FastAPI app state.
+"""Pure helper functions Ã¢â‚¬â€ no route handlers, no FastAPI app state.
 
 Dependencies on ``app`` (e.g. ``get_db``, ``TRANSLATIONS``) are resolved
 lazily *inside* function bodies so that ``patch.object(app, "get_db", ...)``
@@ -15,7 +15,7 @@ import re
 from datetime import datetime
 
 import bcrypt
-import credential_crypto
+from app.core import security
 from app.managers import SSHManager, XrayManager
 from fastapi import Request
 from slowapi.util import get_remote_address
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# TRUSTED_PROXIES — env-driven, CIDR-aware trusted proxy detection
+# TRUSTED_PROXIES Ã¢â‚¬â€ env-driven, CIDR-aware trusted proxy detection
 # ---------------------------------------------------------------------------
 
 _trusted_proxy_hosts: set[ipaddress.IPv4Address | ipaddress.IPv6Address] = set()
@@ -40,7 +40,7 @@ def _parse_trusted_proxies(env_value: str) -> None:
     ``_trusted_proxy_networks`` while plain addresses (no netmask after the
     network-then-address parse) are stored in ``_trusted_proxy_hosts``.
 
-    Invalid entries are logged as warnings and silently skipped — the env
+    Invalid entries are logged as warnings and silently skipped Ã¢â‚¬â€ the env
     var is never allowed to crash the application.
     """
     _trusted_proxy_hosts.clear()
@@ -53,12 +53,12 @@ def _parse_trusted_proxies(env_value: str) -> None:
         try:
             net = ipaddress.ip_network(entry, strict=False)
         except ValueError:
-            logger.warning("Invalid TRUSTED_PROXIES entry %r — skipping", entry)
+            logger.warning("Invalid TRUSTED_PROXIES entry %r Ã¢â‚¬â€ skipping", entry)
             continue
 
         # Distinguish CIDR networks from bare addresses
         if net.prefixlen == net.max_prefixlen:
-            # /32 (IPv4) or /128 (IPv6) — treat as a host address
+            # /32 (IPv4) or /128 (IPv6) Ã¢â‚¬â€ treat as a host address
             _trusted_proxy_hosts.add(net.network_address)
         else:
             _trusted_proxy_networks.append(net)
@@ -74,14 +74,14 @@ if _raw_proxies:
         len(_trusted_proxy_networks),
     )
 else:
-    logger.info("TRUSTED_PROXIES not set — X-Forwarded-For will NOT be trusted")
+    logger.info("TRUSTED_PROXIES not set Ã¢â‚¬â€ X-Forwarded-For will NOT be trusted")
 
 
 # Patterns to strip from error messages shown to users (security)
 _SENSITIVE_PATTERNS = [
     re.compile(r"/[\w/.-]+"),  # File paths
     re.compile(r"\b\d{1,3}(\.\d{1,3}){3}\b"),  # IP addresses
-    re.compile(r"\b[\w.-]+@ [\w.-]+\.\w{2,}\b"),  # Email-like patterns
+    re.compile(r"\b[\w.-]+@[\w.-]+\.\w{2,}\b"),  # Email-like patterns
     re.compile(r"\b0x[0-9a-fA-F]+\b"),  # Hex addresses
 ]
 
@@ -129,7 +129,7 @@ def serialize_protocols(protocols: dict) -> dict:
     """
     if not isinstance(protocols, dict):
         return protocols
-    return credential_crypto.strip_sensitive_protocol_fields(protocols)
+    return security.strip_sensitive_protocol_fields(protocols)
 
 
 def generate_vpn_link(config_text):
@@ -174,7 +174,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
         Users with zero total traffic or disabled accounts are excluded.
         For "last-month", returns data from the leaderboard_snapshots table.
     """
-    from config import get_db
+    from app.core.config import get_db
 
     db = get_db()
     if period == "last-month":
@@ -186,7 +186,7 @@ def get_leaderboard_entries(period: str) -> list[dict]:
 
 
 def _t(text_id, lang="en"):
-    from config import TRANSLATIONS
+    from app.core.config import TRANSLATIONS
 
     lang_batch = TRANSLATIONS.get(lang, TRANSLATIONS.get("en", {}))
     return lang_batch.get(text_id, text_id)
@@ -194,7 +194,7 @@ def _t(text_id, lang="en"):
 
 def _get_default_lang() -> str:
     """Read the default language from appearance settings, fall back to 'en'."""
-    from config import get_db
+    from app.core.config import get_db
 
     try:
         db = get_db()

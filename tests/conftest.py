@@ -9,9 +9,9 @@ import pytest
 def _reset_rate_limiter():
     """Reset slowapi rate limiter storage and setup middleware cache before each test."""
     try:
-        from app import app, SetupRedirectMiddleware
+        from app.main import app, SetupRedirectMiddleware
 
-        SetupRedirectMiddleware._has_users = None
+        SetupRedirectMiddleware._is_setup_done = True
         limiter = getattr(app.state, "limiter", None)
         if limiter is not None:
             limiter.reset()

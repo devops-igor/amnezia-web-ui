@@ -59,3 +59,24 @@ class TestFormatBytes:
     def test_negative_zero(self) -> None:
         # -0.0 should still show "0 B"
         assert format_bytes(-0) == "0 B"
+
+
+class TestSanitizeError:
+    """Tests for _sanitize_error utility."""
+
+    def test_sanitizes_email(self) -> None:
+        from app.utils.helpers import _sanitize_error
+
+        raw = "Failed to connect to admin@example.com on server"
+        result = _sanitize_error(raw)
+        assert "admin@example.com" not in result
+        assert "***" in result
+
+    def test_sanitizes_ip_and_paths(self) -> None:
+        from app.utils.helpers import _sanitize_error
+
+        raw = "Error in /var/log/amnezia/error.log at 192.168.1.100"
+        result = _sanitize_error(raw)
+        assert "/var/log/amnezia/error.log" not in result
+        assert "192.168.1.100" not in result
+        assert "***" in result

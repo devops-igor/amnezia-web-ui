@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
 from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
-from config import get_db
-from dependencies import get_current_user
-from schemas import MyAddConnectionRequest, RenameConnectionRequest, normalize_protocol
+from app.core.config import get_db
+from app.core.dependencies import get_current_user
+from app.models.schemas import MyAddConnectionRequest, RenameConnectionRequest, normalize_protocol
 
 logger = logging.getLogger(__name__)
 

@@ -18,9 +18,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 from app.utils.helpers import get_leaderboard_entries
-from dependencies import get_current_user
+from app.core.dependencies import get_current_user
 
 import app
 
@@ -74,7 +74,7 @@ class TestGetLeaderboardEntries:
 
         _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         _make_user(temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=1000)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert len(entries) == 2
         assert entries[0]["username"] == "bob"
@@ -88,7 +88,7 @@ class TestGetLeaderboardEntries:
 
         _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         _make_user(temp_db, "bob", monthly_rx=200, monthly_tx=100)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("monthly")
         assert len(entries) == 2
         assert entries[0]["username"] == "bob"
@@ -100,7 +100,7 @@ class TestGetLeaderboardEntries:
         _make_user(temp_db, "user1", traffic_total_rx=100, traffic_total_tx=100)
         _make_user(temp_db, "user2", traffic_total_rx=500, traffic_total_tx=500)
         _make_user(temp_db, "user3", traffic_total_rx=50, traffic_total_tx=50)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert entries[0]["username"] == "user2"
         assert entries[1]["username"] == "user1"
@@ -111,7 +111,7 @@ class TestGetLeaderboardEntries:
         _make_user(temp_db, "a", traffic_total_rx=300, traffic_total_tx=0)
         _make_user(temp_db, "b", traffic_total_rx=200, traffic_total_tx=0)
         _make_user(temp_db, "c", traffic_total_rx=100, traffic_total_tx=0)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert entries[0]["rank"] == 1
         assert entries[1]["rank"] == 2
@@ -121,7 +121,7 @@ class TestGetLeaderboardEntries:
 
         _make_user(temp_db, "active", traffic_total_rx=1000, traffic_total_tx=500)
         _make_user(temp_db, "inactive", traffic_total_rx=0, traffic_total_tx=0)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert len(entries) == 1
         assert entries[0]["username"] == "active"
@@ -132,7 +132,7 @@ class TestGetLeaderboardEntries:
         _make_user(
             temp_db, "disabled_user", traffic_total_rx=2000, traffic_total_tx=1000, enabled=False
         )
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert len(entries) == 1
         assert entries[0]["username"] == "enabled_user"
@@ -144,7 +144,7 @@ class TestGetLeaderboardEntries:
         _make_user(temp_db, "Alice", traffic_total_rx=1000, traffic_total_tx=0)
         _make_user(temp_db, "Bob", traffic_total_rx=1000, traffic_total_tx=0)
         _make_user(temp_db, "alice2", traffic_total_rx=500, traffic_total_tx=0)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert len(entries) == 4
         assert entries[0]["username"] == "Alice"
@@ -161,7 +161,7 @@ class TestGetLeaderboardEntries:
         _make_user(temp_db, "ALICE", traffic_total_rx=1000, traffic_total_tx=0)
         _make_user(temp_db, "bob", traffic_total_rx=1000, traffic_total_tx=0)
         _make_user(temp_db, "Charlie", traffic_total_rx=1000, traffic_total_tx=0)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert entries[0]["username"] == "ALICE"
         assert entries[1]["username"] == "bob"
@@ -171,7 +171,7 @@ class TestGetLeaderboardEntries:
 
         _make_user(temp_db, "active", monthly_rx=100, monthly_tx=50)
         _make_user(temp_db, "inactive", monthly_rx=0, monthly_tx=0)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("monthly")
         assert len(entries) == 1
         assert entries[0]["username"] == "active"
@@ -181,7 +181,7 @@ class TestGetLeaderboardEntries:
         _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         bob = _make_user(temp_db, "bob", traffic_total_rx=0, traffic_total_tx=0)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: bob
             try:
                 response = client.get("/api/leaderboard")
@@ -198,7 +198,7 @@ class TestGetLeaderboardEntries:
             temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=1000, enabled=False
         )
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: bob
             try:
                 response = client.get("/api/leaderboard")
@@ -211,15 +211,15 @@ class TestGetLeaderboardEntries:
     def test_empty_users(self, temp_db):
 
         # No users created = empty leaderboard
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         assert entries == []
 
     def test_missing_traffic_fields_defaults_to_zero(self, temp_db):
 
-        # Create a user with minimal fields — defaults to 0 traffic
+        # Create a user with minimal fields â€” defaults to 0 traffic
         _make_user(temp_db, "minimal")
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         # Zero-traffic users are excluded
         assert entries == []
@@ -227,14 +227,14 @@ class TestGetLeaderboardEntries:
     def test_invalid_period_defaults_to_all_time(self, temp_db):
 
         _make_user(temp_db, "alice", traffic_total_tx=100, monthly_rx=999)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("invalid-period")
         assert entries[0]["download"] == 100  # all-time field used
 
     def test_download_upload_separate(self, temp_db):
 
         _make_user(temp_db, "alice", traffic_total_rx=3000, traffic_total_tx=2000)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("all-time")
         # tx = server-sent = client download, rx = server-received = client upload
         assert entries[0]["download"] == 2000
@@ -380,7 +380,7 @@ class TestLeaderboardAPI:
     def test_unauthenticated_returns_401(self, temp_db):
 
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             response = client.get("/api/leaderboard")
         assert response.status_code == 401
         assert response.json()["detail"] == "Not authenticated"
@@ -389,7 +389,7 @@ class TestLeaderboardAPI:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/api/leaderboard")
@@ -407,7 +407,7 @@ class TestLeaderboardAPI:
         alice = _make_user(temp_db, "alice", traffic_total_rx=1000, traffic_total_tx=500)
         _make_user(temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=1000)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=all-time")
@@ -424,7 +424,7 @@ class TestLeaderboardAPI:
         alice = _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         _make_user(temp_db, "bob", monthly_rx=300, monthly_tx=200)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=monthly")
@@ -440,7 +440,7 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_tx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=invalid")
@@ -457,7 +457,7 @@ class TestLeaderboardAPI:
         _make_user(temp_db, "bob", traffic_total_rx=2000, traffic_total_tx=0)
         charlie = _make_user(temp_db, "charlie", traffic_total_rx=1000, traffic_total_tx=0)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: charlie
             try:
                 response = client.get("/api/leaderboard")
@@ -471,7 +471,7 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=5000, traffic_total_tx=0)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard")
@@ -485,7 +485,7 @@ class TestLeaderboardAPI:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard")
@@ -500,7 +500,7 @@ class TestLeaderboardAPI:
             temp_db, "alice", traffic_total_rx=5368709120, traffic_total_tx=1073741824
         )
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard")
@@ -526,7 +526,7 @@ class TestLeaderboardPage:
     def test_unauthenticated_returns_401(self, temp_db):
 
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             response = client.get("/leaderboard")
         assert response.status_code == 401
 
@@ -534,7 +534,7 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard")
@@ -546,7 +546,7 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard")
@@ -559,7 +559,7 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=monthly")
@@ -571,7 +571,7 @@ class TestLeaderboardPage:
 
         user = _make_user(temp_db, "testuser", traffic_total_rx=100, monthly_rx=9999)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=invalid")
@@ -590,7 +590,7 @@ class TestMonthlyLabel:
 
         alice = _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=monthly")
@@ -610,7 +610,7 @@ class TestMonthlyLabel:
 
         alice = _make_user(temp_db, "alice", traffic_total_rx=100, traffic_total_tx=50)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=all-time")
@@ -625,7 +625,7 @@ class TestMonthlyLabel:
 
         user = _make_user(temp_db, "testuser", monthly_rx=100, monthly_tx=50)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=monthly")
@@ -640,7 +640,7 @@ class TestMonthlyLabel:
 
         user = _make_user(temp_db, "testuser", traffic_total_rx=100, traffic_total_tx=50)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=all-time")
@@ -736,7 +736,7 @@ class TestGetLeaderboardEntriesLastMonth:
         last_month = 12 if now.month == 1 else now.month - 1
         last_year = now.year if now.month > 1 else now.year - 1
         temp_db.save_leaderboard_snapshot(last_year, last_month)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("last-month")
         assert len(entries) == 2
 
@@ -744,7 +744,7 @@ class TestGetLeaderboardEntriesLastMonth:
         _make_user(temp_db, "alice", monthly_rx=100, monthly_tx=50)
         # December 2025 = "last month" when current month is January 2026
         temp_db.save_leaderboard_snapshot(2025, 12)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             with patch("app.utils.helpers.datetime") as mock_dt:
                 mock_dt.now.return_value = datetime(2026, 1, 15)
                 mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
@@ -753,7 +753,7 @@ class TestGetLeaderboardEntriesLastMonth:
         assert entries[0]["username"] == "alice"
 
     def test_helper_last_month_empty_snapshot(self, temp_db):
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             entries = get_leaderboard_entries("last-month")
         assert entries == []
 
@@ -764,7 +764,7 @@ class TestApiLeaderboardLastMonth:
     def test_last_month_period_accepted(self, temp_db):
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/api/leaderboard?period=last-month")
@@ -782,7 +782,7 @@ class TestApiLeaderboardLastMonth:
         last_year = now.year if now.month > 1 else now.year - 1
         temp_db.save_leaderboard_snapshot(last_year, last_month)
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: alice
             try:
                 response = client.get("/api/leaderboard?period=last-month")
@@ -795,7 +795,7 @@ class TestApiLeaderboardLastMonth:
     def test_last_month_label_format(self, temp_db):
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/api/leaderboard?period=last-month")
@@ -809,7 +809,7 @@ class TestApiLeaderboardLastMonth:
     def test_last_month_empty_snapshot(self, temp_db):
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/api/leaderboard?period=last-month")
@@ -825,7 +825,7 @@ class TestPageLeaderboardLastMonth:
     def test_page_last_month_returns_200(self, temp_db):
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=last-month")
@@ -836,7 +836,7 @@ class TestPageLeaderboardLastMonth:
     def test_page_last_month_shows_label(self, temp_db):
         user = _make_user(temp_db, "testuser")
         client = TestClient(app.app)
-        with patch("config.get_db", return_value=temp_db):
+        with patch("app.core.config.get_db", return_value=temp_db):
             app.app.dependency_overrides[get_current_user] = lambda: user
             try:
                 response = client.get("/leaderboard?period=last-month")

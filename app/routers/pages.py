@@ -1,4 +1,4 @@
-"""Page routes — HTML page rendering for index, server detail, users, my-connections, leaderboard."""
+"""Page routes â€” HTML page rendering for index, server detail, users, my-connections, leaderboard."""
 
 import logging
 from datetime import datetime
@@ -8,8 +8,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.utils.helpers import get_leaderboard_entries
 from app.utils.templates import tpl
-from config import get_db
-from dependencies import get_current_user, get_current_user_optional
+from app.core.config import get_db
+from app.core.dependencies import get_current_user, get_current_user_optional
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
-    """First-run setup wizard page — only accessible when no users exist."""
+    """First-run setup wizard page â€” only accessible when no users exist."""
     db = get_db()
     if db.get_all_users():
         return RedirectResponse(url="/login", status_code=302)

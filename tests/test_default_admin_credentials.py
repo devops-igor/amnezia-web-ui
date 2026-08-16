@@ -17,7 +17,7 @@ import tempfile
 
 from fastapi.testclient import TestClient
 
-from database import Database
+from app.core.database import Database
 
 # ======================== Database tests ========================
 
@@ -230,8 +230,8 @@ class TestNoHardcodedAdminPassword:
     """Verify that no hardcoded admin password exists in source code."""
 
     def test_no_hardcoded_admin_password_in_app_py(self):
-        """app.py should not contain the string hash_password('admin')."""
-        with open("app.py", "r", encoding="utf-8") as f:
+        """app/main.py should not contain the string hash_password('admin')."""
+        with open("app/main.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert 'hash_password("admin")' not in content, (
             "Hardcoded admin password found in app.py - "
@@ -239,16 +239,16 @@ class TestNoHardcodedAdminPassword:
         )
 
     def test_no_admin_admin_default_in_app_py(self):
-        """app.py should not contain the pattern admin / admin or admin/admin."""
-        with open("app.py", "r", encoding="utf-8") as f:
+        """app/main.py should not contain the pattern admin / admin or admin/admin."""
+        with open("app/main.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert (
             "admin / admin" not in content
         ), 'Log message "admin / admin" found - indicates hardcoded credentials'
 
     def test_setup_wizard_mentioned_when_no_users(self):
-        """app.py should log 'setup wizard required' when no users exist."""
-        with open("app.py", "r", encoding="utf-8") as f:
+        """app/main.py should log 'setup wizard required' when no users exist."""
+        with open("app/main.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert (
             "setup wizard required at /setup" in content
@@ -256,21 +256,12 @@ class TestNoHardcodedAdminPassword:
 
     def test_no_password_change_required_on_first_boot(self):
         """First boot no longer creates user with password_change_required=True."""
-        with open("app.py", "r", encoding="utf-8") as f:
+        with open("app/main.py", "r", encoding="utf-8") as f:
             content = f.read()
-        import re
 
-        # Extract only the lifespan function body
-        lifespan_match = re.search(
-            r"async def lifespan\(.*?:(.*?)(?=app = FastAPI)",
-            content,
-            re.DOTALL,
-        )
-        assert lifespan_match, "Could not find lifespan function in app.py"
-        lifespan_body = lifespan_match.group(1)
-        assert '"password_change_required": True' not in lifespan_body, (
-            "password_change_required=True should no longer appear in lifespan "
-            "— the setup wizard handles this instead"
+        assert "password_change_required=True" not in content, (
+            "Found password_change_required=True in app/main.py, but first-run user "
+            "should be created via the setup wizard instead of hardcoded."
         )
 
     def test_no_password_printed_to_stdout(self):
@@ -278,7 +269,7 @@ class TestNoHardcodedAdminPassword:
         with open("app.py", "r", encoding="utf-8") as f:
             content = f.read()
         assert "INITIAL ADMIN CREDENTIALS" not in content, (
-            "Initial admin credentials banner should no longer be in startup code — "
+            "Initial admin credentials banner should no longer be in startup code â€” "
             "the setup wizard replaces this"
         )
 
@@ -291,7 +282,7 @@ class TestPasswordChangeValidation:
 
     def test_change_password_request_model_valid(self):
         """ChangePasswordRequest should accept valid input."""
-        from schemas import ChangePasswordRequest
+        from app.models.schemas import ChangePasswordRequest
 
         req = ChangePasswordRequest(
             current_password="oldpass",
@@ -306,7 +297,7 @@ class TestPasswordChangeValidation:
         """ChangePasswordRequest should reject missing fields."""
         from pydantic import ValidationError
 
-        from schemas import ChangePasswordRequest
+        from app.models.schemas import ChangePasswordRequest
 
         import pytest
 
@@ -365,7 +356,7 @@ class TestPasswordChangeIntegration:
         )
 
         # Override the app's database singleton
-        import config as config_module
+        from app.core import config as config_module
 
         self._orig_db_instance = config_module._db_instance
         config_module._db_instance = self.db

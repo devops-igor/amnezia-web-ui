@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse, Response
 
 from app.utils.helpers import _sanitize_error, serialize_protocols
 from app.utils.templates import tpl
-from config import get_db
-from dependencies import require_admin
-from schemas import SaveSettingsRequest, SettingsResponse
+from app.core.config import get_db
+from app.core.dependencies import require_admin
+from app.models.schemas import SaveSettingsRequest, SettingsResponse
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ async def api_backup_download(request: Request, user: dict = Depends(require_adm
     try:
         db = get_db()
         backup_data = db.load_data()
-        # Strip credentials from backup — they must not be exported
+        # Strip credentials from backup â€” they must not be exported
         for srv in backup_data.get("servers", []):
             srv.pop("password", None)
             srv.pop("private_key", None)
@@ -134,7 +134,7 @@ async def api_backup_restore(
         # restore works without error (credentials must be re-entered)
         if backup_data.get("credentials_excluded"):
             logger.warning(
-                "Restoring backup without credentials — "
+                "Restoring backup without credentials â€” "
                 "SSH passwords and keys must be re-entered manually"
             )
             for srv in backup_data.get("servers", []):

@@ -787,3 +787,20 @@ class TestParseConnections:
         )
         mock_ssh.run_command.return_value = (output, "", 0)
         assert manager._parse_connections() == {"tg_proxy": 2}
+
+
+class TestSaveServerConfig:
+    def test_save_server_config_writes_and_restarts(self, manager, mock_ssh):
+        mock_ssh.run_sudo_command.return_value = ("", "", 0)
+        mock_ssh.run_command.return_value = ("", "", 0)
+
+        manager.save_server_config("PORT=18443\nDOMAIN=example.com\n")
+
+        # Verify sudo command was called to write settings
+        mock_ssh.run_sudo_command.assert_called_once()
+        cmd = mock_ssh.run_sudo_command.call_args[0][0]
+        assert "/opt/mtproxyl/settings.conf" in cmd
+        assert "base64" in cmd
+
+        # Verify restart CLI command was executed
+        assert any("restart" in str(call) for call in mock_ssh.run_command.call_args_list)

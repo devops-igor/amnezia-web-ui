@@ -1,4 +1,4 @@
-"""RemnaWave API sync — synchronize users with external RemnaWave service."""
+"""RemnaWave API sync â€” synchronize users with external RemnaWave service."""
 
 import logging
 import secrets
@@ -7,7 +7,7 @@ from datetime import datetime
 
 import httpx
 
-from config import get_db
+from app.core.config import get_db
 from app.services.user_operations import perform_mass_operations
 
 logger = logging.getLogger(__name__)

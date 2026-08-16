@@ -1,18 +1,22 @@
-import os
+"""App package — exports the FastAPI application instance and middlewares."""
 
-# Package shim: transparently load the root-level app.py into this package
-# namespace so that `import app` and `patch.object(app, "get_db", ...)` keep
-# working throughout the incremental split.
+from app.main import (
+    app,
+    lifespan,
+    logger,
+    SetupRedirectMiddleware,
+    PasswordChangeRequiredMiddleware,
+    _rate_limit_exceeded_handler,
+)
+from app.core.config import get_db, init_db
 
-_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_app_py = os.path.join(_root, "app.py")
-
-with open(_app_py, "r", encoding="utf-8") as _f:
-    _source = _f.read()
-
-_exec_ns = globals()
-_exec_ns["__file__"] = _app_py
-_exec_ns["__name__"] = "app"
-_exec_ns.pop("__cached__", None)
-
-exec(compile(_source, _app_py, "exec"), _exec_ns)
+__all__ = [
+    "app",
+    "lifespan",
+    "logger",
+    "SetupRedirectMiddleware",
+    "PasswordChangeRequiredMiddleware",
+    "get_db",
+    "init_db",
+    "_rate_limit_exceeded_handler",
+]

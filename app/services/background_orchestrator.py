@@ -1,4 +1,4 @@
-"""BackgroundTaskOrchestrator — orchestrates periodic background operations with error isolation."""
+"""BackgroundTaskOrchestrator â€” orchestrates periodic background operations with error isolation."""
 
 import asyncio
 import logging
@@ -8,12 +8,12 @@ from typing import Dict
 from typing import List
 from typing import Optional
 
-from config import get_db
+from app.core.config import get_db
 from app.services.background import perform_mass_operations
 from app.services.background import sync_users_with_remnawave
 from app.utils.helpers import get_protocol_manager
 from app.utils.helpers import get_ssh
-from schemas import normalize_protocol
+from app.models.schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +130,32 @@ class BackgroundTaskOrchestrator:
         to_disable_uids: List[str] = []
 
         # === MONTHLY ROLLOVER: Runs unconditionally every cycle ===
+        # Step 1: Snapshot previous month's leaderboard data ONCE before zeroing counters
+        rollover_snapshot_taken = False
+        for u in users_map.values():
+            monthly_reset_iso = u.get("monthly_reset_at", "")
+            if monthly_reset_iso:
+                try:
+                    monthly_last = datetime.fromisoformat(monthly_reset_iso)
+                    if (
+                        now.month != monthly_last.month or now.year != monthly_last.year
+                    ) and not rollover_snapshot_taken:
+                        snapshot_year = monthly_last.year
+                        snapshot_month = monthly_last.month
+                        saved_count = db.save_leaderboard_snapshot(snapshot_year, snapshot_month)
+                        if saved_count > 0:
+                            logger.info(
+                                "Saved leaderboard snapshot for %d-%d (%d entries) before rollover",
+                                snapshot_year,
+                                snapshot_month,
+                                saved_count,
+                            )
+                        rollover_snapshot_taken = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+
+        # Step 2: Reset monthly counters for each user
         for uid, u in users_map.items():
             monthly_reset_iso = u.get("monthly_reset_at", "")
             if not monthly_reset_iso:
@@ -152,17 +178,6 @@ class BackgroundTaskOrchestrator:
                 try:
                     monthly_last = datetime.fromisoformat(monthly_reset_iso)
                     if now.month != monthly_last.month or now.year != monthly_last.year:
-                        # Snapshot last month's leaderboard data BEFORE zeroing monthly counters
-                        snapshot_year = monthly_last.year
-                        snapshot_month = monthly_last.month
-                        saved_count = db.save_leaderboard_snapshot(snapshot_year, snapshot_month)
-                        if saved_count > 0:
-                            logger.info(
-                                "Saved leaderboard snapshot for %d-%d (%d entries) before rollover",
-                                snapshot_year,
-                                snapshot_month,
-                                saved_count,
-                            )
                         db.update_user(
                             uid,
                             {

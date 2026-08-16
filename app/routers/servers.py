@@ -10,10 +10,16 @@ import paramiko
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 
-from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
-from config import get_db
-from dependencies import get_current_user, require_admin
-from schemas import (
+from app.utils.helpers import (
+    _sanitize_error,
+    generate_vpn_link,
+    get_protocol_manager,
+    get_ssh,
+)
+from app.utils.rate_limiter import limiter
+from app.core.config import get_db
+from app.core.dependencies import get_current_user, require_admin
+from app.models.schemas import (
     AddConnectionRequest,
     AddServerRequest,
     AwgSpeedLimitConfigRequest,
@@ -42,7 +48,7 @@ async def api_list_servers(request: Request, user: dict = Depends(get_current_us
     """Return all servers as JSON (sensitive fields stripped)."""
     db = get_db()
     servers = db.get_all_servers()
-    # Strip decrypted credentials from API response — they are for SSHManager only
+    # Strip decrypted credentials from API response â€” they are for SSHManager only
     for server in servers:
         server.pop("password", None)
         server.pop("private_key", None)
@@ -81,7 +87,7 @@ async def api_add_server(
             await asyncio.to_thread(ssh.connect)
             server_info = await asyncio.to_thread(ssh.test_connection)
 
-            # Extract fingerprint from the transport — paramiko has already
+            # Extract fingerprint from the transport â€” paramiko has already
             # accepted the key (SSHManager uses RejectPolicy with no DB, so
             # any key is accepted on first connect).
             transport = ssh.client.get_transport()
@@ -98,7 +104,7 @@ async def api_add_server(
                 {"error": f"Connection failed: {_sanitize_error(str(e))}"}, status_code=400
             )
 
-        # Return fingerprint for admin confirmation — do NOT save server yet
+        # Return fingerprint for admin confirmation â€” do NOT save server yet
         return {
             "status": "pending_fingerprint_confirmation",
             "fingerprint": fingerprint,
@@ -172,6 +178,7 @@ async def api_delete_server(request: Request, server_id: int, user: dict = Depen
 
 
 @router.post("/{server_id}/reboot")
+@limiter.limit("10/minute")
 async def api_reboot_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -195,6 +202,7 @@ async def api_reboot_server(request: Request, server_id: int, user: dict = Depen
 
 
 @router.post("/{server_id}/clear")
+@limiter.limit("10/minute")
 async def api_clear_server(request: Request, server_id: int, user: dict = Depends(require_admin)):
     try:
         db = get_db()
@@ -469,6 +477,7 @@ CONTAINER_NAMES = {
 
 
 @router.post("/{server_id}/container/toggle")
+@limiter.limit("10/minute")
 async def api_container_toggle(
     request: Request, server_id: int, req: ProtocolRequest, user: dict = Depends(require_admin)
 ):
@@ -565,10 +574,7 @@ async def api_server_config_save(
             from app.managers import MTProxyLManager
 
             mgr = MTProxyLManager(ssh)
-            out, err, code = await asyncio.to_thread(mgr._run_cli, "config import")
-            if code != 0:
-                await asyncio.to_thread(ssh.disconnect)
-                return JSONResponse({"error": err or "Config import failed"}, status_code=400)
+            await asyncio.to_thread(mgr.save_server_config, req.config)
         else:
             mgr = AWGManager(ssh)
             await asyncio.to_thread(mgr.save_server_config, req.protocol, req.config)
@@ -664,7 +670,7 @@ async def api_add_connection(
         if result.get("config"):
             result["vpn_link"] = generate_vpn_link(result["config"])
         else:
-            # API call failed — do not write to data.json, return error
+            # API call failed â€” do not write to data.json, return error
             error_msg = result.get("error", "Failed to create connection")
             logger.error("Failed to add connection for %s: %s", req.name, error_msg)
             return JSONResponse({"error": error_msg}, status_code=500)
@@ -1021,6 +1027,7 @@ async def api_update_awg_speed_limit_config(
 
 
 @router.post("/{server_id}/awg/apply-default-speed-limits")
+@limiter.limit("10/minute")
 async def api_apply_default_speed_limits(
     request: Request,
     server_id: int,

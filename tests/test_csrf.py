@@ -18,7 +18,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.utils.helpers import hash_password
-from database import Database
+from app.core.database import Database
 
 TEST_SECRET_KEY = "test-secret-key-for-csrf-tests-16bytes!"
 
@@ -33,7 +33,7 @@ def _login_and_get_client(db: Database, db_path: str) -> tuple:
 
     client = TestClient(app.app)
 
-    # Login — no session cookie yet, so CSRF is not enforced
+    # Login â€” no session cookie yet, so CSRF is not enforced
     login_resp = client.post(
         "/api/auth/login",
         json={"username": "testuser", "password": "TestPass123"},

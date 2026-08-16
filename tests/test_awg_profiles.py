@@ -17,8 +17,8 @@ from app.managers.awg_manager import (
     generate_awg_params,
 )
 from app.utils.helpers import hash_password
-from database import Database
-from dependencies import get_current_user
+from app.core.database import Database
+from app.core.dependencies import get_current_user
 from tests.conftest import create_csrf_client
 
 TEST_SECRET_KEY = "test-awg-profiles-...tes!"
@@ -36,7 +36,7 @@ class TestAWGProfileParams:
         # Jmin
         jmin = int(params["junk_packet_min_size"])
         assert ranges["junk_packet_min_size"][0] <= jmin <= ranges["junk_packet_min_size"][1]
-        # Jmax — must be > jmin, and within expected max bound
+        # Jmax â€” must be > jmin, and within expected max bound
         jmax = int(params["junk_packet_max_size"])
         jmax_max = ranges["junk_packet_max_size"][1]
         assert jmax > jmin
@@ -471,7 +471,7 @@ class TestApiInstallProfile:
     @patch("app.routers.auth.get_db")
     @patch("app.routers.servers.get_db")
     def test_api_install_awg_without_profile(self, mock_servers_db, mock_auth_db):
-        """POST /api/servers/{id}/install with protocol=awg without awg_profile — backward compat."""
+        """POST /api/servers/{id}/install with protocol=awg without awg_profile â€” backward compat."""
         mock_auth_db.return_value = self.db
         mock_servers_db.return_value = self.db
 
@@ -567,7 +567,7 @@ class TestApiInstallProfile:
     @patch("app.routers.auth.get_db")
     @patch("app.routers.servers.get_db")
     def test_api_install_xray_ignores_awg_profile(self, mock_servers_db, mock_auth_db):
-        """POST with protocol=xray and awg_profile — profile is ignored for non-AWG protocols."""
+        """POST with protocol=xray and awg_profile â€” profile is ignored for non-AWG protocols."""
         mock_auth_db.return_value = self.db
         mock_servers_db.return_value = self.db
 

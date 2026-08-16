@@ -9,9 +9,9 @@ from datetime import datetime
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 
-from config import get_db
-from dependencies import require_admin, get_current_user
-from schemas import (
+from app.core.config import get_db
+from app.core.dependencies import require_admin, get_current_user
+from app.models.schemas import (
     AddUserRequest,
     UpdateUserRequest,
     ToggleUserRequest,
@@ -163,7 +163,7 @@ async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depen
                         result["config"] = conn_result["config"]
                         result["vpn_link"] = generate_vpn_link(conn_result["config"])
                 else:
-                    # API call failed — skip writing connection, include error in response
+                    # API call failed â€” skip writing connection, include error in response
                     error_msg = conn_result.get("error", "Failed to create auto-connection")
                     logger.warning(
                         f"Auto-connection creation failed for user {new_user['username']}: {error_msg}"
@@ -314,7 +314,7 @@ async def api_add_user_connection(
             resp["config"] = result["config"]
             resp["vpn_link"] = generate_vpn_link(result["config"])
         else:
-            # API call failed — do not write to data.json
+            # API call failed â€” do not write to data.json
             error_msg = result.get("error", "Failed to create connection")
             logger.error("Failed to create user connection for %s: %s", req.name, error_msg)
             resp = {"status": "error", "error": error_msg}

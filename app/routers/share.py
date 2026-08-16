@@ -19,9 +19,9 @@ from app.utils.helpers import (
 )
 from app.utils.rate_limiter import limiter
 from app.utils.templates import tpl
-from config import get_db
-from dependencies import require_admin
-from schemas import ShareAuthRequest, ShareSetupRequest
+from app.core.config import get_db
+from app.core.dependencies import require_admin
+from app.models.schemas import ShareAuthRequest, ShareSetupRequest, normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -134,15 +134,16 @@ async def api_share_config(token: str, connection_id: str, request: Request):
         server = db.get_server_by_id(sid)
         if server is None:
             return JSONResponse({"error": "Server not found"}, status_code=404)
-        proto_info = server.get("protocols", {}).get(conn["protocol"], {})
+        normalized_proto = normalize_protocol(conn["protocol"])
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
         port = proto_info.get("port", "55424")
         ssh = get_ssh(server)
         await asyncio.to_thread(ssh.connect)
         # Use appropriate manager for the protocol
-        manager = get_protocol_manager(ssh, conn["protocol"])
+        manager = get_protocol_manager(ssh, normalized_proto)
         config = await asyncio.to_thread(
             manager.get_client_config,
-            conn["protocol"],
+            normalized_proto,
             conn["client_id"],
             server["host"],
             port,

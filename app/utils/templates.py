@@ -1,4 +1,4 @@
-"""Template rendering utilities — shared Jinja2Templates instance and tpl() helper."""
+"""Template rendering utilities â€” shared Jinja2Templates instance and tpl() helper."""
 
 import json
 import os
@@ -7,10 +7,10 @@ from fastapi.templating import Jinja2Templates
 
 from app.utils.helpers import format_bytes
 from app.utils.helpers import _get_lang, _t
-from config import get_db, TRANSLATIONS
-from dependencies import get_current_user_optional
+from app.core.config import get_db, TRANSLATIONS
+from app.core.dependencies import get_current_user_optional
 
-# Shared Jinja2 templates instance — routers import this.
+# Shared Jinja2 templates instance â€” routers import this.
 templates = Jinja2Templates(
     directory=os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "templates")
 )

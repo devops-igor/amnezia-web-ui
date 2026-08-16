@@ -1,4 +1,4 @@
-"""Tests for credential_crypto module — Fernet encryption/decryption helpers."""
+"""Tests for credential_crypto module Ã¢â‚¬â€ Fernet encryption/decryption helpers."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import tempfile
 
 import pytest
 
-import credential_crypto
-from credential_crypto import (
+from app.core import security
+from app.core.security import (
     _init_fernet,
     _looks_like_fernet_token,
     _get_fernet,
@@ -27,9 +27,9 @@ from credential_crypto import (
 @pytest.fixture(autouse=True)
 def reset_fernet():
     """Reset the module-level Fernet instance before each test."""
-    credential_crypto._fernet = None
+    security._fernet = None
     yield
-    credential_crypto._fernet = None
+    security._fernet = None
 
 
 @pytest.fixture
@@ -64,15 +64,15 @@ class TestInitFernet:
 
     def test_deterministic_same_key_same_result(self, secret_key):
         f1 = _init_fernet(secret_key)
-        credential_crypto._fernet = None
+        security._fernet = None
         f2 = _init_fernet(secret_key)
-        # Same key → same Fernet instance → can decrypt each other's tokens
+        # Same key Ã¢â€ â€™ same Fernet instance Ã¢â€ â€™ can decrypt each other's tokens
         token = f1.encrypt(b"test")
         assert f2.decrypt(token) == b"test"
 
     def test_sets_module_level_instance(self, secret_key):
         _init_fernet(secret_key)
-        assert credential_crypto._fernet is not None
+        assert security._fernet is not None
 
 
 class TestGetFernet:
@@ -119,7 +119,7 @@ class TestEncryptDecrypt:
     def test_different_plaintexts_different_ciphertexts(self, fernet_init):
         e1 = encrypt_credential("password1")
         e2 = encrypt_credential("password2")
-        # Fernet includes IV, so even same plaintext → different ciphertext
+        # Fernet includes IV, so even same plaintext Ã¢â€ â€™ different ciphertext
         # But here the plaintexts are different anyway
         assert e1 != e2
 
@@ -245,8 +245,8 @@ class TestEncryptExistingPlaintext:
             conn.commit()
             conn.close()
 
-            # Reset and re-run migration — should not double-encrypt
-            credential_crypto._fernet = None
+            # Reset and re-run migration Ã¢â‚¬â€ should not double-encrypt
+            security._fernet = None
             encrypt_existing_plaintext(db_path, secret_key)
 
             conn = sqlite3.connect(db_path)

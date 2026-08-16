@@ -1,4 +1,4 @@
-"""User server operations — SSH-based delete, toggle, and mass operations."""
+"""User server operations â€” SSH-based delete, toggle, and mass operations."""
 
 import asyncio
 import logging
@@ -6,9 +6,9 @@ import uuid
 from datetime import datetime
 from typing import List
 
-from config import get_db
+from app.core.config import get_db
 from app.utils.helpers import get_ssh, get_protocol_manager
-from schemas import normalize_protocol
+from app.models.schemas import normalize_protocol
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +17,7 @@ async def perform_delete_user(user_id: str):
     """Delete a user and their connections from all servers.
 
     Groups connections by server_id so that only one SSH session is opened
-    per unique server — not one per connection (fixes Issue #132).
+    per unique server â€” not one per connection (fixes Issue #132).
     """
     db = get_db()
     user = db.get_user(user_id)
@@ -56,12 +56,12 @@ async def perform_delete_user(user_id: str):
 
 
 async def perform_toggle_user(user_id: str, enabled: bool):
-    """Enable or disable a user by setting their enabled flag."""
+    """Enable or disable a user by setting their enabled flag and toggling active server connections."""
     db = get_db()
     user = db.get_user(user_id)
     if not user:
         return False
-    db.update_user(user_id, {"enabled": enabled})
+    await perform_mass_operations(toggle_uids=[(user_id, enabled)])
     return True
 
 
@@ -107,24 +107,25 @@ async def perform_mass_operations(
 
             # 1. Deletes
             for c in ops["delete"]:
-                manager = get_protocol_manager(ssh, c["protocol"])
-                await asyncio.to_thread(manager.remove_client, c["protocol"], c["client_id"])
+                proto = normalize_protocol(c["protocol"])
+                manager = get_protocol_manager(ssh, proto)
+                await asyncio.to_thread(manager.remove_client, proto, c["client_id"])
                 db.delete_connection(c["id"])
 
             # 2. Toggles (just toggle the actual wireguard peer)
             for c, enabled in ops["toggle"]:
-                manager = get_protocol_manager(ssh, c["protocol"])
-                await asyncio.to_thread(
-                    manager.toggle_client, c["protocol"], c["client_id"], enabled
-                )
+                proto = normalize_protocol(c["protocol"])
+                manager = get_protocol_manager(ssh, proto)
+                await asyncio.to_thread(manager.toggle_client, proto, c["client_id"], enabled)
 
             # 3. Creates
             for c_req in ops["create"]:
-                proto_info = server.get("protocols", {}).get(c_req["protocol"], {})
+                proto = normalize_protocol(c_req["protocol"])
+                proto_info = server.get("protocols", {}).get(proto, {})
                 port = proto_info.get("port", "55424")
-                manager = get_protocol_manager(ssh, c_req["protocol"])
+                manager = get_protocol_manager(ssh, proto)
                 res = await asyncio.to_thread(
-                    manager.add_client, c_req["protocol"], c_req["name"], server["host"], port
+                    manager.add_client, proto, c_req["name"], server["host"], port
                 )
 
                 if res.get("client_id"):

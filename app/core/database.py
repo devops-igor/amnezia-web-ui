@@ -1,0 +1,1330 @@
+"""SQLite database wrapper for Amnezia Web Panel.
+
+Replaces data.json with ACID-compliant, concurrent-safe storage using
+SQLite in WAL mode. Provides typed CRUD methods matching the original
+data.json access patterns, with indexed queries for O(1) lookups.
+
+Server indexing: servers are looked up by their SQLite PRIMARY KEY id,
+so frontend srv.id maps directly to db.get_server_by_id(server_id).
+"""
+
+import json
+import logging
+import os
+import queue
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from app.core import security
+
+logger = logging.getLogger(__name__)
+
+SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "schema.sql")
+
+
+def _row_to_dict(row: Optional[sqlite3.Row]) -> Optional[Dict[str, Any]]:
+    """Convert a sqlite3.Row to a plain dict, returning None if row is None."""
+    if row is None:
+        return None
+    return dict(row)
+
+
+def _rows_to_dicts(rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
+    """Convert a list of sqlite3.Row objects to plain dicts."""
+    return [dict(r) for r in rows]
+
+
+class Database:
+    """Thread-safe SQLite wrapper with WAL mode and typed CRUD methods."""
+
+    # ----------------------------------------------------------------
+    # Column allowlists for update methods (SQL injection prevention)
+    # See: tasks/sql-injection-column-names/spec.md
+    # ----------------------------------------------------------------
+    ALLOWED_SERVER_COLUMNS = frozenset(
+        {
+            "name",
+            "host",
+            "ssh_user",
+            "ssh_port",
+            "ssh_pass",
+            "ssh_key",
+            "protocols",
+            "created_at",
+        }
+    )
+
+    ALLOWED_USER_COLUMNS = frozenset(
+        {
+            "username",
+            "email",
+            "telegramId",
+            "description",
+            "password_hash",
+            "role",
+            "enabled",
+            "traffic_limit",
+            "traffic_used",
+            "traffic_total",
+            "traffic_total_rx",
+            "traffic_total_tx",
+            "monthly_rx",
+            "monthly_tx",
+            "monthly_reset_at",
+            "traffic_reset_strategy",
+            "share_enabled",
+            "share_token",
+            "share_password_hash",
+            "remnawave_uuid",
+            "created_at",
+            "last_reset_at",
+            "expiration_date",
+            "password_change_required",
+            "limits",
+        }
+    )
+
+    ALLOWED_CONNECTION_COLUMNS = frozenset(
+        {
+            "user_id",
+            "server_id",
+            "protocol",
+            "client_id",
+            "name",
+            "last_rx",
+            "last_tx",
+            "traffic_delta_rx",
+            "traffic_delta_tx",
+            "traffic_total_rx",
+            "traffic_total_tx",
+            "traffic_total",
+            "created_at",
+        }
+    )
+
+    SCHEMA_VERSION = 1  # Increment when schema changes
+    POOL_SIZE = 5  # max cached connections
+
+    def __init__(self, db_path: str, secret_key: Optional[str] = None) -> None:
+        self.db_path = db_path
+        self._secret_key = secret_key or ""
+        self._pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=self.POOL_SIZE)
+        self._init_db()
+        # Initialise Fernet encryption for credentials at DB init time.
+        # The secret_key must be provided Ã¢â‚¬â€ typically the app's SECRET_KEY.
+        if secret_key:
+            security._init_fernet(secret_key)
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get a connection from the pool, creating a new one if empty."""
+        try:
+            conn = self._pool.get_nowait()
+            # Verify connection is still alive
+            conn.execute("SELECT 1")
+            return conn
+        except queue.Empty:
+            conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            return conn
+
+    def _return_conn(self, conn: sqlite3.Connection) -> None:
+        """Return a connection to the pool. Discard if pool is full."""
+        try:
+            self._pool.put_nowait(conn)
+        except queue.Full:
+            conn.close()
+
+    @contextmanager
+    def _connection(self):
+        """Context manager for getting and returning connections from the pool."""
+        conn = self._get_conn()
+        try:
+            yield conn
+        except Exception:
+            # On error, close the connection (don't return a broken connection to the pool)
+            try:
+                conn.close()
+            except Exception:
+                pass
+            conn = None  # prevent finally from returning it
+            raise
+        finally:
+            if conn is not None:
+                self._return_conn(conn)
+
+    def _init_db(self) -> None:
+        """Initialize schema from schema.sql if tables don't exist yet."""
+        with self._connection() as conn:
+            if os.path.exists(SCHEMA_PATH):
+                with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+                    schema_sql = f.read()
+                conn.executescript(schema_sql)
+            else:
+                logger.error("schema.sql not found at %s", SCHEMA_PATH)
+                raise FileNotFoundError(f"schema.sql not found at {SCHEMA_PATH}")
+            conn.commit()
+
+            # Run schema migrations for existing databases
+            self._run_migrations(conn)
+
+        # Populate default settings on fresh installs
+        self._ensure_default_settings()
+
+        self._ensure_indexes()
+
+        # Set schema version if not already set (new databases)
+        if self.get_schema_version() == 0:
+            self.set_schema_version(self.SCHEMA_VERSION)
+
+        logger.info("Database initialized: %s", self.db_path)
+
+    def _run_migrations(self, conn: sqlite3.Connection) -> None:
+        """Run schema migrations for existing databases that may lack newer columns."""
+        # Migration: add password_change_required column to users table
+        try:
+            conn.execute("SELECT password_change_required FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating users table: adding password_change_required column")
+            conn.execute(
+                "ALTER TABLE users ADD COLUMN password_change_required "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+
+        # Migration: add per-connection traffic total columns
+        try:
+            conn.execute("SELECT traffic_total_rx FROM user_connections LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating user_connections: adding traffic_total_rx/tx/total columns")
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total_rx "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total_tx "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.execute(
+                "ALTER TABLE user_connections ADD COLUMN traffic_total "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+            conn.commit()
+
+        # Migration: encrypt existing plaintext ssh_pass / ssh_key values
+        if self.get_migration_flag("credentials_encrypted") is None:
+            logger.info("Migration: encrypting plaintext ssh_pass/ssh_key values")
+            security.encrypt_existing_plaintext(self.db_path, self._secret_key)
+            self.set_migration_flag("credentials_encrypted", "1")
+            logger.info("Migration: credentials_encrypted complete")
+
+        # Migration: strip reality_private_key from protocols JSON in DB
+        if self.get_migration_flag("xray_private_keys_cleared") is None:
+            logger.info("Migration: stripping reality_private_key from protocols")
+            rows = conn.execute("SELECT id, protocols FROM servers").fetchall()
+            for row in rows:
+                sid = row["id"]
+                try:
+                    protocols = json.loads(row["protocols"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(protocols, dict):
+                    continue
+                dirty = False
+                for proto_key in protocols:
+                    if isinstance(protocols[proto_key], dict):
+                        for field in security.SENSITIVE_PROTOCOL_FIELDS:
+                            if field in protocols[proto_key]:
+                                del protocols[proto_key][field]
+                                dirty = True
+                if dirty:
+                    conn.execute(
+                        "UPDATE servers SET protocols = ? WHERE id = ?",
+                        (json.dumps(protocols), sid),
+                    )
+                    logger.info(
+                        "Migration: cleared sensitive fields from server id=%d protocols",
+                        sid,
+                    )
+            conn.commit()
+            self.set_migration_flag("xray_private_keys_cleared", "1")
+            logger.info("Migration: xray_private_keys_cleared complete")
+
+        # Migration: encrypt plaintext SSL key_text/cert_text
+        if self.get_migration_flag("ssl_keys_encrypted") is None:
+            logger.info("Migration: encrypting plaintext SSL key_text/cert_text")
+            # Read raw from DB (not via get_setting, which would try to decrypt)
+            ssl_row = conn.execute("SELECT value FROM settings WHERE key = 'ssl'").fetchone()
+            ssl = json.loads(ssl_row["value"]) if ssl_row else {}
+            if isinstance(ssl, dict):
+                changed = False
+                if ssl.get("key_text") and not security._looks_like_fernet_token(ssl["key_text"]):
+                    ssl["key_text"] = security.encrypt_credential(ssl["key_text"])
+                    changed = True
+                if ssl.get("cert_text") and not security._looks_like_fernet_token(ssl["cert_text"]):
+                    ssl["cert_text"] = security.encrypt_credential(ssl["cert_text"])
+                    changed = True
+                if changed:
+                    conn.execute(
+                        """INSERT INTO settings (key, value) VALUES (?, ?)
+                           ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                        ("ssl", json.dumps(ssl)),
+                    )
+                    conn.commit()
+            self.set_migration_flag("ssl_keys_encrypted", "1")
+            logger.info("Migration: ssl_keys_encrypted complete")
+
+    def _ensure_indexes(self) -> None:
+        """Create missing indexes on existing databases.
+
+        Called from __init__ to ensure indexes exist even on databases
+        created before the indexes were added to schema.sql.
+        Uses IF NOT EXISTS so it's idempotent.
+        """
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+            "CREATE INDEX IF NOT EXISTS idx_users_share_token ON users(share_token)",
+            "CREATE INDEX IF NOT EXISTS idx_users_remnawave_uuid ON users(remnawave_uuid)",
+            "CREATE INDEX IF NOT EXISTS idx_user_connections_client_id ON user_connections(client_id)",
+        ]
+        with self._connection() as conn:
+            for idx_sql in indexes:
+                try:
+                    conn.execute(idx_sql)
+                except Exception as e:
+                    logger.warning("Failed to create index: %s", e)
+            conn.commit()
+
+    # ----------------------------------------------------------------
+    # Default settings
+    # ----------------------------------------------------------------
+
+    DEFAULT_SETTINGS = {
+        "appearance": {
+            "title": "Amnezia",
+            "logo": "\u2764\ufe0f",
+            "subtitle": "Web Panel",
+        },
+        "sync": {
+            "remnawave_url": "",
+            "remnawave_api_key": "",
+            "remnawave_sync": False,
+            "remnawave_sync_users": False,
+            "remnawave_create_conns": False,
+            "remnawave_server_id": 0,
+            "remnawave_protocol": "awg",
+        },
+        "limits": {
+            "max_connections_per_user": 10,
+            "connection_rate_limit_count": 5,
+            "connection_rate_limit_window": 60,
+        },
+    }
+
+    def _ensure_default_settings(self) -> None:
+        """Populate default settings if the settings table is empty (fresh install)."""
+        with self._connection() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM settings").fetchone()[0]
+            if count == 0:
+                for key, value in self.DEFAULT_SETTINGS.items():
+                    conn.execute(
+                        "INSERT INTO settings (key, value) VALUES (?, ?)",
+                        (key, json.dumps(value)),
+                    )
+                conn.commit()
+                logger.info("Populated default settings for fresh install")
+
+    # ----------------------------------------------------------------
+
+    def execute_transaction(self, func, *args, **kwargs):
+        """Execute a function inside a DB transaction.
+
+        ``func`` receives the connection as its first argument.
+        Commits on success, rolls back on exception.
+        """
+        with self._connection() as conn:
+            conn.execute("BEGIN")
+            try:
+                result = func(conn, *args, **kwargs)
+                conn.commit()
+                return result
+            except Exception:
+                conn.rollback()
+                raise
+
+    # ----------------------------------------------------------------
+    # Servers
+    # ----------------------------------------------------------------
+
+    def get_all_servers(self) -> List[Dict[str, Any]]:
+        """Return all servers ordered by id (matches array-index ordering)."""
+        with self._connection() as conn:
+            rows = conn.execute("SELECT * FROM servers ORDER BY id").fetchall()
+        return self._server_rows_to_dicts(rows)
+
+    def get_server_by_id(self, server_id: int) -> Optional[Dict[str, Any]]:
+        """Return a server by its database PRIMARY KEY id, or None if not found."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM servers WHERE id = ?", (server_id,)).fetchone()
+            if row is None:
+                return None
+        return self._server_row_to_dict(row)
+
+    def get_server_count(self) -> int:
+        """Return the number of servers."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT COUNT(*) FROM servers").fetchone()
+            return row[0]
+
+    def _insert_server(self, conn, server: Dict[str, Any]) -> int:
+        """Insert a server row. Shared by create_server() and save_data().
+
+        Handles credential encryption internally. Returns lastrowid.
+        """
+        protocols_raw = server.get("protocols", {})
+        if isinstance(protocols_raw, dict):
+            protocols_raw = security.strip_sensitive_protocol_fields(protocols_raw)
+        protocols_json = json.dumps(protocols_raw)
+        raw_pass = server.get("password") or server.get("ssh_pass", "")
+        raw_key = server.get("private_key") or server.get("ssh_key", "")
+        encrypted_pass = security.encrypt_credential(raw_pass)
+        encrypted_key = security.encrypt_credential(raw_key)
+        if "id" in server:
+            cur = conn.execute(
+                """INSERT INTO servers (id, name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
+                   protocols, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server["id"],
+                    server.get("name", ""),
+                    server.get("host", ""),
+                    server.get("username") or server.get("ssh_user", ""),
+                    server.get("ssh_port", 22),
+                    encrypted_pass,
+                    encrypted_key,
+                    protocols_json,
+                    server.get("created_at", datetime.now().isoformat()),
+                ),
+            )
+        else:
+            cur = conn.execute(
+                """INSERT INTO servers (name, host, ssh_user, ssh_port, ssh_pass, ssh_key,
+                   protocols, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    server.get("name", ""),
+                    server.get("host", ""),
+                    server.get("username") or server.get("ssh_user", ""),
+                    server.get("ssh_port", 22),
+                    encrypted_pass,
+                    encrypted_key,
+                    protocols_json,
+                    server.get("created_at", datetime.now().isoformat()),
+                ),
+            )
+        return cur.lastrowid
+
+    def create_server(self, server: Dict[str, Any]) -> int:
+        """Insert a server and return its database id."""
+        with self._connection() as conn:
+            lastrowid = self._insert_server(conn, server)
+            conn.commit()
+            return lastrowid
+
+    def update_server(self, server_id: int, updates: Dict[str, Any]) -> None:
+        """Update a server by its database id."""
+        # Map common field names to DB column names BEFORE allowlist validation
+        # so that both API-friendly names (password, private_key) and DB column
+        # names (ssh_pass, ssh_key) are accepted.
+        field_map = {
+            "name": "name",
+            "host": "host",
+            "username": "ssh_user",
+            "ssh_user": "ssh_user",
+            "ssh_port": "ssh_port",
+            "password": "ssh_pass",
+            "ssh_pass": "ssh_pass",
+            "private_key": "ssh_key",
+            "ssh_key": "ssh_key",
+            "protocols": "protocols",
+        }
+        mapped_updates = {}
+        for key, value in updates.items():
+            col = field_map.get(key, key)
+            mapped_updates[col] = value
+
+        # Validate mapped DB column names against allowlist to prevent SQL injection
+        unknown = set(mapped_updates.keys()) - self.ALLOWED_SERVER_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown server columns: {', '.join(sorted(unknown))}")
+
+        with self._connection() as conn:
+            set_clauses = []
+            values = []
+            for col, value in mapped_updates.items():
+                if col == "protocols" and isinstance(value, dict):
+                    value = json.dumps(value)
+                # Encrypt credential fields before storing
+                if col in ("ssh_pass", "ssh_key"):
+                    value = security.encrypt_credential(str(value) if value else "")
+                set_clauses.append(f"{col} = ?")
+                values.append(value)
+            if not set_clauses:
+                return
+            values.append(server_id)
+            conn.execute(f"UPDATE servers SET {', '.join(set_clauses)} WHERE id = ?", values)
+            conn.commit()
+
+    def update_server_protocols(self, server_id: int, protocols: Dict) -> None:
+        """Update just the protocols JSON blob for a server by db id."""
+        # Strip sensitive fields before storing (defense-in-depth)
+        if isinstance(protocols, dict):
+            protocols = security.strip_sensitive_protocol_fields(protocols)
+        with self._connection() as conn:
+            conn.execute(
+                "UPDATE servers SET protocols = ? WHERE id = ?",
+                (json.dumps(protocols), server_id),
+            )
+            conn.commit()
+
+    def delete_server(self, server_id: int) -> bool:
+        """Delete a server by its ID. Returns True if deleted."""
+        with self._connection() as conn:
+            with conn:
+                # Delete connections first
+                conn.execute("DELETE FROM user_connections WHERE server_id = ?", (server_id,))
+                # Delete known_hosts
+                conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (server_id,))
+                # Delete server
+                cur = conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
+                return cur.rowcount > 0
+
+    # ----------------------------------------------------------------
+    # Known Hosts
+    # ----------------------------------------------------------------
+
+    def get_known_host_fingerprint(self, server_id: int) -> Optional[str]:
+        """Return the stored fingerprint for a server, or None if unknown."""
+        with self._connection() as conn:
+            row = conn.execute(
+                "SELECT fingerprint FROM known_hosts WHERE server_id = ?", (server_id,)
+            ).fetchone()
+            return row["fingerprint"] if row else None
+
+    def save_known_host_fingerprint(self, server_id: int, fingerprint: str) -> None:
+        """Store or update the host key fingerprint for a server."""
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT INTO known_hosts (server_id, fingerprint)
+                   VALUES (?, ?)
+                   ON CONFLICT(server_id) DO UPDATE SET fingerprint = excluded.fingerprint""",
+                (server_id, fingerprint),
+            )
+            conn.commit()
+
+    def delete_known_host(self, server_id: int) -> bool:
+        """Delete the known host entry for a server. Returns True if deleted."""
+        with self._connection() as conn:
+            cur = conn.execute("DELETE FROM known_hosts WHERE server_id = ?", (server_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def _server_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        """Convert a server row, deserializing JSON fields."""
+        d = dict(row)
+        # Map DB column names back to original JSON field names
+        d["username"] = d.pop("ssh_user", "")
+        # Decrypt credentials (transparent to callers like SSHManager)
+        d["password"] = security.decrypt_credential(d.pop("ssh_pass", ""))
+        d["private_key"] = security.decrypt_credential(d.pop("ssh_key", ""))
+        if "protocols" in d and isinstance(d["protocols"], str):
+            d["protocols"] = json.loads(d["protocols"])
+        # Strip sensitive protocol fields (defense-in-depth)
+        if isinstance(d.get("protocols"), dict):
+            d["protocols"] = security.strip_sensitive_protocol_fields(d["protocols"])
+        return d
+
+    def _server_rows_to_dicts(self, rows: List[sqlite3.Row]) -> List[Dict[str, Any]]:
+        return [self._server_row_to_dict(r) for r in rows]
+
+    # ----------------------------------------------------------------
+    # Users
+    # ----------------------------------------------------------------
+
+    def get_all_users(self) -> List[Dict[str, Any]]:
+        """Return all users."""
+        with self._connection() as conn:
+            rows = conn.execute("SELECT * FROM users").fetchall()
+        return [self._user_row_to_dict(r) for r in rows]
+
+    def get_leaderboard(self, period: str) -> List[Dict[str, Any]]:
+        """Return leaderboard entries aggregated via SQL.
+
+        Args:
+            period: "monthly" or "all-time". Invalid values default to "all-time".
+
+        Returns:
+            List of dicts with rank, username, download, upload, total.
+            Disabled users and users with zero total traffic are excluded.
+            Results are sorted by total DESC, username ASC (case-insensitive).
+        """
+        if period == "monthly":
+            download_col = "monthly_tx"
+            upload_col = "monthly_rx"
+        else:
+            download_col = "traffic_total_tx"
+            upload_col = "traffic_total_rx"
+
+        with self._connection() as conn:
+            # f-strings are safe here: column names are hardcoded above and validated
+            # against ALLOWED_USER_COLUMNS at class definition time.
+            rows = conn.execute(f"""
+            SELECT username,
+                   {download_col} AS download,
+                   {upload_col} AS upload,
+                   ({download_col} + {upload_col}) AS total
+            FROM users
+            WHERE enabled = 1 AND ({download_col} + {upload_col}) > 0
+            ORDER BY total DESC, LOWER(username) ASC
+            """).fetchall()
+
+        entries = []
+        for i, row in enumerate(rows):
+            entries.append(
+                {
+                    "rank": i + 1,
+                    "username": row["username"],
+                    "download": row["download"],
+                    "upload": row["upload"],
+                    "total": row["total"],
+                }
+            )
+        return entries
+
+    def save_leaderboard_snapshot(self, year: int, month: int) -> int:
+        """Save the current monthly leaderboard data as a snapshot.
+
+        Reads the current monthly leaderboard (same query as get_leaderboard("monthly"))
+        and inserts each entry into the leaderboard_snapshots table.
+        Uses INSERT OR IGNORE for idempotency Ã¢â‚¬â€ if a snapshot for this year/month/user
+        already exists, it is silently skipped.
+
+        Args:
+            year: The calendar year of the snapshot (e.g. 2026).
+            month: The calendar month of the snapshot (1-12).
+
+        Returns:
+            The number of entries saved.
+        """
+        entries = self.get_leaderboard("monthly")
+        if not entries:
+            return 0
+        snapshot_at = datetime.now().isoformat()
+        saved = 0
+        with self._connection() as conn:
+            for entry in entries:
+                cur = conn.execute(
+                    """INSERT OR IGNORE INTO leaderboard_snapshots
+                       (year, month, username, rank, download, upload, total, snapshot_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        year,
+                        month,
+                        entry["username"],
+                        entry["rank"],
+                        entry["download"],
+                        entry["upload"],
+                        entry["total"],
+                        snapshot_at,
+                    ),
+                )
+                saved += cur.rowcount
+            conn.commit()
+        return saved
+
+    def get_leaderboard_snapshot(self, year: int, month: int) -> List[Dict[str, Any]]:
+        """Retrieve a previously saved leaderboard snapshot.
+
+        Args:
+            year: The calendar year of the snapshot.
+            month: The calendar month of the snapshot (1-12).
+
+        Returns:
+            List of dicts with rank, username, download, upload, total.
+            Returns an empty list if no snapshot exists for the given year/month.
+            Results are sorted by rank ASC (already stored with rank).
+        """
+        with self._connection() as conn:
+            rows = conn.execute(
+                """SELECT username, download, upload, total, rank
+                   FROM leaderboard_snapshots
+                   WHERE year = ? AND month = ?
+                   ORDER BY rank ASC""",
+                (year, month),
+            ).fetchall()
+        return [
+            {
+                "rank": row["rank"],
+                "username": row["username"],
+                "download": row["download"],
+                "upload": row["upload"],
+                "total": row["total"],
+            }
+            for row in rows
+        ]
+
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Return a user by id, or None."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return self._user_row_to_dict(row) if row else None
+
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Return a user by username, or None."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return self._user_row_to_dict(row) if row else None
+
+    def get_user_by_share_token(self, token: str) -> Optional[Dict[str, Any]]:
+        """Return a user by share_token, or None."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE share_token = ?", (token,)).fetchone()
+        return self._user_row_to_dict(row) if row else None
+
+    def get_user_by_remnawave_uuid(self, uuid: str) -> Optional[Dict[str, Any]]:
+        """Return a user by remnawave_uuid, or None."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM users WHERE remnawave_uuid = ?", (uuid,)).fetchone()
+        return self._user_row_to_dict(row) if row else None
+
+    def _insert_user(self, conn, user: Dict[str, Any]) -> None:
+        """Insert a user row. Shared by create_user() and save_data().
+
+        Assumes `user` dict has already been validated/hashed by the caller.
+        """
+        limits_json = json.dumps(user.get("limits", {}))
+        conn.execute(
+            """INSERT INTO users (id, username, email, telegramId, description,
+               password_hash, role, enabled, traffic_limit, traffic_used,
+               traffic_total, traffic_total_rx, traffic_total_tx,
+               monthly_rx, monthly_tx, monthly_reset_at,
+               traffic_reset_strategy, share_enabled, share_token,
+               share_password_hash, remnawave_uuid, created_at,
+               last_reset_at, expiration_date, password_change_required, limits)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                       ?, ?, ?, ?, ?, ?)""",
+            (
+                user.get("id", ""),
+                user.get("username", ""),
+                user.get("email"),
+                user.get("telegramId"),
+                user.get("description"),
+                user.get("password_hash", ""),
+                user.get("role", "user"),
+                1 if user.get("enabled", True) else 0,
+                user.get("traffic_limit", 0),
+                user.get("traffic_used", 0),
+                user.get("traffic_total", 0),
+                user.get("traffic_total_rx", 0),
+                user.get("traffic_total_tx", 0),
+                user.get("monthly_rx", 0),
+                user.get("monthly_tx", 0),
+                user.get("monthly_reset_at", ""),
+                user.get("traffic_reset_strategy", "never"),
+                1 if user.get("share_enabled", False) else 0,
+                user.get("share_token"),
+                user.get("share_password_hash"),
+                user.get("remnawave_uuid"),
+                user.get("created_at", datetime.now().isoformat()),
+                user.get("last_reset_at", datetime.now().isoformat()),
+                user.get("expiration_date"),
+                1 if user.get("password_change_required", False) else 0,
+                limits_json,
+            ),
+        )
+
+    def create_user(self, user: Dict[str, Any]) -> str:
+        """Insert a user and return its id."""
+        with self._connection() as conn:
+            self._insert_user(conn, user)
+            conn.commit()
+            return user.get("id", "")
+
+    def update_user(self, user_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a user by id with the given fields. Returns True if found."""
+        # Validate column names against allowlist to prevent SQL injection
+        unknown = set(updates.keys()) - self.ALLOWED_USER_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown user columns: {', '.join(sorted(unknown))}")
+
+        with self._connection() as conn:
+            if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+                return False
+
+            bool_fields = {"enabled", "share_enabled", "password_change_required"}
+            json_fields = {"limits"}
+
+            set_clauses = []
+            values = []
+            for key, value in updates.items():
+                if key == "id":
+                    continue
+                if key in bool_fields and isinstance(value, bool):
+                    value = 1 if value else 0
+                if key in json_fields and isinstance(value, dict):
+                    value = json.dumps(value)
+                set_clauses.append(f"{key} = ?")
+                values.append(value)
+
+            if not set_clauses:
+                return True
+            values.append(user_id)
+            conn.execute(f"UPDATE users SET {', '.join(set_clauses)} WHERE id = ?", values)
+            conn.commit()
+            return True
+
+    def delete_user(self, user_id: str) -> bool:
+        """Delete a user and all their connections. Returns True if found."""
+        with self._connection() as conn:
+            if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+                return False
+            conn.execute("DELETE FROM user_connections WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+            conn.commit()
+            return True
+
+    def _user_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        """Convert a user row, deserializing JSON fields."""
+        d = dict(row)
+        # Convert SQLite integers back to Python bools
+        if "enabled" in d:
+            d["enabled"] = bool(d["enabled"])
+        if "share_enabled" in d:
+            d["share_enabled"] = bool(d["share_enabled"])
+        if "password_change_required" in d:
+            d["password_change_required"] = bool(d["password_change_required"])
+        # Deserialize JSON fields
+        if "limits" in d and isinstance(d["limits"], str):
+            d["limits"] = json.loads(d["limits"])
+        elif "limits" not in d:
+            d["limits"] = {}
+        # Default None fields
+        for nullable in [
+            "email",
+            "telegramId",
+            "description",
+            "share_token",
+            "share_password_hash",
+            "remnawave_uuid",
+            "expiration_date",
+        ]:
+            if nullable not in d:
+                d[nullable] = None
+        return d
+
+    # ----------------------------------------------------------------
+    # User Connections
+    # ----------------------------------------------------------------
+
+    def get_connections_by_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """Return all connections for a user."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_connections WHERE user_id = ?", (user_id,)
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    def get_all_connections(self) -> List[Dict[str, Any]]:
+        """Return all user connections."""
+        with self._connection() as conn:
+            rows = conn.execute("SELECT * FROM user_connections").fetchall()
+        return _rows_to_dicts(rows)
+
+    def get_connections_by_server_and_protocol(
+        self, server_id: int, protocol: str
+    ) -> List[Dict[str, Any]]:
+        """Return connections for a server+protocol combo."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_connections WHERE server_id = ? AND protocol = ?",
+                (server_id, protocol),
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    def get_connection_by_id(self, conn_id: str) -> Optional[Dict[str, Any]]:
+        """Return a connection by its id."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT * FROM user_connections WHERE id = ?", (conn_id,)).fetchone()
+        return _row_to_dict(row)
+
+    def create_connection(self, connection: Dict[str, Any]) -> str:
+        """Insert a connection and return its id."""
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT INTO user_connections
+                   (id, user_id, server_id, protocol, client_id, name,
+                    last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
+                    traffic_total_rx, traffic_total_tx, traffic_total, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    connection.get("id", ""),
+                    connection.get("user_id", ""),
+                    connection.get("server_id", 0),
+                    connection.get("protocol", ""),
+                    connection.get("client_id"),
+                    connection.get("name"),
+                    connection.get("last_rx", 0),
+                    connection.get("last_tx", 0),
+                    connection.get("traffic_delta_rx", 0),
+                    connection.get("traffic_delta_tx", 0),
+                    connection.get("traffic_total_rx", 0),
+                    connection.get("traffic_total_tx", 0),
+                    connection.get("traffic_total", 0),
+                    connection.get("created_at", datetime.now().isoformat()),
+                ),
+            )
+            conn.commit()
+            return connection.get("id", "")
+
+    def update_connection(self, conn_id: str, updates: Dict[str, Any]) -> bool:
+        """Update a connection by id with the given fields. Returns True if found."""
+        # Validate column names against allowlist to prevent SQL injection
+        unknown = set(updates.keys()) - self.ALLOWED_CONNECTION_COLUMNS
+        if unknown:
+            raise ValueError(f"Unknown connection columns: {', '.join(sorted(unknown))}")
+
+        with self._connection() as conn:
+            if not conn.execute(
+                "SELECT 1 FROM user_connections WHERE id = ?", (conn_id,)
+            ).fetchone():
+                return False
+
+            set_clauses = []
+            values = []
+            for key, value in updates.items():
+                set_clauses.append(f"{key} = ?")
+                values.append(value)
+            if not set_clauses:
+                return True
+            values.append(conn_id)
+            conn.execute(
+                f"UPDATE user_connections SET {', '.join(set_clauses)} WHERE id = ?", values
+            )
+            conn.commit()
+            return True
+
+    def delete_connection(self, conn_id: str) -> bool:
+        """Delete a connection by id. Returns True if found."""
+        with self._connection() as conn:
+            cur = conn.execute("DELETE FROM user_connections WHERE id = ?", (conn_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_connection_by_client_id(self, client_id: str, server_id: int) -> bool:
+        """Delete connection(s) matching client_id and server_id. Returns True if any deleted."""
+        with self._connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_connections WHERE client_id = ? AND server_id = ?",
+                (client_id, server_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def delete_connections_by_user(self, user_id: str) -> int:
+        """Delete all connections for a user. Returns count deleted."""
+        with self._connection() as conn:
+            cur = conn.execute("DELETE FROM user_connections WHERE user_id = ?", (user_id,))
+            conn.commit()
+            return cur.rowcount
+
+    def delete_connections_by_server(self, server_id: int) -> int:
+        """Delete all connections for a server. Returns count deleted."""
+        with self._connection() as conn:
+            cur = conn.execute("DELETE FROM user_connections WHERE server_id = ?", (server_id,))
+            conn.commit()
+            return cur.rowcount
+
+    def delete_connections_by_server_and_protocol(self, server_id: int, protocol: str) -> int:
+        """Delete all connections for a given server and protocol. Returns count deleted."""
+        with self._connection() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_connections WHERE server_id = ? AND protocol = ?",
+                (server_id, protocol),
+            )
+            conn.commit()
+            return cur.rowcount
+
+    # ----------------------------------------------------------------
+    # Connection Creation Log
+    # ----------------------------------------------------------------
+
+    def log_connection_creation(self, user_id: str) -> None:
+        """Add an entry to the connection creation log."""
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT INTO connection_creation_log (user_id, created_at) VALUES (?, ?)",
+                (user_id, datetime.now().isoformat()),
+            )
+            conn.commit()
+
+    def get_recent_connections_log(self, user_id: str, window_seconds: int) -> List[Dict[str, Any]]:
+        """Get connection creation log entries for a user within a time window."""
+        with self._connection() as conn:
+            cutoff = datetime.now().timestamp() - window_seconds
+            rows = conn.execute(
+                """SELECT * FROM connection_creation_log
+                   WHERE user_id = ? AND unixepoch(created_at) >= ?""",
+                (user_id, cutoff),
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    def get_connections_log_by_user(self, user_id: str) -> List[Dict[str, Any]]:
+        """Get all connection creation log entries for a user."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM connection_creation_log WHERE user_id = ? ORDER BY created_at",
+                (user_id,),
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    def prune_connection_log(self, max_entries: int = 1000) -> None:
+        """Keep only the most recent max_entries in the creation log."""
+        with self._connection() as conn:
+            conn.execute(
+                """DELETE FROM connection_creation_log
+                   WHERE id NOT IN (
+                       SELECT id FROM connection_creation_log
+                       ORDER BY created_at DESC LIMIT ?
+                   )""",
+                (max_entries,),
+            )
+            conn.commit()
+
+    # ----------------------------------------------------------------
+    # Settings
+    # ----------------------------------------------------------------
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Get a setting value by key. JSON-deserializes and decrypts SSL fields."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+            if row is None:
+                return default
+            value = row["value"]
+            if value is None:
+                return default
+        try:
+            result = json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+        # Decrypt SSL key_text/cert_text transparently
+        if key == "ssl" and isinstance(result, dict):
+            if result.get("key_text"):
+                result["key_text"] = security.decrypt_credential_safe(result["key_text"])
+            if result.get("cert_text"):
+                result["cert_text"] = security.decrypt_credential_safe(result["cert_text"])
+        return result
+
+    def get_all_settings(self) -> Dict[str, Any]:
+        """Get all settings as a dict, deserializing JSON values and decrypting SSL fields."""
+        with self._connection() as conn:
+            rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        result = {}
+        for row in rows:
+            try:
+                result[row["key"]] = json.loads(row["value"])
+            except (json.JSONDecodeError, TypeError):
+                result[row["key"]] = row["value"]
+        # Decrypt SSL key_text/cert_text transparently
+        ssl = result.get("ssl")
+        if isinstance(ssl, dict):
+            if ssl.get("key_text"):
+                ssl["key_text"] = security.decrypt_credential_safe(ssl["key_text"])
+            if ssl.get("cert_text"):
+                ssl["cert_text"] = security.decrypt_credential_safe(ssl["cert_text"])
+        return result
+
+    def update_setting(self, key: str, value: Any) -> None:
+        """Set a setting value. Serializes dicts/lists to JSON.
+
+        SSL settings (key_text, cert_text) are encrypted at rest.
+        """
+        # Encrypt SSL key/cert before storing
+        if key == "ssl" and isinstance(value, dict):
+            value = dict(value)  # don't mutate caller's dict
+            if value.get("key_text"):
+                value["key_text"] = security.encrypt_credential(value["key_text"])
+            if value.get("cert_text"):
+                value["cert_text"] = security.encrypt_credential(value["cert_text"])
+        with self._connection() as conn:
+            if isinstance(value, (dict, list)):
+                value = json.dumps(value)
+            conn.execute(
+                """INSERT INTO settings (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                (key, value),
+            )
+            conn.commit()
+
+    def save_all_settings(self, settings_dict: Dict[str, Any]) -> None:
+        """Batch-update all settings from a dict.
+
+        SSL settings (key_text, cert_text) are encrypted at rest.
+        """
+        with self._connection() as conn:
+            for key, value in settings_dict.items():
+                if key == "ssl" and isinstance(value, dict):
+                    value = dict(value)
+                    if value.get("key_text"):
+                        value["key_text"] = security.encrypt_credential(value["key_text"])
+                    if value.get("cert_text"):
+                        value["cert_text"] = security.encrypt_credential(value["cert_text"])
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value)
+                elif value is None:
+                    value = "null"
+                conn.execute(
+                    """INSERT INTO settings (key, value) VALUES (?, ?)
+                       ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                    (key, value),
+                )
+            conn.commit()
+
+    def get_schema_version(self) -> int:
+        """Get the current database schema version. Returns 0 if not set."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT value FROM settings WHERE key = 'schema_version'").fetchone()
+            if row:
+                try:
+                    return int(row["value"])
+                except (ValueError, TypeError):
+                    return 0
+            return 0
+
+    def set_schema_version(self, version: int) -> None:
+        """Set the database schema version."""
+        with self._connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('schema_version', ?)",
+                (str(version),),
+            )
+            conn.commit()
+
+    # ----------------------------------------------------------------
+    # Bulk / compatibility methods (mimic load_data/save_data interface)
+    # ----------------------------------------------------------------
+
+    def load_data(self) -> Dict[str, Any]:
+        """Load all data from DB into a dict matching the old data.json structure.
+
+        This is a compatibility method to ease the transition. Prefer
+        targeted query methods for new code.
+        """
+        return {
+            "servers": self.get_all_servers(),
+            "users": self.get_all_users(),
+            "user_connections": self.get_all_connections(),
+            "connection_creation_log": self._get_all_creation_log(),
+            "known_hosts": self._get_all_known_hosts(),
+            "leaderboard_snapshots": self._get_all_leaderboard_snapshots(),
+            "settings": self.get_all_settings(),
+        }
+
+    def save_data(self, data: Dict[str, Any]) -> None:
+        """Save all data from a dict, replacing the entire DB contents.
+
+        This is a compatibility method for the backup/restore flow.
+        Prefer targeted update methods for new code.
+        """
+        with self._connection() as conn:
+            conn.execute("BEGIN")
+
+            try:
+                # Clear existing data in correct FK order
+                conn.execute("DELETE FROM connection_creation_log")
+                conn.execute("DELETE FROM user_connections")
+                conn.execute("DELETE FROM known_hosts")
+                conn.execute("DELETE FROM leaderboard_snapshots")
+                conn.execute("DELETE FROM users")
+                conn.execute("DELETE FROM servers")
+                conn.execute("DELETE FROM settings")
+
+                # Insert servers
+                for srv in data.get("servers", []):
+                    self._insert_server(conn, srv)
+
+                # Insert users
+                for u in data.get("users", []):
+                    self._insert_user(conn, u)
+
+                # Insert connections
+                for c in data.get("user_connections", []):
+                    conn.execute(
+                        """INSERT INTO user_connections
+                           (id, user_id, server_id, protocol, client_id, name,
+                            last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
+                            traffic_total_rx, traffic_total_tx, traffic_total, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            c.get("id", ""),
+                            c.get("user_id", ""),
+                            c.get("server_id", 0),
+                            c.get("protocol", ""),
+                            c.get("client_id"),
+                            c.get("name"),
+                            c.get("last_rx", 0),
+                            c.get("last_tx", 0),
+                            c.get("traffic_delta_rx", 0),
+                            c.get("traffic_delta_tx", 0),
+                            c.get("traffic_total_rx", 0),
+                            c.get("traffic_total_tx", 0),
+                            c.get("traffic_total", 0),
+                            c.get("created_at", datetime.now().isoformat()),
+                        ),
+                    )
+
+                # Insert connection creation log
+                for entry in data.get("connection_creation_log", []):
+                    conn.execute(
+                        "INSERT INTO connection_creation_log (user_id, created_at) VALUES (?, ?)",
+                        (entry.get("user_id", ""), entry.get("timestamp", "")),
+                    )
+
+                # Insert known hosts
+                for kh in data.get("known_hosts", []):
+                    if kh.get("server_id") is not None and kh.get("fingerprint"):
+                        conn.execute(
+                            """INSERT INTO known_hosts (server_id, fingerprint)
+                               VALUES (?, ?)
+                               ON CONFLICT(server_id) DO UPDATE SET fingerprint = excluded.fingerprint""",
+                            (kh["server_id"], kh["fingerprint"]),
+                        )
+
+                # Insert leaderboard snapshots
+                for snap in data.get("leaderboard_snapshots", []):
+                    conn.execute(
+                        """INSERT OR IGNORE INTO leaderboard_snapshots
+                           (year, month, username, rank, download, upload, total, snapshot_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            snap.get("year"),
+                            snap.get("month"),
+                            snap.get("username", ""),
+                            snap.get("rank", 0),
+                            snap.get("download", 0),
+                            snap.get("upload", 0),
+                            snap.get("total", 0),
+                            snap.get("snapshot_at", datetime.now().isoformat()),
+                        ),
+                    )
+
+                # Insert settings (encrypt SSL cert/key if present)
+                for key, value in data.get("settings", {}).items():
+                    if key == "ssl" and isinstance(value, dict):
+                        value = dict(value)
+                        if value.get("key_text"):
+                            value["key_text"] = security.encrypt_credential(value["key_text"])
+                        if value.get("cert_text"):
+                            value["cert_text"] = security.encrypt_credential(value["cert_text"])
+                    if isinstance(value, (dict, list)):
+                        value = json.dumps(value)
+                    elif value is None:
+                        value = "null"
+                    conn.execute(
+                        """INSERT INTO settings (key, value) VALUES (?, ?)
+                           ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                        (key, value),
+                    )
+
+                conn.commit()
+                logger.info("save_data: Full database save completed")
+            except Exception:
+                conn.rollback()
+                raise
+
+    def _get_all_creation_log(self) -> List[Dict[str, Any]]:
+        """Return all connection creation log entries in old format."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT user_id, created_at FROM connection_creation_log ORDER BY id"
+            ).fetchall()
+        return [{"user_id": row["user_id"], "timestamp": row["created_at"]} for row in rows]
+
+    def _get_all_known_hosts(self) -> List[Dict[str, Any]]:
+        """Return all known hosts entries."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT server_id, fingerprint FROM known_hosts ORDER BY server_id"
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    def _get_all_leaderboard_snapshots(self) -> List[Dict[str, Any]]:
+        """Return all leaderboard snapshots."""
+        with self._connection() as conn:
+            rows = conn.execute(
+                "SELECT year, month, username, rank, download, upload, total, snapshot_at "
+                "FROM leaderboard_snapshots ORDER BY year, month, rank"
+            ).fetchall()
+        return _rows_to_dicts(rows)
+
+    # ----------------------------------------------------------------
+    # Migration flags
+    # ----------------------------------------------------------------
+
+    def get_migration_flag(self, key: str) -> Optional[str]:
+        """Get a migration flag value."""
+        with self._connection() as conn:
+            row = conn.execute("SELECT value FROM migration_flags WHERE key = ?", (key,)).fetchone()
+            return row["value"] if row else None
+
+    def set_migration_flag(self, key: str, value: str) -> None:
+        """Set a migration flag value."""
+        with self._connection() as conn:
+            conn.execute(
+                """INSERT INTO migration_flags (key, value) VALUES (?, ?)
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value""",
+                (key, value),
+            )
+            conn.commit()
+
+
+# ----------------------------------------------------------------
+# Singleton helper
+# ----------------------------------------------------------------
+
+_db_instance: Optional[Database] = None
+
+
+def get_db(db_path: Optional[str] = None, secret_key: Optional[str] = None) -> Database:
+    """Get or create the singleton Database instance.
+
+    If db_path is None, uses the default path next to app.py.
+    If secret_key is None, credentials will not be encrypted/decrypted.
+    """
+    global _db_instance
+    if _db_instance is None:
+        if db_path is None:
+            if getattr(__import__("sys"), "frozen", False):
+                app_path = os.path.dirname(__import__("sys").executable)
+            else:
+                app_path = os.path.dirname(os.path.abspath(__file__))
+            db_path = os.path.join(app_path, "panel.db")
+        _db_instance = Database(db_path, secret_key=secret_key)
+    return _db_instance
+
+
+def reset_db(db_path: Optional[str] = None, secret_key: Optional[str] = None) -> Database:
+    """Create a fresh Database instance (for testing or reinitialization)."""
+    global _db_instance
+    if db_path is None:
+        if getattr(__import__("sys"), "frozen", False):
+            app_path = os.path.dirname(__import__("sys").executable)
+        else:
+            app_path = os.path.dirname(os.path.abspath(__file__))
+        db_path = os.path.join(app_path, "panel.db")
+    _db_instance = Database(db_path, secret_key=secret_key)
+    return _db_instance
