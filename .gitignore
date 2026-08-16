@@ -57,3 +57,11 @@ VERIFICATION_REPORT*.md
 tests/e2e/screenshots/
 TASKS_OVERVIEW.md
 CICD_ERRORS.md
+
+# Work documents (never commit to remote)
+QA_REVIEW.md
+QA_REVIEW*.md
+DEV_HANDOVER.md
+TASK.md
+TASK_PROMPT*.md
+SUGGESTED_IMPROVEMENTS.md
