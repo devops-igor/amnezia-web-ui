@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     db = get_db()
 
     if not db.get_all_users():
-        logger.info("No users found â€” setup wizard required at /setup")
+        logger.info("No users found - setup wizard required at /setup")
     else:
         logger.info("Existing users found, skipping default admin creation")
 
