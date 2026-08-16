@@ -474,6 +474,7 @@ class TestBackupRestoreExtendedData:
         tmp_db.close()
         try:
             db = Database(tmp_db_path, secret_key=TEST_SECRET_KEY)
+            db.add_server({"name": "Test Server", "host": "1.2.3.4", "protocols": {}})
             db.save_known_host_fingerprint(1, "aa:bb:cc:dd")
             db.save_leaderboard_snapshot(2026, 7)
 
