@@ -29,7 +29,7 @@ COPY --from=builder /usr/local/bin/ /usr/local/bin/
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
 # Copy application code and assets
-COPY *.py ./
+COPY app.py migrate_to_sqlite.py dns_manager.py docker_utils.py integrity.py ./
 COPY app/ ./app/
 
 COPY static/ ./static/
