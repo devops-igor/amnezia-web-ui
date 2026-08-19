@@ -113,7 +113,6 @@ class TestAWGManagerMimicry:
         rot = manager.rotate_client_mimicry("awg", "client123")
         assert rot["client_id"] == "client123"
         assert rot["awg_mimicry"] == "quic"  # tls rotates to quic
-        assert rot["dpi_blocked"] is True
         assert clients[0]["userData"]["awg_mimicry"] == "quic"
 
         # Next rotation: quic -> dns
@@ -187,7 +186,6 @@ class TestMimicryEndpoints:
                     "client_id": "client_abc",
                     "awg_mimicry": "quic",
                     "rotated_at": "2026-08-19T23:50:00",
-                    "dpi_blocked": True,
                 }
                 mock_get_mgr.return_value = mock_mgr
 
@@ -237,6 +235,7 @@ class TestMimicryEndpoints:
             app.dependency_overrides.clear()
 
     def test_auto_trial_endpoint(self, csrf_client):
+        from unittest.mock import AsyncMock
         from app.main import app
         from app.core.dependencies import get_current_user, require_admin
 
@@ -246,27 +245,34 @@ class TestMimicryEndpoints:
             "id": 1,
             "name": "Test Server",
             "host": "1.2.3.4",
-            "protocols": {"awg": {"port": 55424, "installed": True}},
+            "protocols": {
+                "awg": {
+                    "port": 55424,
+                    "installed": True,
+                    "public_key": "srvpubkey",
+                    "psk": "srvpsk",
+                }
+            },
         }
-        mock_ssh = MagicMock()
         app.dependency_overrides[get_current_user] = lambda: admin_user
         app.dependency_overrides[require_admin] = lambda: admin_user
+
+        mock_trials = {
+            "tls": {"reachable": True, "latency_ms": 10},
+            "quic": {"reachable": True, "latency_ms": 12},
+            "dns": {"reachable": True, "latency_ms": 14},
+            "sip": {"reachable": True, "latency_ms": 16},
+        }
 
         try:
             with (
                 patch("app.routers.servers.get_db", return_value=mock_db),
-                patch("app.routers.servers.get_ssh", return_value=mock_ssh),
-                patch("app.routers.servers.get_protocol_manager") as mock_get_mgr,
+                patch(
+                    "app.managers.awg_health.run_auto_trial_profiles",
+                    new_callable=AsyncMock,
+                    return_value=mock_trials,
+                ),
             ):
-                mock_mgr = MagicMock()
-                mock_mgr.provision_auto_trial.return_value = {
-                    "tls": "[Interface]\nI1 = <b 0x1111>",
-                    "quic": "[Interface]\nI1 = <b 0x2222>",
-                    "dns": "[Interface]\nI1 = <b 0x3333>",
-                    "sip": "[Interface]\nI1 = <b 0x4444>",
-                }
-                mock_get_mgr.return_value = mock_mgr
-
                 resp = csrf_client.post(
                     "/api/servers/1/connections/auto-trial",
                     json={"protocol": "awg", "client_id": "client_abc", "user_id": "user-1"},
@@ -274,7 +280,7 @@ class TestMimicryEndpoints:
                 assert resp.status_code == 200
                 data = resp.json()
                 assert data["status"] == "success"
-                assert set(data["kit"].keys()) == {"tls", "quic", "dns", "sip"}
+                assert set(data["trials"].keys()) == {"tls", "quic", "dns", "sip"}
         finally:
             app.dependency_overrides.clear()
 

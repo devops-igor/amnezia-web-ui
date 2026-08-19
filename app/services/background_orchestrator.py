@@ -336,21 +336,89 @@ class BackgroundTaskOrchestrator:
     _server_reachability: Dict[Any, Dict[str, Any]] = {}
 
     async def check_server_reachability(self) -> Dict[Any, Dict[str, Any]]:
-        """Test TCP connectivity from panel server to each VPN server IP:port."""
-        import time
+        """Test server reachability using AmneziaWG protocol for AWG servers and socket probe for others.
 
-        logger.info("Starting background server IP reachability check...")
+        Runs every 10 minutes as part of the background orchestrator schedule (Auto Trials).
+        Client statuses and handshakes are NEVER monitored.
+        """
+        import time
+        from app.managers.awg_health import check_awg_reachability, run_auto_trial_profiles
+
+        logger.info("Starting background server reachability check...")
         db = get_db()
         servers = db.get_all_servers()
+        all_conns = db.get_all_connections()
         results: Dict[Any, Dict[str, Any]] = {}
 
         for server in servers:
             sid = server["id"]
             host = server.get("host", "")
-            port = int(server.get("ssh_port") or server.get("port") or 22)
             if not host:
                 continue
 
+            protocols = server.get("protocols", {})
+            awg_info = protocols.get("awg", {})
+
+            if awg_info.get("installed"):
+                port = int(awg_info.get("port") or 55424)
+                awg_params = awg_info.get("awg_params") or {}
+                server_pub = awg_info.get("public_key") or ""
+                psk = awg_info.get("psk") or ""
+
+                # Look for a client connection on this server to use real client credentials if available
+                client_priv = None
+                server_conns = [
+                    c for c in all_conns if c.get("server_id") == sid and c.get("protocol") == "awg"
+                ]
+
+                # If server_pub is missing, attempt to fetch keys via SSH once
+                if not server_pub:
+                    try:
+                        ssh = get_ssh(server)
+                        await asyncio.to_thread(ssh.connect)
+                        mgr = get_protocol_manager(ssh, "awg")
+                        server_pub = await asyncio.to_thread(mgr._get_server_public_key, "awg")
+                        psk = await asyncio.to_thread(mgr._get_server_psk, "awg")
+                        clients = await asyncio.to_thread(mgr.get_clients, "awg")
+                        for cl in clients:
+                            priv = cl.get("userData", {}).get("clientPrivateKey")
+                            if priv:
+                                client_priv = priv
+                                break
+                        await asyncio.to_thread(ssh.disconnect)
+                    except Exception as e:
+                        logger.debug("Could not fetch AWG keys via SSH for server %s: %s", sid, e)
+
+                if server_pub:
+                    # Perform real AmneziaWG health check
+                    try:
+                        reach_res = await check_awg_reachability(
+                            host=host,
+                            port=port,
+                            server_public_key=server_pub,
+                            client_private_key=client_priv,
+                            psk=psk,
+                            awg_params=awg_params,
+                            timeout=3.0,
+                        )
+                        # Also run Auto Trials profile probes
+                        auto_trials = await run_auto_trial_profiles(
+                            host=host,
+                            port=port,
+                            server_public_key=server_pub,
+                            client_private_key=client_priv,
+                            psk=psk,
+                            awg_params=awg_params,
+                            timeout=2.0,
+                        )
+                        reach_res["auto_trials"] = auto_trials
+                        results[sid] = reach_res
+                        continue
+                    except Exception as err:
+                        logger.debug("AWG reachability check failed for server %s: %s", sid, err)
+
+            # Fallback for non-AWG servers or if AWG handshake could not be initiated
+            port = int(server.get("ssh_port") or server.get("port") or 22)
             t0 = time.time()
             try:
                 reader, writer = await asyncio.wait_for(
@@ -362,6 +430,7 @@ class BackgroundTaskOrchestrator:
                 results[sid] = {
                     "reachable": True,
                     "latency_ms": latency,
+                    "protocol": "tcp",
                     "last_checked": datetime.now().isoformat(),
                     "error": "",
                 }
@@ -369,6 +438,7 @@ class BackgroundTaskOrchestrator:
                 results[sid] = {
                     "reachable": False,
                     "latency_ms": 0,
+                    "protocol": "tcp",
                     "last_checked": datetime.now().isoformat(),
                     "error": str(e),
                 }
@@ -380,153 +450,6 @@ class BackgroundTaskOrchestrator:
     def get_cached_server_reachability(cls) -> Dict[Any, Dict[str, Any]]:
         """Return cached server reachability results without fake fallbacks."""
         return cls._server_reachability
-
-    async def check_auto_trial_handshakes(self) -> None:
-        """Check for active handshakes on trial peers and lock in winning mimicry profile."""
-        logger.info("Starting background auto trial handshake check...")
-        db = get_db()
-        servers = db.get_all_servers()
-        now_dt = datetime.now()
-
-        for server in servers:
-            sid = server["id"]
-            if "awg" not in server.get("protocols", {}):
-                continue
-
-            ssh = None
-            try:
-                ssh = get_ssh(server)
-                await asyncio.to_thread(ssh.connect)
-                manager = get_protocol_manager(ssh, "awg")
-                clients = await asyncio.to_thread(manager.get_clients, "awg")
-
-                # Try running wg/awg show latest-handshakes
-                handshake_map: Dict[str, int] = {}
-                try:
-                    out, _, code = await asyncio.to_thread(
-                        ssh.run_sudo_command,
-                        "docker exec -i amnezia-awg bash -c 'awg show awg0 latest-handshakes 2>/dev/null || wg show awg0 latest-handshakes 2>/dev/null'",
-                    )
-                    if code == 0 and out.strip():
-                        for line in out.strip().split("\n"):
-                            parts = line.strip().split()
-                            if len(parts) >= 2:
-                                try:
-                                    handshake_map[parts[0]] = int(parts[1])
-                                except ValueError:
-                                    pass
-                except Exception as e:
-                    logger.debug("Failed to query raw latest-handshakes on server %s: %s", sid, e)
-
-                # Find trial peers
-                trial_peers = [c for c in clients if c.get("userData", {}).get("trial_profile")]
-                if not trial_peers:
-                    continue
-
-                trials_by_target: Dict[str, List[Dict[str, Any]]] = {}
-                for tp in trial_peers:
-                    target = str(
-                        tp.get("userData", {}).get("trial_for")
-                        or tp.get("userData", {}).get("trial_user_id")
-                        or ""
-                    )
-                    if target:
-                        trials_by_target.setdefault(target, []).append(tp)
-
-                for target, t_peers in trials_by_target.items():
-                    winning_peer = None
-                    for tp in t_peers:
-                        pub_key = tp.get("clientId")
-                        ud = tp.get("userData", {})
-                        hs_ts = handshake_map.get(pub_key, 0)
-                        has_hs = (
-                            hs_ts > 0
-                            or bool(ud.get("latestHandshake"))
-                            or ud.get("dataReceivedBytes", 0) > 0
-                            or ud.get("dataSentBytes", 0) > 0
-                        )
-                        if has_hs:
-                            winning_peer = tp
-                            break
-
-                    if winning_peer:
-                        working_profile = winning_peer["userData"]["trial_profile"]
-                        logger.info(
-                            "Auto-trial handshake detected for target %s with profile %s on server %s",
-                            target,
-                            working_profile,
-                            sid,
-                        )
-
-                        # 1. Lock in that mimicry profile for user's main connection in DB
-                        all_server_conns = db.get_connections_by_server_and_protocol(sid, "awg")
-                        for conn in all_server_conns:
-                            if str(conn.get("user_id")) == str(target) or str(
-                                conn.get("client_id")
-                            ) == str(target):
-                                db.update_connection(conn["id"], {"awg_mimicry": working_profile})
-                                logger.info(
-                                    "Locked in mimicry profile %s for connection %s (user %s)",
-                                    working_profile,
-                                    conn["id"],
-                                    target,
-                                )
-
-                        user_entry = db.get_user(str(target))
-                        if user_entry:
-                            db.update_user(str(target), {"awg_mimicry": working_profile})
-
-                        # 2. Delete all other trial peers for that user from VPN server
-                        for tp in t_peers:
-                            other_pub = tp.get("clientId")
-                            if other_pub != winning_peer.get("clientId"):
-                                try:
-                                    await asyncio.to_thread(manager.remove_client, "awg", other_pub)
-                                    logger.info(
-                                        "Deleted trial peer %s for user %s", other_pub, target
-                                    )
-                                except Exception as err:
-                                    logger.warning(
-                                        "Failed to remove trial peer %s: %s", other_pub, err
-                                    )
-
-                        # 3. Log event
-                        logger.info(
-                            "Auto trial completed successfully for user %s: locked in profile %s",
-                            target,
-                            working_profile,
-                        )
-                    else:
-                        # Clean up trial peers that haven't handshaked within 24h
-                        for tp in t_peers:
-                            ud = tp.get("userData", {})
-                            pub_key = tp.get("clientId")
-                            exp_str = ud.get("expires_at") or ud.get("trial_created_at")
-                            if exp_str:
-                                try:
-                                    exp_dt = datetime.fromisoformat(exp_str)
-                                    is_expired = (
-                                        now_dt > exp_dt
-                                        if "expires_at" in ud
-                                        else (now_dt - exp_dt).total_seconds() > 86400
-                                    )
-                                    if is_expired:
-                                        await asyncio.to_thread(
-                                            manager.remove_client, "awg", pub_key
-                                        )
-                                        logger.info(
-                                            "Cleaned up expired trial peer %s (target %s) from server %s",
-                                            pub_key,
-                                            target,
-                                            sid,
-                                        )
-                                except (ValueError, TypeError):
-                                    pass
-            except Exception as e:
-                logger.error("Error in check_auto_trial_handshakes for server %s: %s", sid, e)
-            finally:
-                if ssh:
-                    await asyncio.to_thread(ssh.disconnect)
 
     async def sync_remnawave(self) -> None:
         """Sync users with Remnawave if enabled."""
@@ -545,7 +468,6 @@ class BackgroundTaskOrchestrator:
         operations = [
             ("traffic_sync", self.sync_traffic),
             ("server_reachability", self.check_server_reachability),
-            ("auto_trial_check", self.check_auto_trial_handshakes),
             ("remnawave_sync", self.sync_remnawave),
         ]
         for name, operation in operations:

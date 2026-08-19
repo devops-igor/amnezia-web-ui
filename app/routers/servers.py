@@ -750,6 +750,7 @@ async def api_provision_auto_trial(
     req: AutoTrialRequest,
     user: dict = Depends(require_admin),
 ):
+    """Run Auto Trials AmneziaWG health checks across all mimicry profiles (TLS, QUIC, DNS, SIP)."""
     try:
         db = get_db()
         server = db.get_server_by_id(server_id)
@@ -765,25 +766,35 @@ async def api_provision_auto_trial(
             return JSONResponse(
                 {"error": "AWG protocol is not installed on this server"}, status_code=400
             )
-        port = proto_info.get("port", "55424")
-        ssh = get_ssh(server)
-        await asyncio.to_thread(ssh.connect)
-        try:
-            manager = get_protocol_manager(ssh, "awg")
-            trial_configs = await asyncio.to_thread(
-                manager.provision_auto_trial,
-                "awg",
-                server["host"],
-                port,
-                client_name=req.name or "Auto Trial",
-                user_id=req.user_id,
-                main_client_id=req.client_id,
-            )
-        finally:
-            await asyncio.to_thread(ssh.disconnect)
-        return {"status": "success", "kit": trial_configs, "configs": trial_configs}
+        port = int(proto_info.get("port", "55424"))
+        awg_params = proto_info.get("awg_params", {})
+        server_pub = proto_info.get("public_key")
+        psk = proto_info.get("psk")
+
+        if not server_pub:
+            ssh = get_ssh(server)
+            await asyncio.to_thread(ssh.connect)
+            try:
+                manager = get_protocol_manager(ssh, "awg")
+                server_pub = await asyncio.to_thread(manager._get_server_public_key, "awg")
+                psk = await asyncio.to_thread(manager._get_server_psk, "awg")
+            finally:
+                await asyncio.to_thread(ssh.disconnect)
+
+        from app.managers.awg_health import run_auto_trial_profiles
+
+        trial_results = await run_auto_trial_profiles(
+            host=server["host"],
+            port=port,
+            server_public_key=server_pub,
+            psk=psk,
+            awg_params=awg_params,
+            timeout=2.5,
+        )
+
+        return {"status": "success", "trials": trial_results, "profiles": trial_results}
     except Exception as e:
-        logger.exception("Error provisioning auto trial")
+        logger.exception("Error running auto trial")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 

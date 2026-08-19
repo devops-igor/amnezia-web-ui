@@ -1,8 +1,9 @@
-"""Tests for Client Auto-Suspend (Expiration Dates) and Background Intelligent Automation."""
+"""Tests for Client Auto-Suspend (Expiration Dates) and Server Reachability Monitoring."""
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
+import pytest
+
 from app.services.background_orchestrator import BackgroundTaskOrchestrator
 
 
@@ -42,13 +43,14 @@ class TestClientAutoSuspend:
         assert "u200" not in to_disable
 
     @pytest.mark.asyncio
-    async def test_server_reachability(self):
+    async def test_server_reachability_tcp_fallback(self):
         orchestrator = BackgroundTaskOrchestrator()
         mock_db = MagicMock()
         mock_db.get_all_servers.return_value = [
             {"id": 1, "host": "1.2.3.4", "ssh_port": 22},
             {"id": 2, "host": "5.6.7.8", "ssh_port": 2222},
         ]
+        mock_db.get_all_connections.return_value = []
 
         mock_writer = MagicMock()
         mock_writer.close = MagicMock()
@@ -74,107 +76,57 @@ class TestClientAutoSuspend:
             assert cached[1]["reachable"] is True
 
     @pytest.mark.asyncio
-    async def test_auto_trial_handshake_locking(self):
+    async def test_server_reachability_awg_protocol(self):
         orchestrator = BackgroundTaskOrchestrator()
         mock_db = MagicMock()
         mock_server = {
             "id": 1,
             "host": "1.2.3.4",
-            "protocols": {"awg": {"port": 55424}},
+            "protocols": {
+                "awg": {
+                    "installed": True,
+                    "port": 55424,
+                    "public_key": "srvpub123",
+                    "psk": "psk123",
+                    "awg_params": {"h1": "1000"},
+                }
+            },
         }
-        mock_conn = {
-            "id": "c1",
-            "server_id": 1,
+        mock_db.get_all_servers.return_value = [mock_server]
+        mock_db.get_all_connections.return_value = []
+
+        mock_reach = {
+            "reachable": True,
+            "latency_ms": 12,
             "protocol": "awg",
-            "client_id": "main_peer",
-            "user_id": "u1",
-            "awg_mimicry": "auto",
+            "handshake_complete": True,
+            "profile": "default",
+            "last_checked": datetime.now().isoformat(),
+            "error": "",
         }
-        mock_db.get_all_servers.return_value = [mock_server]
-        mock_db.get_connections_by_server_and_protocol.return_value = [mock_conn]
-        mock_db.get_user.return_value = {"id": "u1", "username": "alice", "awg_mimicry": "auto"}
-
-        mock_ssh = MagicMock()
-        mock_ssh.run_sudo_command.return_value = ("trial_quic_pubkey\t1724108400\n", "", 0)
-        mock_manager = MagicMock()
-
-        # Two trial peers: TLS (no handshake) and QUIC (has handshake)
-        mock_manager.get_clients.return_value = [
-            {
-                "clientId": "trial_tls_pubkey",
-                "userData": {
-                    "clientName": "Alice (TLS)",
-                    "trial_profile": "tls",
-                    "trial_for": "u1",
-                    "latestHandshake": "",
-                    "dataReceivedBytes": 0,
-                },
-            },
-            {
-                "clientId": "trial_quic_pubkey",
-                "userData": {
-                    "clientName": "Alice (QUIC)",
-                    "trial_profile": "quic",
-                    "trial_for": "u1",
-                    "latestHandshake": "1 minute ago",
-                    "dataReceivedBytes": 1500,
-                },
-            },
-        ]
+        mock_trials = {
+            "tls": {"reachable": True, "latency_ms": 10},
+            "quic": {"reachable": True, "latency_ms": 12},
+            "dns": {"reachable": True, "latency_ms": 11},
+            "sip": {"reachable": True, "latency_ms": 15},
+        }
 
         with (
             patch("app.services.background_orchestrator.get_db", return_value=mock_db),
-            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
             patch(
-                "app.services.background_orchestrator.get_protocol_manager",
-                return_value=mock_manager,
+                "app.managers.awg_health.check_awg_reachability",
+                new_callable=AsyncMock,
+                return_value=mock_reach,
+            ),
+            patch(
+                "app.managers.awg_health.run_auto_trial_profiles",
+                new_callable=AsyncMock,
+                return_value=mock_trials,
             ),
         ):
-            await orchestrator.check_auto_trial_handshakes()
-
-            # Profile QUIC locked in
-            mock_db.update_connection.assert_called_once_with("c1", {"awg_mimicry": "quic"})
-            mock_db.update_user.assert_called_once_with("u1", {"awg_mimicry": "quic"})
-            # Other trial peer deleted
-            mock_manager.remove_client.assert_called_once_with("awg", "trial_tls_pubkey")
-
-    @pytest.mark.asyncio
-    async def test_auto_trial_expired_cleanup(self):
-        orchestrator = BackgroundTaskOrchestrator()
-        mock_db = MagicMock()
-        mock_server = {
-            "id": 1,
-            "host": "1.2.3.4",
-            "protocols": {"awg": {"port": 55424}},
-        }
-        mock_db.get_all_servers.return_value = [mock_server]
-
-        mock_ssh = MagicMock()
-        mock_ssh.run_sudo_command.return_value = ("", "", 0)
-        mock_manager = MagicMock()
-
-        expired_time = (datetime.now() - timedelta(hours=25)).isoformat()
-        mock_manager.get_clients.return_value = [
-            {
-                "clientId": "old_trial_pubkey",
-                "userData": {
-                    "clientName": "Bob (TLS)",
-                    "trial_profile": "tls",
-                    "trial_for": "u2",
-                    "trial_created_at": expired_time,
-                    "latestHandshake": "",
-                    "dataReceivedBytes": 0,
-                },
-            }
-        ]
-
-        with (
-            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
-            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
-            patch(
-                "app.services.background_orchestrator.get_protocol_manager",
-                return_value=mock_manager,
-            ),
-        ):
-            await orchestrator.check_auto_trial_handshakes()
-            mock_manager.remove_client.assert_called_once_with("awg", "old_trial_pubkey")
+            results = await orchestrator.check_server_reachability()
+            assert results[1]["reachable"] is True
+            assert results[1]["latency_ms"] == 12
+            assert results[1]["protocol"] == "awg"
+            assert "auto_trials" in results[1]
+            assert results[1]["auto_trials"]["tls"]["reachable"] is True

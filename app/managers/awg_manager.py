@@ -493,11 +493,16 @@ iptables -C FORWARD -j DOCKER-USER 2>/dev/null || iptables -A FORWARD -j DOCKER-
         self.setup_firewall()
         results.append("Firewall configured")
 
+        server_pub = self._get_server_public_key(protocol_type)
+        psk = self._get_server_psk(protocol_type)
+
         return {
             "status": "success",
             "protocol": protocol_type,
             "port": port,
             "awg_params": awg_params,
+            "public_key": server_pub,
+            "psk": psk,
             "log": results,
         }
 
@@ -1531,7 +1536,6 @@ PersistentKeepalive = 25
 
             ud["awg_mimicry"] = new_proto
             ud["rotated_at"] = __import__("datetime").datetime.now().isoformat()
-            ud["dpi_blocked"] = True
             self._save_clients_table(protocol_type, clients_table)
 
             logger.info(f"Rotated client {client_id} mimicry from {curr} to {new_proto}")
@@ -1539,7 +1543,6 @@ PersistentKeepalive = 25
                 "client_id": client_id,
                 "awg_mimicry": new_proto,
                 "rotated_at": ud["rotated_at"],
-                "dpi_blocked": True,
             }
 
     def toggle_client(self, protocol_type, client_id, enable):
@@ -1706,6 +1709,11 @@ AllowedIPs = {client_ip}/32
                             break
                     info["awg_params"] = self._get_awg_params_from_config(protocol_type)
                     info["clients_count"] = len(self._get_clients_table(protocol_type))
+                    try:
+                        info["public_key"] = self._get_server_public_key(protocol_type)
+                        info["psk"] = self._get_server_psk(protocol_type)
+                    except Exception:
+                        pass
                 except Exception as e:
                     info["error"] = str(e)
 

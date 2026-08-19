@@ -546,11 +546,8 @@
             <button class="modal-close" onclick="closeModal('autoTrialModal')">×</button>
         </div>
         <div style="margin-bottom: var(--space-md);">
-            <p style="font-size: 0.875rem; color: var(--color-text-muted); margin-bottom: var(--space-sm);">
-                {{ _('trial_in_progress') }}
-            </p>
             <div class="form-hint" style="margin-bottom: var(--space-md);">
-                Try connecting with each profile below. Once a successful handshake is detected, that profile will be automatically locked in.
+                Real AmneziaWG health check & Auto Trial mimicry profiles. Download or copy profile configurations to test connectivity against this server.
             </div>
             <div id="autoTrialList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
         </div>
@@ -1110,18 +1107,13 @@
                     if (parts.length) metaHtml += `<span class="badge badge-warn" style="font-size:0.65rem;">⚡${parts.join(' ')} Mbps</span>`;
                 }
 
-                // AWG mimicry profile badge & trial status
+                // AWG mimicry profile badge
                 if (proto === 'awg') {
                     const mimicry = userData.awg_mimicry || 'auto';
-                    if (userData.trial_profile) {
-                        metaHtml += `<span class="badge badge-warn" style="font-size:0.65rem;">🧪 ${_('trial_in_progress')} (${escapeHtml(userData.trial_profile.toUpperCase())})</span>`;
-                    } else if (mimicry === 'auto') {
+                    if (mimicry === 'auto') {
                         metaHtml += `<span class="badge badge-info" style="font-size:0.65rem;">🛡 ${_('mimicry_auto')}</span>`;
                     } else {
                         metaHtml += `<span class="badge badge-success" style="font-size:0.65rem;">🔒 ${_('profile_locked').replace('{}', escapeHtml(mimicry.toUpperCase()))}</span>`;
-                    }
-                    if (userData.dpi_blocked) {
-                        metaHtml += `<span class="badge badge-danger" style="font-size:0.65rem;">⚠️ ${_('dpi_blocked_badge')}</span>`;
                     }
                 }
 
@@ -1134,7 +1126,7 @@
 
                 // AWG edit speed limit, auto trial & rotate buttons
                 const awgSpeedBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openEditSpeedLimitModal('${escapeJs(client.clientId)}')" title="${_('edit_speed_limit')}">⚡</button>` : '';
-                const awgTrialBtn = (proto === 'awg' && (!userData.awg_mimicry || userData.awg_mimicry === 'auto') && !userData.trial_profile) ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="startAutoTrial('${escapeJs(client.clientId)}', '${escapeJs(name)}')" title="${_('start_auto_trial')}">🎯</button>` : '';
+                const awgTrialBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="startAutoTrial('${escapeJs(client.clientId)}', '${escapeJs(name)}')" title="${_('start_auto_trial')}">🎯</button>` : '';
                 const awgRotateBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="rotateClientMimicry('${escapeJs(client.clientId)}')" title="${_('rotate_profile')}">🔄</button>` : '';
 
                 listEl.innerHTML += `
@@ -1167,13 +1159,12 @@
     async function startAutoTrial(clientId, connName) {
         try {
             showToast(_('loading'), 'info');
-            const res = await apiCall(`/api/servers/${SERVER_ID}/connections/auto-trial`, 'POST', {
+            const res = await apiCall(`/api/servers/${SERVER_ID}/connections/kit`, 'POST', {
                 protocol: 'awg',
                 client_id: clientId,
-                name: connName || 'Auto Trial'
             });
-            if (res.kit || res.configs) {
-                const kit = res.kit || res.configs;
+            if (res.kit) {
+                const kit = res.kit;
                 const trialList = document.getElementById('autoTrialList');
                 if (trialList) {
                     trialList.innerHTML = '';
@@ -1195,7 +1186,6 @@
                 }
                 document.getElementById('autoTrialModalTitle').textContent = `🎯 ${_('start_auto_trial')} — ${escapeHtml(connName || 'Connection')}`;
                 openModal('autoTrialModal');
-                loadConnections();
             }
         } catch (err) {
             showToast(_('error') + ': ' + err.message, 'error');
