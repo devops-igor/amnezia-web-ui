@@ -900,6 +900,10 @@ button:focus-visible,
     align-items: center;
 }
 
+.client-meta > span {
+    white-space: nowrap;
+}
+
 .client-actions {
     display: flex;
     align-items: center;
@@ -1262,6 +1266,23 @@ button:focus-visible,
     .app-header {
         flex-wrap: wrap;
         gap: var(--space-md);
+    }
+
+    .client-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-sm);
+    }
+
+    .client-info {
+        width: 100%;
+    }
+
+    .client-actions {
+        width: 100%;
+        margin-left: 0;
+        justify-content: flex-start;
+        flex-wrap: wrap;
     }
 }
 
