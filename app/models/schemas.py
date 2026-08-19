@@ -269,6 +269,21 @@ class ConnectionActionRequest(BaseModel):
         return v
 
 
+class AutoTrialRequest(BaseModel):
+    protocol: str = Field(default="awg", min_length=1, max_length=50)
+    user_id: Optional[str] = Field(default=None, max_length=255)
+    client_id: Optional[str] = Field(default=None, max_length=255)
+    name: Optional[str] = Field(default="Auto Trial", max_length=255)
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        """Validate protocol against allowlist."""
+        if v not in VALID_PROTOCOLS:
+            raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
+        return v
+
+
 class ToggleConnectionRequest(BaseModel):
     protocol: str = Field(default="awg", min_length=1, max_length=50)
     client_id: str = Field(default="", min_length=0, max_length=255)

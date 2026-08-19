@@ -120,9 +120,41 @@ class TestAWGManagerMimicry:
         rot2 = manager.rotate_client_mimicry("awg", "client123")
         assert rot2["awg_mimicry"] == "dns"
 
+    def test_provision_auto_trial(self):
+        mock_ssh = MagicMock()
+        manager = AWGManager(mock_ssh)
+        manager._get_server_config = MagicMock(
+            return_value="[Interface]\nAddress = 10.8.1.1/24\nPrivateKey = servkey\n"
+        )
+        manager._get_server_public_key = MagicMock(return_value="servpubkey")
+        manager._get_server_psk = MagicMock(return_value="servpsk")
+        manager._get_awg_params_from_config = MagicMock(return_value={"port": "55424"})
+        manager._get_clients_table = MagicMock(return_value=[])
+        manager._save_clients_table = MagicMock()
+
+        res = manager.provision_auto_trial(
+            "awg", "1.2.3.4", "55424", client_name="trial_user", user_id="u1"
+        )
+        assert set(res.keys()) == {"tls", "quic", "dns", "sip"}
+        for proto, conf in res.items():
+            assert "[Interface]" in conf
+            assert "[Peer]" in conf
+            assert "Endpoint = 1.2.3.4:55424" in conf
+            assert "I1 =" in conf
+
+        # Verify 4 trial peers were saved
+        assert manager._save_clients_table.called
+        saved_table = manager._save_clients_table.call_args[0][1]
+        assert len(saved_table) == 4
+        profiles_saved = {c["userData"]["trial_profile"] for c in saved_table}
+        assert profiles_saved == {"tls", "quic", "dns", "sip"}
+        for c in saved_table:
+            assert c["userData"]["trial_for"] == "u1"
+            assert "expires_at" in c["userData"]
+
 
 class TestMimicryEndpoints:
-    """Test API router endpoints for mimicry rotation and connection kits."""
+    """Test API router endpoints for mimicry rotation, reachability, auto-trial, and connection kits."""
 
     def test_rotate_mimicry_endpoint(self, csrf_client):
         from app.main import app
@@ -170,28 +202,79 @@ class TestMimicryEndpoints:
         finally:
             app.dependency_overrides.clear()
 
-    def test_network_health_endpoint(self, csrf_client):
+    def test_reachability_endpoint(self, csrf_client):
         from app.main import app
         from app.core.dependencies import get_current_user
 
         admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {"id": 1, "name": "Test Server", "host": "1.2.3.4"}
         app.dependency_overrides[get_current_user] = lambda: admin_user
 
         try:
-            with patch(
-                "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_network_health"
-            ) as mock_health:
-                mock_health.return_value = {
-                    "tls": {"status": "operational", "latency_ms": 45},
-                    "quic": {"status": "operational", "latency_ms": 32},
+            with (
+                patch("app.routers.servers.get_db", return_value=mock_db),
+                patch(
+                    "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
+                ) as mock_reach,
+            ):
+                mock_reach.return_value = {
+                    1: {
+                        "reachable": True,
+                        "latency_ms": 15,
+                        "last_checked": "2026-08-20T00:00:00",
+                        "error": "",
+                    }
                 }
 
-                resp = csrf_client.get("/api/servers/1/network-health")
+                resp = csrf_client.get("/api/servers/1/reachability")
                 assert resp.status_code == 200
                 data = resp.json()
                 assert data["status"] == "success"
-                health = data.get("network_health") or data.get("health", {})
-                assert "tls" in health
+                assert data["reachability"]["reachable"] is True
+                assert data["reachability"]["latency_ms"] == 15
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_auto_trial_endpoint(self, csrf_client):
+        from app.main import app
+        from app.core.dependencies import get_current_user, require_admin
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {
+            "id": 1,
+            "name": "Test Server",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 55424, "installed": True}},
+        }
+        mock_ssh = MagicMock()
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+        app.dependency_overrides[require_admin] = lambda: admin_user
+
+        try:
+            with (
+                patch("app.routers.servers.get_db", return_value=mock_db),
+                patch("app.routers.servers.get_ssh", return_value=mock_ssh),
+                patch("app.routers.servers.get_protocol_manager") as mock_get_mgr,
+            ):
+                mock_mgr = MagicMock()
+                mock_mgr.provision_auto_trial.return_value = {
+                    "tls": "[Interface]\nI1 = <b 0x1111>",
+                    "quic": "[Interface]\nI1 = <b 0x2222>",
+                    "dns": "[Interface]\nI1 = <b 0x3333>",
+                    "sip": "[Interface]\nI1 = <b 0x4444>",
+                }
+                mock_get_mgr.return_value = mock_mgr
+
+                resp = csrf_client.post(
+                    "/api/servers/1/connections/auto-trial",
+                    json={"protocol": "awg", "client_id": "client_abc", "user_id": "user-1"},
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "success"
+                assert set(data["kit"].keys()) == {"tls", "quic", "dns", "sip"}
         finally:
             app.dependency_overrides.clear()
 
@@ -234,5 +317,72 @@ class TestMimicryEndpoints:
                 data = resp.json()
                 assert data["status"] == "success"
                 assert set(data["kit"].keys()) == {"tls", "quic", "dns", "sip"}
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_reachability_endpoint_not_found(self, csrf_client):
+        from app.main import app
+        from app.core.dependencies import get_current_user
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = None
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+
+        try:
+            with patch("app.routers.servers.get_db", return_value=mock_db):
+                resp = csrf_client.get("/api/servers/999/reachability")
+                assert resp.status_code == 404
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_reachability_endpoint_no_cached_data(self, csrf_client):
+        from app.main import app
+        from app.core.dependencies import get_current_user
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {"id": 1, "name": "Test Server", "host": "1.2.3.4"}
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+
+        try:
+            with (
+                patch("app.routers.servers.get_db", return_value=mock_db),
+                patch(
+                    "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability",
+                    return_value={},
+                ),
+            ):
+                resp = csrf_client.get("/api/servers/1/reachability")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "success"
+                assert data["reachability"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_auto_trial_endpoint_not_installed(self, csrf_client):
+        from app.main import app
+        from app.core.dependencies import get_current_user, require_admin
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {
+            "id": 1,
+            "name": "Test Server",
+            "host": "1.2.3.4",
+            "protocols": {"awg": {"port": 55424, "installed": False}},
+        }
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+        app.dependency_overrides[require_admin] = lambda: admin_user
+
+        try:
+            with patch("app.routers.servers.get_db", return_value=mock_db):
+                resp = csrf_client.post(
+                    "/api/servers/1/connections/auto-trial",
+                    json={"protocol": "awg", "client_id": "client_abc"},
+                )
+                assert resp.status_code == 400
+                assert "not installed" in resp.json()["error"]
         finally:
             app.dependency_overrides.clear()

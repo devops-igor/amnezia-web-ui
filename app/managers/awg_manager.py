@@ -3,6 +3,7 @@ AWG Protocol Manager - handles AmneziaWG protocol installation
 and client management on remote servers.
 """
 
+from datetime import datetime, timedelta
 import ipaddress
 import json
 import secrets
@@ -1345,6 +1346,168 @@ PersistentKeepalive = 25
         """Generate multi-config connection kit (TLS, QUIC, DNS, SIP) for a client."""
         base_config = self.get_client_config(protocol_type, client_id, server_host, port)
         return generate_connection_kit(base_config, ssh=self.ssh)
+
+    def provision_auto_trial(
+        self,
+        protocol_type,
+        server_host,
+        port,
+        client_name="Auto Trial",
+        user_id=None,
+        main_client_id=None,
+        stored_awg_params=None,
+    ):
+        """Generate trial configs for each profile: TLS, QUIC, DNS, SIP.
+
+        For each profile, creates a separate peer on the AWG VPN server with that profile's
+        mimicry packets, and stores trial peers with markers (trial_profile, trial_for, expires_at).
+        Returns all trial configs in a dictionary.
+        """
+        profiles = ["tls", "quic", "dns", "sip"]
+        configs = {}
+        now = datetime.now()
+        expires_at = (now + timedelta(hours=24)).isoformat()
+
+        with self._lock:
+            container_name = self._container_name(protocol_type)
+            config_path = self._config_path(protocol_type)
+            wg_bin = self._wg_binary(protocol_type)
+            iface = self._interface_name(protocol_type)
+
+            server_pub_key = self._get_server_public_key(protocol_type)
+            psk = self._get_server_psk(protocol_type)
+            existing_config = self._get_server_config(protocol_type)
+            clients_table = self._get_clients_table(protocol_type)
+
+            base_awg_params = self._get_awg_params_from_config(protocol_type)
+            if base_awg_params.get("port"):
+                port = base_awg_params["port"]
+
+            dns1 = AWG_DEFAULTS["dns1"]
+            dns2 = AWG_DEFAULTS["dns2"]
+
+            used_ips = set(self._get_used_ips(protocol_type))
+            used_ips.add(AWG_DEFAULTS["subnet_ip"])
+            subnet_addr = AWG_DEFAULTS["subnet_address"]
+            subnet_cidr = AWG_DEFAULTS["subnet_cidr"]
+            network = ipaddress.ip_network(f"{subnet_addr}/{subnet_cidr}", strict=False)
+
+            peer_sections = []
+
+            for proto in profiles:
+                priv_key, pub_key = generate_wg_keypair()
+
+                # Find next available IP
+                client_ip = None
+                for ip in network.hosts():
+                    ip_str = str(ip)
+                    if ip_str not in used_ips:
+                        client_ip = ip_str
+                        used_ips.add(ip_str)
+                        break
+
+                if not client_ip:
+                    raise RuntimeError(f"Subnet {subnet_addr}/{subnet_cidr} is exhausted.")
+
+                # Add peer section
+                peer_sections.append(
+                    f"\n[Peer]\nPublicKey = {pub_key}\nPresharedKey = {psk}\nAllowedIPs = {client_ip}/32\n"
+                )
+
+                # Build awg params for this trial peer
+                proto_params = dict(base_awg_params)
+                if stored_awg_params:
+                    for key in ("i1", "i2", "i3", "i4", "i5", "mtu"):
+                        if key in stored_awg_params and key not in proto_params:
+                            proto_params[key] = stored_awg_params[key]
+
+                mimicry_packets = generate_mimicry_packets(mimicry=proto, ssh=self.ssh)
+                for k in ("i1", "i2", "i3", "i4", "i5"):
+                    if mimicry_packets.get(k):
+                        proto_params[k] = mimicry_packets[k]
+
+                mtu = proto_params.get("mtu", AWG_DEFAULTS["mtu"])
+
+                config_lines = [
+                    f"Address = {client_ip}/32",
+                    f"DNS = {dns1}, {dns2}",
+                    f"PrivateKey = {priv_key}",
+                    f"MTU = {mtu}",
+                ]
+
+                mapping = [
+                    ("junk_packet_count", "Jc"),
+                    ("junk_packet_min_size", "Jmin"),
+                    ("junk_packet_max_size", "Jmax"),
+                    ("init_packet_junk_size", "S1"),
+                    ("response_packet_junk_size", "S2"),
+                    ("cookie_reply_packet_junk_size", "S3"),
+                    ("transport_packet_junk_size", "S4"),
+                    ("init_packet_magic_header", "H1"),
+                    ("response_packet_magic_header", "H2"),
+                    ("underload_packet_magic_header", "H3"),
+                    ("transport_packet_magic_header", "H4"),
+                    ("i1", "I1"),
+                    ("i2", "I2"),
+                    ("i3", "I3"),
+                    ("i4", "I4"),
+                    ("i5", "I5"),
+                ]
+
+                for param_key, config_key in mapping:
+                    val = proto_params.get(param_key)
+                    if val:
+                        config_lines.append(f"{config_key} = {val}")
+
+                client_conf = "[Interface]\n" + "\n".join(config_lines) + f"""
+
+[Peer]
+PublicKey = {server_pub_key}
+PresharedKey = {psk}
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = {server_host}:{port}
+PersistentKeepalive = 25
+"""
+                configs[proto] = client_conf
+
+                # Add to clientsTable
+                trial_client = {
+                    "clientId": pub_key,
+                    "userData": {
+                        "clientName": f"{client_name} ({proto.upper()})",
+                        "creationDate": now.isoformat(),
+                        "clientPrivateKey": priv_key,
+                        "clientIp": client_ip,
+                        "psk": psk,
+                        "enabled": True,
+                        "awg_mimicry": proto,
+                        "trial_profile": proto,
+                        "trial_for": str(user_id or main_client_id or client_name),
+                        "trial_user_id": user_id,
+                        "main_client_id": main_client_id,
+                        "trial_created_at": now.isoformat(),
+                        "expires_at": expires_at,
+                    },
+                }
+                clients_table.append(trial_client)
+
+            # Update server config once with all peer sections
+            new_config = existing_config.rstrip("\n") + "\n" + "".join(peer_sections)
+            self.ssh.upload_file(new_config, "/tmp/_amnz_peer.conf")
+            self.ssh.run_sudo_command(
+                f"docker cp /tmp/_amnz_peer.conf {container_name}:{config_path}"
+            )
+            self.ssh.run_command("rm -f /tmp/_amnz_peer.conf")
+
+            # Sync config
+            self.ssh.run_sudo_command(
+                f"docker exec -i {container_name} bash -c '{wg_bin} syncconf {iface} <({wg_bin}-quick strip {config_path})'"
+            )
+
+            # Save clients table
+            self._save_clients_table(protocol_type, clients_table)
+
+        return configs
 
     def rotate_client_mimicry(self, protocol_type, client_id, next_mimicry=None):
         """Rotate a client's mimicry profile to the next protocol in the sequence.

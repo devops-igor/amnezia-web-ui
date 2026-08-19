@@ -33,8 +33,8 @@ async def index(request: Request, user: dict = Depends(get_current_user)):
     servers = db.get_all_servers()
     from app.services.background_orchestrator import BackgroundTaskOrchestrator
 
-    health = BackgroundTaskOrchestrator.get_cached_network_health()
-    return tpl(request, "index.html", servers=servers, network_health=health)
+    reachability = BackgroundTaskOrchestrator.get_cached_server_reachability()
+    return tpl(request, "index.html", servers=servers, server_reachability=reachability)
 
 
 @router.get("/change-password", response_class=HTMLResponse)

@@ -22,6 +22,7 @@ from app.core.dependencies import get_current_user, require_admin
 from app.models.schemas import (
     AddConnectionRequest,
     AddServerRequest,
+    AutoTrialRequest,
     AwgSpeedLimitConfigRequest,
     ConfirmFingerprintRequest,
     ConnectionActionRequest,
@@ -723,17 +724,66 @@ async def api_rotate_connection_mimicry(
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
-@router.get("/{server_id}/network-health")
-async def api_server_network_health(
+@router.get("/{server_id}/reachability")
+async def api_server_reachability(
     request: Request, server_id: int, user: dict = Depends(get_current_user)
 ):
     try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
         from app.services.background_orchestrator import BackgroundTaskOrchestrator
 
-        health = BackgroundTaskOrchestrator.get_cached_network_health()
-        return {"status": "success", "network_health": health}
+        cached = BackgroundTaskOrchestrator.get_cached_server_reachability()
+        server_status = cached.get(server_id) or cached.get(str(server_id))
+        return {"status": "success", "reachability": server_status}
     except Exception as e:
-        logger.exception("Error getting network health")
+        logger.exception("Error getting server reachability")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{server_id}/connections/auto-trial")
+async def api_provision_auto_trial(
+    request: Request,
+    server_id: int,
+    req: AutoTrialRequest,
+    user: dict = Depends(require_admin),
+):
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+        proto = normalize_protocol(req.protocol)
+        if proto != "awg":
+            return JSONResponse(
+                {"error": "Auto trial is only supported for AWG protocol"}, status_code=400
+            )
+        proto_info = server.get("protocols", {}).get(proto, {})
+        if not proto_info.get("installed"):
+            return JSONResponse(
+                {"error": "AWG protocol is not installed on this server"}, status_code=400
+            )
+        port = proto_info.get("port", "55424")
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        try:
+            manager = get_protocol_manager(ssh, "awg")
+            trial_configs = await asyncio.to_thread(
+                manager.provision_auto_trial,
+                "awg",
+                server["host"],
+                port,
+                client_name=req.name or "Auto Trial",
+                user_id=req.user_id,
+                main_client_id=req.client_id,
+            )
+        finally:
+            await asyncio.to_thread(ssh.disconnect)
+        return {"status": "success", "kit": trial_configs, "configs": trial_configs}
+    except Exception as e:
+        logger.exception("Error provisioning auto trial")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 
