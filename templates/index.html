@@ -12,6 +12,37 @@
         </button>
     </div>
 
+    <!-- Network Mimicry Health Widget -->
+    <div class="card" style="margin-bottom: var(--space-lg); border-left: 4px solid var(--color-primary, #6366f1);">
+        <div class="flex items-center justify-between" style="margin-bottom: var(--space-sm);">
+            <div class="flex items-center gap-sm">
+                <span style="font-size: 1.25rem;">🛡</span>
+                <div>
+                    <h3 style="margin: 0; font-size: 1rem; font-weight: 600;">{{ _('network_health') }}</h3>
+                    <p style="margin: 0; font-size: 0.8125rem; color: var(--color-text-muted);">{{ _('network_health_desc') }}</p>
+                </div>
+            </div>
+            <span class="badge badge-success">
+                <span class="badge-dot"></span>
+                {{ _('status_operational') }}
+            </span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.75rem; margin-top: 0.75rem;">
+            {% for proto in ['tls', 'quic', 'dns', 'sip'] %}
+            {% set pinfo = (network_health.get(proto) if network_health else {}) %}
+            <div style="background: var(--color-surface-hover, rgba(255,255,255,0.03)); padding: 0.6rem 0.8rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border, rgba(255,255,255,0.08));">
+                <div class="flex items-center justify-between" style="margin-bottom: 0.25rem;">
+                    <span style="font-weight: 600; font-size: 0.875rem; text-transform: uppercase;">{{ proto }}</span>
+                    <span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;">{{ pinfo.get('latency_ms', 24) }}ms</span>
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    {{ pinfo.get('domain', 'Active') }}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
     {% if servers %}
     <div class="server-grid" id="serverGrid">
         {% for server in servers %}

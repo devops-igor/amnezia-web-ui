@@ -31,7 +31,10 @@ async def index(request: Request, user: dict = Depends(get_current_user)):
         return RedirectResponse(url="/my", status_code=302)
     db = get_db()
     servers = db.get_all_servers()
-    return tpl(request, "index.html", servers=servers)
+    from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+    health = BackgroundTaskOrchestrator.get_cached_network_health()
+    return tpl(request, "index.html", servers=servers, network_health=health)
 
 
 @router.get("/change-password", response_class=HTMLResponse)

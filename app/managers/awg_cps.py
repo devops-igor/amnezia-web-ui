@@ -17,7 +17,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Hardcoded domain pools (used as fallback when probing fails)
+TLS_DOMAINS = [
+    "www.google.com",
+    "www.cloudflare.com",
+    "www.microsoft.com",
+    "www.apple.com",
+    "aws.amazon.com",
+    "www.wikipedia.org",
+]
+
 QUIC_DOMAINS = [
     "google.com",
     "youtube.com",
@@ -43,8 +51,9 @@ SIP_DOMAINS = [
 # Protocol ports for reachability probing
 PROTOCOL_PORTS = {
     "quic": 443,
-    "dns": 443,
+    "dns": 53,
     "sip": 5060,
+    "tls": 443,
 }
 
 # Fallback domains when probing fails entirely
@@ -52,6 +61,7 @@ FALLBACK_DOMAINS = {
     "quic": "google.com",
     "dns": "one.one.one.one",
     "sip": "sip.linphone.org",
+    "tls": "www.google.com",
 }
 
 # SIP domain and User-Agent pools for gen_sip()
@@ -194,9 +204,9 @@ def gen_dns(domain):
     return flags + counts + qn + qtype + qclass + opt_rr
 
 
-def gen_sip():
+def gen_sip(domain=None):
     """Generate a realistic SIP REGISTER packet."""
-    host = _rc(SIP_POOL)
+    host = domain or _rc(SIP_POOL)
     user = _rc(["alice", "bob", "100", "200", "sip", "user", "client"]) + str(_ri(10, 9999))
     lip = _rand_private_ip()
     lport = _rc([5060, 5062, 5080, 5160, str(_ri(10000, 65000))])
@@ -231,6 +241,92 @@ def gen_sip():
     return "\r\n".join(lines).encode()
 
 
+def gen_tls(domain=None):
+    """Generate a realistic TLS 1.3 / 1.2 ClientHello packet.
+
+    Mimics a modern browser TLS ClientHello handshake record with
+    valid SNI, supported groups, cipher suites, and key share.
+    """
+    target_domain = domain if domain else _rc(TLS_DOMAINS)
+    # SNI extension (type 0x0000)
+    domain_bytes = target_domain.encode("utf-8")
+    sni_server_name = (
+        b"\x00" + _u16(len(domain_bytes)) + domain_bytes
+    )  # name_type (0 = host_name) + length + name
+    sni_ext_data = _u16(len(sni_server_name)) + sni_server_name
+    ext_sni = b"\x00\x00" + _u16(len(sni_ext_data)) + sni_ext_data
+
+    # Supported groups (type 0x000a): x25519 (0x001d), secp256r1 (0x0017), secp384r1 (0x0018)
+    groups = b"\x00\x1d\x00\x17\x00\x18"
+    ext_groups = b"\x00\x0a" + _u16(len(groups) + 2) + _u16(len(groups)) + groups
+
+    # EC Point Formats (type 0x000b): uncompressed (0x00)
+    ext_ec_points = b"\x00\x0b\x00\x02\x01\x00"
+
+    # Signature Algorithms (type 0x000d)
+    sig_algs = b"\x04\x03\x08\x04\x04\x01\x05\x03\x08\x05\x05\x01\x08\x06\x06\x01\x02\x01"
+    ext_sig_algs = b"\x00\x0d" + _u16(len(sig_algs) + 2) + _u16(len(sig_algs)) + sig_algs
+
+    # Supported Versions (type 0x002b): TLS 1.3 (0x0304), TLS 1.2 (0x0303)
+    versions = b"\x03\x04\x03\x03"
+    ext_versions = b"\x00\x2b" + _u16(len(versions) + 1) + bytes([len(versions)]) + versions
+
+    # Key Share (type 0x0033): x25519 (0x001d) + 32-byte public key
+    key_pub = _rh(32)
+    key_share_entry = b"\x00\x1d" + _u16(len(key_pub)) + key_pub
+    key_share_data = _u16(len(key_share_entry)) + key_share_entry
+    ext_key_share = b"\x00\x33" + _u16(len(key_share_data)) + key_share_data
+
+    # ALPN (type 0x0010): h2, http/1.1
+    alpn_list = b"\x02h2\x08http/1.1"
+    alpn_data = _u16(len(alpn_list)) + alpn_list
+    ext_alpn = b"\x00\x10" + _u16(len(alpn_data)) + alpn_data
+
+    # Combine all extensions
+    all_extensions = (
+        ext_sni
+        + ext_groups
+        + ext_ec_points
+        + ext_sig_algs
+        + ext_versions
+        + ext_key_share
+        + ext_alpn
+    )
+    extensions_block = _u16(len(all_extensions)) + all_extensions
+
+    # Client Hello payload
+    client_version = b"\x03\x03"  # TLS 1.2 record version for compatibility
+    client_random = _rh(32)
+    session_id = _rh(32)
+    session_id_block = bytes([len(session_id)]) + session_id
+
+    # Cipher suites (32 bytes / 16 suites)
+    cipher_suites = (
+        b"\x13\x01\x13\x02\x13\x03"  # TLS 1.3
+        b"\xc0\x2b\xc0\x2f\xc0\x2c\xc0\x30"  # ECDHE-ECDSA/RSA AES-GCM
+        b"\xcc\xa9\xcc\xa8"  # CHACHA20-POLY1305
+        b"\xc0\x13\xc0\x14\x00\x9c\x00\x9d\x00\x2f\x00\x35"
+    )
+    cipher_block = _u16(len(cipher_suites)) + cipher_suites
+    compression_methods = b"\x01\x00"  # 1 compression method: null
+
+    handshake_payload = (
+        client_version
+        + client_random
+        + session_id_block
+        + cipher_block
+        + compression_methods
+        + extensions_block
+    )
+
+    # Handshake header: msg_type=1 (ClientHello) + 3-byte length
+    handshake_msg = b"\x01" + struct.pack(">I", len(handshake_payload))[1:] + handshake_payload
+
+    # TLS Record header: content_type=0x16 (Handshake), version=0x0301 (TLS 1.0), length=2 bytes
+    record_header = b"\x16\x03\x01" + _u16(len(handshake_msg))
+    return record_header + handshake_msg
+
+
 # ---- AWG binary blob formatting ----
 
 
@@ -247,7 +343,7 @@ def select_mimicry_domain(ssh, protocol="quic", region="world"):
 
     Args:
         ssh: SSHManager instance connected to the AWG server.
-        protocol: One of 'quic', 'dns', 'sip' — determines which domain pool to probe.
+        protocol: One of 'quic', 'dns', 'sip', 'tls' — determines which domain pool to probe.
         region: World region (currently unused, reserved for future use).
 
     Returns:
@@ -259,6 +355,7 @@ def select_mimicry_domain(ssh, protocol="quic", region="world"):
         "quic": QUIC_DOMAINS,
         "dns": DNS_DOMAINS,
         "sip": SIP_DOMAINS,
+        "tls": TLS_DOMAINS,
     }.get(protocol, QUIC_DOMAINS)
 
     port = PROTOCOL_PORTS.get(protocol, 443)
@@ -290,6 +387,80 @@ def select_mimicry_domain(ssh, protocol="quic", region="world"):
 
 
 # ---- CPS packet generation ----
+
+
+def generate_mimicry_packets(mimicry="auto", domain=None, ssh=None):
+    """Generate I1-I5 signature packets for a specific mimicry profile.
+
+    Profiles:
+    - 'tls':  TLS ClientHello handshake (HTTPS obfuscation)
+    - 'quic': QUIC Initial packet (HTTP/3 obfuscation)
+    - 'dns':  DNS Query with random TXID (<r 2> DNS obfuscation)
+    - 'sip':  SIP REGISTER message (VoIP obfuscation)
+    - 'auto': Reachability-probed best profile (defaults to TLS or QUIC)
+
+    Args:
+        mimicry: One of 'auto', 'tls', 'quic', 'dns', 'sip'.
+        domain: Optional target domain for SNI/query.
+        ssh: Optional SSHManager for live domain probing.
+
+    Returns:
+        Dict with keys 'i1' through 'i5'.
+    """
+    m = (mimicry or "auto").lower()
+
+    if m == "auto":
+        if ssh:
+            domain = select_mimicry_domain(ssh, protocol="tls")
+            m = "tls"
+        else:
+            m = "tls"
+
+    if m == "tls":
+        target_domain = domain if domain else _rc(TLS_DOMAINS)
+        return {
+            "i1": to_cps(gen_tls(target_domain)),
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+        }
+    elif m == "dns":
+        dns_domain = domain if domain else "one.one.one.one"
+        dns_payload = gen_dns(dns_domain)
+        dns_txid = _rh(2)
+        i1_raw = dns_txid + dns_payload
+        return {
+            "i1": "<r 2><b 0x%s>" % i1_raw.hex(),
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+        }
+    elif m == "sip":
+        return {
+            "i1": to_cps(gen_sip()),
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+        }
+    elif m == "quic":
+        return {
+            "i1": to_cps(gen_quic_initial(domain)),
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+        }
+    else:
+        return {
+            "i1": to_cps(gen_quic_initial(domain)),
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+        }
 
 
 def generate_cps_packets(profile, domain=None, ssh=None):
@@ -339,3 +510,55 @@ def generate_cps_packets(profile, domain=None, ssh=None):
         "i4": "",
         "i5": "",
     }
+
+
+def generate_connection_kit(base_config: str, domain: str = None, ssh=None) -> dict:
+    """Generate a multi-config Connection Kit (TLS, QUIC, DNS, SIP) from a base AWG config.
+
+    Replaces or adds the I1-I5 parameters in the client configuration for each mimicry profile.
+    """
+    profiles = ["tls", "quic", "dns", "sip"]
+    kit = {}
+
+    for proto in profiles:
+        packets = generate_mimicry_packets(mimicry=proto, domain=domain, ssh=ssh)
+        lines = base_config.splitlines()
+        new_lines = []
+        in_interface = False
+        saw_interface = False
+        i_keys_added = False
+
+        for line in lines:
+            trimmed = line.strip()
+            if trimmed.startswith("[Interface]"):
+                in_interface = True
+                saw_interface = True
+                new_lines.append(line)
+                continue
+            elif trimmed.startswith("[") and trimmed.endswith("]"):
+                if in_interface and not i_keys_added:
+                    for k in ("i1", "i2", "i3", "i4", "i5"):
+                        if packets.get(k):
+                            new_lines.append(f"{k.upper()} = {packets[k]}")
+                    i_keys_added = True
+                in_interface = False
+                new_lines.append(line)
+                continue
+
+            # Strip existing I1-I5 lines
+            if in_interface and any(
+                trimmed.upper().startswith(f"I{num}") for num in (1, 2, 3, 4, 5)
+            ):
+                continue
+
+            new_lines.append(line)
+
+        if in_interface and not i_keys_added:
+            for k in ("i1", "i2", "i3", "i4", "i5"):
+                if packets.get(k):
+                    new_lines.append(f"{k.upper()} = {packets[k]}")
+            i_keys_added = True
+
+        kit[proto] = "\n".join(new_lines) + "\n"
+
+    return kit

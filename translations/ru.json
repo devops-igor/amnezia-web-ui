@@ -384,5 +384,20 @@
   "wrong_share_password": "Неверный пароль",
   "xray_desc": "Современный протокол с маскировкой под обычный веб-трафик (XTLS-Reality). Устойчив к глубокому анализу пакетов.",
   "you_label": "YOU",
-  "your_rank": "Ваш ранг"
+  "your_rank": "Ваш ранг",
+  "awg_mimicry": "Профиль маскировки",
+  "mimicry_auto": "Авто (Умный обход блокировок)",
+  "mimicry_tls": "TLS (HTTPS Веб-трафик)",
+  "mimicry_quic": "QUIC (HTTP/3 Протокол)",
+  "mimicry_dns": "DNS (Порт 53)",
+  "mimicry_sip": "SIP (VoIP Телефония)",
+  "network_health": "Состояние маскировки сети",
+  "network_health_desc": "Статус доступности и обхода блокировок DPI для сигнатур",
+  "status_operational": "Работает",
+  "status_degraded": "Снижена",
+  "dpi_blocked_badge": "DPI Блокировка (Смена профиля)",
+  "rotate_profile": "Сменить маскировку",
+  "connection_kit": "Набор конфигураций",
+  "connection_kit_desc": "Альтернативные профили маскировки для быстрого обхода блокировок",
+  "expires_at_label": "Срок действия"
 }

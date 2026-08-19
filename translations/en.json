@@ -383,5 +383,20 @@
   "wrong_share_password": "Wrong password",
   "xray_desc": "Modern protocol that masks traffic as regular web traffic (XTLS-Reality). Resistant to deep packet analysis.",
   "you_label": "YOU",
-  "your_rank": "Your Rank"
+  "your_rank": "Your Rank",
+  "awg_mimicry": "Mimicry Profile",
+  "mimicry_auto": "Auto (Intelligent Failover)",
+  "mimicry_tls": "TLS (HTTPS Web Traffic)",
+  "mimicry_quic": "QUIC (HTTP/3 Protocol)",
+  "mimicry_dns": "DNS (Port 53)",
+  "mimicry_sip": "SIP (VoIP Telephony)",
+  "network_health": "Network Mimicry Health",
+  "network_health_desc": "Live reachability and DPI evasion status for obfuscation signatures",
+  "status_operational": "Operational",
+  "status_degraded": "Degraded",
+  "dpi_blocked_badge": "DPI Blocked",
+  "rotate_profile": "Rotate Profile",
+  "connection_kit": "Connection Kit",
+  "connection_kit_desc": "Multi-profile configs for instant DPI failover",
+  "expires_at_label": "Expiration Date"
 }

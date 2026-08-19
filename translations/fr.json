@@ -347,5 +347,20 @@
   "wrong_share_password": "Mauvais mot de passe",
   "xray_desc": "Masque le trafic en trafic web normal (XTLS-Reality). Résiste au DPI.",
   "you_label": "YOU",
-  "your_rank": "Votre rang"
+  "your_rank": "Votre rang",
+  "awg_mimicry": "Profil de mimétisme",
+  "mimicry_auto": "Auto (Basculement intelligent)",
+  "mimicry_tls": "TLS (Trafic Web HTTPS)",
+  "mimicry_quic": "QUIC (Protocole HTTP/3)",
+  "mimicry_dns": "DNS (Port 53)",
+  "mimicry_sip": "SIP (Téléphonie VoIP)",
+  "network_health": "Santé du mimétisme réseau",
+  "network_health_desc": "État de connectivité et contournement DPI des signatures d'obfuscation",
+  "status_operational": "Opérationnel",
+  "status_degraded": "Dégradé",
+  "dpi_blocked_badge": "Bloqué DPI (Rotation auto)",
+  "rotate_profile": "Changer le profil",
+  "connection_kit": "Kit de connexion",
+  "connection_kit_desc": "Profils alternatifs pour contournement instantané du DPI",
+  "expires_at_label": "Date d'expiration"
 }

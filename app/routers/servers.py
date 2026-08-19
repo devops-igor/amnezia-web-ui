@@ -664,13 +664,14 @@ async def api_add_connection(
                 speed_limit_down=req.awg_speed_limit_down,
                 speed_limit_up=req.awg_speed_limit_up,
                 server_protocols=server.get("protocols", {}),
+                awg_mimicry=req.awg_mimicry,
             )
         await asyncio.to_thread(ssh.disconnect)
 
         if result.get("config"):
             result["vpn_link"] = generate_vpn_link(result["config"])
         else:
-            # API call failed â€” do not write to data.json, return error
+            # API call failed — do not write to data.json, return error
             error_msg = result.get("error", "Failed to create connection")
             logger.error("Failed to add connection for %s: %s", req.name, error_msg)
             return JSONResponse({"error": error_msg}, status_code=500)
@@ -684,6 +685,7 @@ async def api_add_connection(
                 "protocol": req.protocol,
                 "client_id": result["client_id"],
                 "name": req.name,
+                "awg_mimicry": req.awg_mimicry or result.get("awg_mimicry", "auto"),
                 "created_at": datetime.now().isoformat(),
             }
             db.create_connection(conn)
@@ -691,6 +693,83 @@ async def api_add_connection(
         return result
     except Exception as e:
         logger.exception("Error adding connection")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{server_id}/connections/{client_id}/rotate-mimicry")
+async def api_rotate_connection_mimicry(
+    request: Request, server_id: int, client_id: str, user: dict = Depends(require_admin)
+):
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        manager = get_protocol_manager(ssh, "awg")
+        result = await asyncio.to_thread(manager.rotate_client_mimicry, "awg", client_id)
+        await asyncio.to_thread(ssh.disconnect)
+
+        # Update matching connections in DB
+        conns = db.get_connections_by_server_and_protocol(server_id, "awg")
+        for c in conns:
+            if c.get("client_id") == client_id:
+                db.update_connection(c["id"], {"awg_mimicry": result.get("awg_mimicry")})
+
+        return {"status": "success", "rotation": result}
+    except Exception as e:
+        logger.exception("Error rotating connection mimicry")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.get("/{server_id}/network-health")
+async def api_server_network_health(
+    request: Request, server_id: int, user: dict = Depends(get_current_user)
+):
+    try:
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        health = BackgroundTaskOrchestrator.get_cached_network_health()
+        return {"status": "success", "network_health": health}
+    except Exception as e:
+        logger.exception("Error getting network health")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{server_id}/connections/kit")
+async def api_get_server_connection_kit(
+    request: Request,
+    server_id: int,
+    req: ConnectionActionRequest,
+    user: dict = Depends(get_current_user),
+):
+    try:
+        db = get_db()
+        server = db.get_server_by_id(server_id)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+        if user["role"] == "user":
+            all_conns = db.get_connections_by_server_and_protocol(server_id, req.protocol)
+            owned = any(
+                c
+                for c in all_conns
+                if c.get("client_id") == req.client_id and c.get("user_id") == user["id"]
+            )
+            if not owned:
+                return JSONResponse({"error": "Forbidden"}, status_code=403)
+        proto_info = server.get("protocols", {}).get(req.protocol, {})
+        port = proto_info.get("port", "55424")
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        manager = get_protocol_manager(ssh, req.protocol)
+        kit = await asyncio.to_thread(
+            manager.get_connection_kit, req.protocol, req.client_id, server["host"], port
+        )
+        await asyncio.to_thread(ssh.disconnect)
+        return {"status": "success", "kit": kit}
+    except Exception as e:
+        logger.exception("Error getting connection kit")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 

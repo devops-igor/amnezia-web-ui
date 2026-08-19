@@ -346,5 +346,20 @@
   "wrong_share_password": "密码错误",
   "xray_desc": "将流量伪装成普通网页流量 (XTLS-Reality)，抗封锁能力强。",
   "you_label": "YOU",
-  "your_rank": "您的排名"
+  "your_rank": "您的排名",
+  "awg_mimicry": "伪装特征配置",
+  "mimicry_auto": "自动 (智能故障切换)",
+  "mimicry_tls": "TLS (HTTPS 网页流量)",
+  "mimicry_quic": "QUIC (HTTP/3 协议)",
+  "mimicry_dns": "DNS (53 端口)",
+  "mimicry_sip": "SIP (VoIP 语音电话)",
+  "network_health": "网络伪装健康度",
+  "network_health_desc": "混淆特征的实时连通性与 DPI 绕过状态",
+  "status_operational": "正常",
+  "status_degraded": "受限",
+  "dpi_blocked_badge": "DPI 阻断 (自动切换)",
+  "rotate_profile": "轮换伪装",
+  "connection_kit": "连接套件",
+  "connection_kit_desc": "用于即时 DPI 绕过的多配置套件",
+  "expires_at_label": "到期时间"
 }

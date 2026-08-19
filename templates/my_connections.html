@@ -82,6 +82,7 @@
             <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _('config_tab') }}</button>
             <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _('vpn_key_tab') }}</button>
             <button class="config-tab" onclick="switchConfigTab('qr')">{{ _('qr_code_tab') }}</button>
+            <button class="config-tab" id="my-tab-kit-btn" onclick="switchConfigTab('kit')">{{ _('connection_kit') }}</button>
         </div>
 
         <div class="config-panel active" id="panel-conf">
@@ -97,6 +98,11 @@
                     </button>
                 </div>
             </div>
+        </div>
+
+        <div class="config-panel" id="panel-kit">
+            <div class="form-hint" style="margin-bottom: var(--space-sm);">{{ _('connection_kit_desc') }}</div>
+            <div id="myConnectionKitList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
         </div>
 
         <div class="config-panel" id="panel-vpn">
@@ -141,6 +147,16 @@
                 <label class="form-label" for="createProtoSelect">{{ _('create_conn_protocol_label') }}</label>
                 <select class="form-select" id="createProtoSelect" required>
                     <option value="">- {{ _('select') }} -</option>
+                </select>
+            </div>
+            <div class="form-group" id="myAwgMimicryGroup" style="display:none;">
+                <label class="form-label" for="myAwgMimicry">{{ _('awg_mimicry') }}</label>
+                <select class="form-select" id="myAwgMimicry">
+                    <option value="auto" selected>{{ _('mimicry_auto') }}</option>
+                    <option value="tls">{{ _('mimicry_tls') }}</option>
+                    <option value="quic">{{ _('mimicry_quic') }}</option>
+                    <option value="dns">{{ _('mimicry_dns') }}</option>
+                    <option value="sip">{{ _('mimicry_sip') }}</option>
                 </select>
             </div>
             <div class="form-group">
@@ -208,6 +224,13 @@
                     vpnTab.style.display = '';
                 }
 
+                if (proto === 'awg') {
+                    document.getElementById('my-tab-kit-btn').style.display = '';
+                    loadMyConnectionKit(connectionId, name);
+                } else {
+                    document.getElementById('my-tab-kit-btn').style.display = 'none';
+                }
+
                 document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
 
                 switchConfigTab('conf');
@@ -219,14 +242,43 @@
         }
     }
 
+    async function loadMyConnectionKit(connectionId, name) {
+        const kitList = document.getElementById('myConnectionKitList');
+        if (!kitList) return;
+        kitList.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">Loading profiles...</div>';
+        try {
+            const res = await apiCall(`/api/my/connections/${connectionId}/kit`, 'POST');
+            if (res.kit) {
+                kitList.innerHTML = '';
+                for (const [protoKey, confText] of Object.entries(res.kit)) {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'background: var(--bg-primary, rgba(0,0,0,0.2)); padding: 0.75rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, rgba(255,255,255,0.08));';
+                    item.innerHTML = `
+                        <div class="flex items-center justify-between" style="margin-bottom: 0.5rem;">
+                            <span style="font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">🛡 ${escapeHtml(protoKey)} Profile</span>
+                            <div class="flex gap-sm">
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard(\`${escapeJs(confText)}\`)">{{ _('copy_config') }}</button>
+                                <button type="button" class="btn btn-primary btn-sm" onclick="downloadFile(\`${escapeJs(confText)}\`, '${escapeJs(name)}_${protoKey}.conf')">{{ _('download_conf') }}</button>
+                            </div>
+                        </div>
+                        <pre style="font-size: 0.72rem; max-height: 80px; overflow-y: auto; margin: 0; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 4px;"><code>${escapeHtml(confText)}</code></pre>
+                    `;
+                    kitList.appendChild(item);
+                }
+            }
+        } catch (err) {
+            kitList.innerHTML = `<div style="color: var(--color-danger, #ef4444); font-size: 0.85rem;">${err.message}</div>`;
+        }
+    }
+
     function switchConfigTab(tab) {
         document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
         const tabs = document.querySelectorAll('.config-tab');
-        const panels = { conf: 'panel-conf', vpn: 'panel-vpn', qr: 'panel-qr' };
-        const tabIdx = { conf: 0, vpn: 1, qr: 2 };
-        tabs[tabIdx[tab]].classList.add('active');
-        document.getElementById(panels[tab]).classList.add('active');
+        const panels = { conf: 'panel-conf', vpn: 'panel-vpn', qr: 'panel-qr', kit: 'panel-kit' };
+        const tabIdx = { conf: 0, vpn: 1, qr: 2, kit: 3 };
+        if (tabs[tabIdx[tab]]) tabs[tabIdx[tab]].classList.add('active');
+        if (document.getElementById(panels[tab])) document.getElementById(panels[tab]).classList.add('active');
     }
 
     function generateQR(text) {
@@ -263,6 +315,9 @@
         const trafficStr = totalRx > 0 || totalTx > 0
             ? `<span class="traffic-badge">📊 ↓ ${formatBytes(totalRx)} ↑ ${formatBytes(totalTx)}</span>`
             : '';
+        const mimicryBadge = (conn.protocol === 'awg' && conn.awg_mimicry)
+            ? `<span class="badge badge-info" style="font-size:0.65rem;">🛡 ${escapeHtml(conn.awg_mimicry.toUpperCase())}</span>`
+            : '';
         const topClass = isTopConsumer ? ' top-consumer' : '';
         return `
         <div class="client-item${topClass}" data-conn-id="${connId}" data-id="${connId}">
@@ -275,6 +330,7 @@
                         <span class="badge badge-info" style="font-size:0.65rem;">
                             ${protoLabel}
                         </span>
+                        ${mimicryBadge}
                         ${date ? `<span>📅 ${date}</span>` : ''}
                         ${trafficStr}
                     </div>
@@ -343,13 +399,13 @@
             }
         }
 
-        // If telemt is selected, show extra fields
-        // We'll handle on change of protoSelect too
+        // If telemt or awg is selected, show extra fields
+        document.getElementById('myAwgMimicryGroup').style.display = protoSelect.value === 'awg' ? '' : 'none';
     }
 
-    // Also listen to protocol change for other future use cases
+    // Listen to protocol change
     document.getElementById('createProtoSelect').addEventListener('change', function() {
-        // Protocol changed - any future protocol-specific logic goes here
+        document.getElementById('myAwgMimicryGroup').style.display = this.value === 'awg' ? '' : 'none';
     });
 
     const sortTrafficLabel = "{{ _('sort_by_traffic') }}";
@@ -444,6 +500,10 @@
             protocol: protocol,
             name: name,
         };
+
+        if (protocol === 'awg') {
+            payload.awg_mimicry = document.getElementById('myAwgMimicry').value || 'auto';
+        }
 
         try {
             submitBtn.disabled = true;

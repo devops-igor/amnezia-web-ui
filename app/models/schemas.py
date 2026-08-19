@@ -29,16 +29,26 @@ def normalize_protocol(proto: str) -> str:
 
 
 class AWGObfuscationProfile(str, Enum):
-    """AWG obfuscation profile â€” determines parameter generation ranges.
+    """AWG obfuscation profile — determines parameter generation ranges.
 
     lite:      Minimal junk packets, max compatibility (Jc 3-5)
-    standard:  Balanced obfuscation and performance (Jc 5-8) â€” recommended default
+    standard:  Balanced obfuscation and performance (Jc 5-8) — recommended default
     pro:       Maximum obfuscation, more overhead (Jc 4-16)
     """
 
     lite = "lite"
     standard = "standard"
     pro = "pro"
+
+
+class AWGMimicryProfile(str, Enum):
+    """AWG DPI mimicry profile for application-layer signature obfuscation."""
+
+    auto = "auto"
+    tls = "tls"
+    dns = "dns"
+    sip = "sip"
+    quic = "quic"
 
 
 # ===== Auth =====
@@ -196,6 +206,7 @@ class AddConnectionRequest(BaseModel):
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
     awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
     awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
+    awg_mimicry: Optional[str] = Field(default="auto", pattern=r"^(auto|tls|dns|sip|quic)$")
 
     @field_validator("protocol")
     @classmethod
@@ -224,6 +235,7 @@ class EditConnectionRequest(BaseModel):
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
     awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
     awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
+    awg_mimicry: Optional[str] = Field(default=None, pattern=r"^(auto|tls|dns|sip|quic)$")
 
     @field_validator("protocol")
     @classmethod
@@ -279,6 +291,7 @@ class AddUserConnectionRequest(BaseModel):
     telemt_quota: Optional[str] = Field(default=None, max_length=50)
     telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
+    awg_mimicry: Optional[str] = Field(default="auto", pattern=r"^(auto|tls|dns|sip|quic)$")
 
     @field_validator("protocol")
     @classmethod
@@ -298,6 +311,7 @@ class MyAddConnectionRequest(BaseModel):
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
     awg_speed_limit_down: Optional[int] = Field(default=None, ge=0)
     awg_speed_limit_up: Optional[int] = Field(default=None, ge=0)
+    awg_mimicry: Optional[str] = Field(default="auto", pattern=r"^(auto|tls|dns|sip|quic)$")
 
     @field_validator("protocol")
     @classmethod
@@ -407,6 +421,8 @@ class AddUserRequest(BaseModel):
     protocol: Optional[str] = Field(default=None, max_length=50)
     connection_name: Optional[str] = Field(default=None, max_length=255)
     expiration_date: Optional[str] = Field(default=None, max_length=50)
+    expires_at: Optional[str] = Field(default=None, max_length=50)
+    awg_mimicry: Optional[str] = Field(default="auto", pattern=r"^(auto|tls|dns|sip|quic)$")
 
     @field_validator("username")
     @classmethod
@@ -443,7 +459,7 @@ class AddUserRequest(BaseModel):
     @classmethod
     def validate_protocol(cls, v: Optional[str]) -> Optional[str]:
         """Validate protocol against allowlist, if provided."""
-        if v is not None and v not in VALID_PROTOCOLS:
+        if v not in (None, "") and v not in VALID_PROTOCOLS:
             raise ValueError(f"protocol must be one of: {', '.join(sorted(VALID_PROTOCOLS))}")
         return v
 
@@ -455,6 +471,8 @@ class UpdateUserRequest(BaseModel):
     traffic_limit: Optional[float] = Field(default=0, ge=0)
     traffic_reset_strategy: Optional[str] = Field(default=None, max_length=50)
     expiration_date: Optional[str] = Field(default=None, max_length=50)
+    expires_at: Optional[str] = Field(default=None, max_length=50)
+    awg_mimicry: Optional[str] = Field(default=None, pattern=r"^(auto|tls|dns|sip|quic)$")
     password: Optional[str] = Field(default=None, min_length=8, max_length=4096)
 
     @field_validator("password")
@@ -655,6 +673,9 @@ class UserItemResponse(BaseModel):
     traffic_limit: int = 0
     traffic_reset_strategy: str = "never"
     last_reset_at: Optional[str] = None
+    expiration_date: Optional[str] = None
+    expires_at: Optional[str] = None
+    awg_mimicry: Optional[str] = "auto"
     share_enabled: bool = False
     share_token: Optional[str] = None
     has_share_password: bool = False

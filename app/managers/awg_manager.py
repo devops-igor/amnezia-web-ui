@@ -14,7 +14,12 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
 from docker_utils import check_docker_installed, ensure_apparmor_utils
-from app.managers.awg_cps import generate_cps_packets, select_mimicry_domain
+from app.managers.awg_cps import (
+    generate_cps_packets,
+    generate_mimicry_packets,
+    generate_connection_kit,
+    select_mimicry_domain,
+)
 from app.managers import awg_tc
 
 logger = logging.getLogger(__name__)
@@ -1038,6 +1043,7 @@ tail -f /dev/null
         speed_limit_down=None,
         speed_limit_up=None,
         server_protocols=None,
+        awg_mimicry=None,
     ):
         """
         Add a new client/peer to the AWG config.
@@ -1050,6 +1056,7 @@ tail -f /dev/null
             speed_limit_up: Optional upload speed limit in Mbps (null = unlimited).
             server_protocols: Optional dict of server protocols from DB, used to
                 retrieve default_speed_limit values when explicit limits are not given.
+            awg_mimicry: Optional mimicry profile ('auto', 'tls', 'quic', 'dns', 'sip').
         """
         with self._lock:
             container_name = self._container_name(protocol_type)
@@ -1068,7 +1075,7 @@ tail -f /dev/null
             client_ip = self._get_next_ip(protocol_type)
 
             # Get AWG params from server config (Jc, Jmin, Jmax, S1-S4, H1-H4)
-            # NOTE: I1-I5 are CLIENT-only â€” they are NOT in the server config.
+            # NOTE: I1-I5 are CLIENT-only — they are NOT in the server config.
             # They must be sourced from the database-stored awg_params.
             awg_params = self._get_awg_params_from_config(protocol_type)
 
@@ -1145,7 +1152,13 @@ AllowedIPs = {client_ip}/32
                 except Exception as e:
                     logger.warning(f"Failed to reapply speed limits after syncconf: {e}")
 
-            # Update clients table â€” store keys for config reconstruction
+            mimicry_profile = (
+                awg_mimicry
+                or (stored_awg_params.get("awg_mimicry") if stored_awg_params else None)
+                or "auto"
+            )
+
+            # Update clients table — store keys for config reconstruction
             clients_table = self._get_clients_table(protocol_type)
             new_client = {
                 "clientId": client_pub_key,
@@ -1156,6 +1169,7 @@ AllowedIPs = {client_ip}/32
                     "clientIp": client_ip,
                     "psk": psk,
                     "enabled": True,
+                    "awg_mimicry": mimicry_profile,
                     "speed_limit_down": (
                         effective_down if effective_down is not None else speed_limit_down
                     ),
@@ -1171,11 +1185,18 @@ AllowedIPs = {client_ip}/32
                 port = awg_params["port"]
 
             # Merge CLIENT-only params (I1-I5, MTU) from database storage
-            # These are NOT in the server config file â€” they come from stored_awg_params
+            # These are NOT in the server config file — they come from stored_awg_params
             if stored_awg_params:
                 for key in ("i1", "i2", "i3", "i4", "i5", "mtu"):
                     if key in stored_awg_params and key not in awg_params:
                         awg_params[key] = stored_awg_params[key]
+
+            # If mimicry profile specified, generate mimicry packets
+            if mimicry_profile:
+                mimicry_packets = generate_mimicry_packets(mimicry=mimicry_profile, ssh=self.ssh)
+                for k in ("i1", "i2", "i3", "i4", "i5"):
+                    if mimicry_packets.get(k):
+                        awg_params[k] = mimicry_packets[k]
 
             dns1 = AWG_DEFAULTS["dns1"]
             dns2 = AWG_DEFAULTS["dns2"]
@@ -1224,14 +1245,19 @@ Endpoint = {server_host}:{port}
 PersistentKeepalive = 25
 """
 
+            # Generate multi-config connection kit for auto failover and quick switching
+            connection_kit = generate_connection_kit(client_config, ssh=self.ssh)
+
             return {
                 "client_name": client_name,
                 "client_id": client_pub_key,
                 "client_ip": client_ip,
                 "config": client_config,
+                "connection_kit": connection_kit,
+                "awg_mimicry": mimicry_profile,
             }
 
-    def get_client_config(self, protocol_type, client_id, server_host, port):
+    def get_client_config(self, protocol_type, client_id, server_host, port, awg_mimicry=None):
         """Reconstruct client config from stored data."""
         clients_table = self._get_clients_table(protocol_type)
         client = None
@@ -1259,9 +1285,17 @@ PersistentKeepalive = 25
         if awg_params.get("port"):
             port = awg_params["port"]
 
+        # Apply mimicry profile packets if specified or stored
+        mimicry = awg_mimicry or ud.get("awg_mimicry")
+        if mimicry:
+            mimicry_packets = generate_mimicry_packets(mimicry=mimicry, ssh=self.ssh)
+            for k in ("i1", "i2", "i3", "i4", "i5"):
+                if mimicry_packets.get(k):
+                    awg_params[k] = mimicry_packets[k]
+
         dns1 = AWG_DEFAULTS["dns1"]
         dns2 = AWG_DEFAULTS["dns2"]
-        mtu = AWG_DEFAULTS["mtu"]
+        mtu = awg_params.get("mtu", AWG_DEFAULTS["mtu"])
 
         # Standard fields
         config_lines = [
@@ -1306,6 +1340,44 @@ Endpoint = {server_host}:{port}
 PersistentKeepalive = 25
 """
         return config
+
+    def get_connection_kit(self, protocol_type, client_id, server_host, port):
+        """Generate multi-config connection kit (TLS, QUIC, DNS, SIP) for a client."""
+        base_config = self.get_client_config(protocol_type, client_id, server_host, port)
+        return generate_connection_kit(base_config, ssh=self.ssh)
+
+    def rotate_client_mimicry(self, protocol_type, client_id, next_mimicry=None):
+        """Rotate a client's mimicry profile to the next protocol in the sequence.
+
+        Sequence: auto -> tls -> quic -> dns -> sip -> tls
+        """
+        with self._lock:
+            clients_table = self._get_clients_table(protocol_type)
+            client = None
+            for c in clients_table:
+                if c.get("clientId") == client_id:
+                    client = c
+                    break
+            if not client:
+                raise RuntimeError(f"Client {client_id} not found")
+
+            ud = client.setdefault("userData", {})
+            curr = (ud.get("awg_mimicry") or "auto").lower()
+            seq = {"auto": "tls", "tls": "quic", "quic": "dns", "dns": "sip", "sip": "tls"}
+            new_proto = (next_mimicry or seq.get(curr, "tls")).lower()
+
+            ud["awg_mimicry"] = new_proto
+            ud["rotated_at"] = __import__("datetime").datetime.now().isoformat()
+            ud["dpi_blocked"] = True
+            self._save_clients_table(protocol_type, clients_table)
+
+            logger.info(f"Rotated client {client_id} mimicry from {curr} to {new_proto}")
+            return {
+                "client_id": client_id,
+                "awg_mimicry": new_proto,
+                "rotated_at": ud["rotated_at"],
+                "dpi_blocked": True,
+            }
 
     def toggle_client(self, protocol_type, client_id, enable):
         """Enable or disable a client by adding/removing their [Peer] from server config."""

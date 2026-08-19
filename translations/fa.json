@@ -347,5 +347,20 @@
   "wrong_share_password": "رمز عبور اشتباه است",
   "xray_desc": "تغییر ظاهر ترافیک به ترافیک معمولی وب (XTLS-Reality). مقاوم در برابر فیلترینگ شدید.",
   "you_label": "YOU",
-  "your_rank": "رتبه شما"
+  "your_rank": "رتبه شما",
+  "awg_mimicry": "پروفایل شبیه‌سازی",
+  "mimicry_auto": "خودکار (تغییر هوشمند در صورت انسداد)",
+  "mimicry_tls": "TLS (ترافیک وب HTTPS)",
+  "mimicry_quic": "QUIC (پروتکل HTTP/3)",
+  "mimicry_dns": "DNS (پورت ۵۳)",
+  "mimicry_sip": "SIP (تلفن اینترنتی VoIP)",
+  "network_health": "سلامت شبیه‌سازی شبکه",
+  "network_health_desc": "وضعیت دسترسی و دور زدن فیلترینگ DPI برای امضاهای مبهم‌سازی",
+  "status_operational": "فعال",
+  "status_degraded": "محدود شده",
+  "dpi_blocked_badge": "مسدود شده توسط DPI (چرخش خودکار)",
+  "rotate_profile": "چرخش پروفایل",
+  "connection_kit": "بسته پیکربندی اتصال",
+  "connection_kit_desc": "پروفایل‌های جایگزین برای دور زدن فوری DPI",
+  "expires_at_label": "تاریخ انقضا"
 }
