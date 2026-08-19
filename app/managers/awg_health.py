@@ -236,6 +236,8 @@ def build_awg_initiation_packet(
         + encrypted_static
         + encrypted_timestamp
     )
+    if s1 > 0:
+        msg_body += secrets.token_bytes(s1)
 
     # MAC calculation
     mac1_key = hashlib.blake2s(LABEL_MAC1 + server_pub_bytes).digest()
@@ -243,8 +245,6 @@ def build_awg_initiation_packet(
     mac2 = b"\x00" * 16
 
     packet = msg_body + mac1 + mac2
-    if s1 > 0:
-        packet += secrets.token_bytes(s1)
 
     state = NoiseClientState(
         h=h,
@@ -272,15 +272,21 @@ def verify_awg_response_packet(
     Returns:
         True if the packet header, indices, and Noise authentication tag are valid.
     """
-    if len(resp_packet) < 92:
-        logger.debug("AWG response packet too short: %d bytes", len(resp_packet))
-        return False
-
     params = awg_params or {}
     try:
         h2 = int(params.get("response_packet_magic_header") or params.get("h2") or DEFAULT_H2)
     except (ValueError, TypeError):
         h2 = DEFAULT_H2
+
+    try:
+        s2 = int(params.get("response_packet_junk_size") or params.get("s2") or DEFAULT_S2)
+    except (ValueError, TypeError):
+        s2 = DEFAULT_S2
+
+    expected_len = 92 + s2
+    if len(resp_packet) < expected_len:
+        logger.debug("AWG response packet too short: %d bytes, expected >= %d", len(resp_packet), expected_len)
+        return False
 
     msg_type = struct.unpack("<I", resp_packet[:4])[0]
     if msg_type != h2 and msg_type != 2:
