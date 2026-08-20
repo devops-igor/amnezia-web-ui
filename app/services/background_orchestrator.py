@@ -412,8 +412,14 @@ class BackgroundTaskOrchestrator:
                             timeout=2.0,
                         )
                         reach_res["auto_trials"] = auto_trials
-                        results[sid] = reach_res
-                        continue
+                        
+                        if reach_res["reachable"]:
+                            results[sid] = reach_res
+                            continue
+                        else:
+                            logger.debug("AWG UDP check failed (%s), falling back to SSH probe", reach_res.get("error"))
+                            # Fall through to the SSH socket probe below
+                            pass
                     except Exception as err:
                         logger.debug("AWG reachability check failed for server %s: %s", sid, err)
 
