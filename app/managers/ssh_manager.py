@@ -43,7 +43,6 @@ class SSHManager:
     def connect(self):
         """Establish SSH connection to the server with host key verification."""
         self.client = paramiko.SSHClient()
-        self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         kwargs = {
             "hostname": self.host,
@@ -70,15 +69,16 @@ class SSHManager:
             kwargs["password"] = self.password
 
         # Host key verification
+        # We verify the host key manually against our database after connecting.
+        # Use AutoAddPolicy so Paramiko doesn't reject the connection due to an empty known_hosts file.
+        self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
         known_fingerprint = None
         if self._database and self._server_id is not None:
             known_fingerprint = self._database.get_known_host_fingerprint(self._server_id)
 
         if known_fingerprint is None:
-            # First connection — no stored fingerprint yet.
-            # Temporarily allow the unknown key so we can retrieve and store it.
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        # else: RejectPolicy stays (set above) — paramiko will reject unknown keys.
+            pass
 
         self.client.connect(**kwargs)
 
@@ -116,9 +116,6 @@ class SSHManager:
                 f"Expected: {known_fingerprint[:16]}..., "
                 f"Got: {actual_fingerprint[:16]}..."
             )
-
-        # Switch back to RejectPolicy for the rest of the session
-        self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
 
         return True
 

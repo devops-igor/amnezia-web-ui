@@ -127,8 +127,8 @@ class TestTaskLifecycle:
 
 class TestRunLoop:
     @pytest.mark.asyncio
-    async def test_run_loop_sleeps_60_then_runs_and_sleeps_600(self, orchestrator):
-        """_run_loop() sleeps 60s initially, calls run_all, then sleeps 600s."""
+    async def test_run_loop_sleeps_60_then_runs_and_sleeps_300(self, orchestrator):
+        """_run_loop() sleeps 60s initially, calls run_all, then sleeps 300s."""
         orchestrator.run_all = AsyncMock()
 
         # Patch asyncio.sleep so we can count calls without actually waiting.
@@ -146,8 +146,8 @@ class TestRunLoop:
             except asyncio.CancelledError:
                 pass
 
-        # First sleep is 60, second is 600
-        assert sleep_calls == [60, 600]
+        # First sleep is 60, second is 300
+        assert sleep_calls == [60, 300]
         orchestrator.run_all.assert_awaited_once()
 
 
@@ -753,3 +753,310 @@ class TestCheckExpiry:
 
         await orchestrator.check_expiry(now, user, "uid3", to_disable)
         assert "uid3" not in to_disable
+
+
+# ---------------------------------------------------------------------------
+# 9. check_server_reachability & Dedicated Health Probe Provisioning
+# ---------------------------------------------------------------------------
+
+
+class TestServerReachabilityHealthProbe:
+    @pytest.fixture(autouse=True)
+    def clean_cache(self):
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        BackgroundTaskOrchestrator._server_reachability.clear()
+        BackgroundTaskOrchestrator._health_probe_keys.clear()
+        yield
+        BackgroundTaskOrchestrator._server_reachability.clear()
+        BackgroundTaskOrchestrator._health_probe_keys.clear()
+
+    @pytest.mark.asyncio
+    async def test_server_reachability_finds_existing_health_probe(self, orchestrator):
+        """When Health Probe client already exists on server, orchestrator uses its private key."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": 1,
+            "host": "1.2.3.4",
+            "protocols": {
+                "awg": {
+                    "installed": True,
+                    "port": 55424,
+                    "public_key": "srvpub123",
+                    "psk": "psk123",
+                    "awg_params": {"h1": "1000"},
+                }
+            },
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+
+        mock_ssh = MagicMock()
+        mock_mgr = MagicMock()
+        mock_mgr.get_clients.return_value = [
+            {
+                "clientId": "probe_pub_key",
+                "userData": {
+                    "clientName": "Health Probe",
+                    "clientPrivateKey": "probe_priv_key_123",
+                },
+            }
+        ]
+
+        mock_reach = {
+            "reachable": True,
+            "latency_ms": 15,
+            "protocol": "awg",
+            "handshake_complete": True,
+            "profile": "default",
+            "last_checked": "2026-08-20T12:00:00",
+            "error": "",
+        }
+        mock_trials = {
+            "tls": {"reachable": True, "latency_ms": 10},
+            "quic": {"reachable": True, "latency_ms": 12},
+        }
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_mgr,
+            ),
+            patch(
+                "app.managers.awg_health.check_awg_reachability",
+                new_callable=AsyncMock,
+                return_value=mock_reach,
+            ) as mock_check,
+            patch(
+                "app.managers.awg_health.run_auto_trial_profiles",
+                new_callable=AsyncMock,
+                return_value=mock_trials,
+            ) as mock_run_trials,
+        ):
+            results = await orchestrator.check_server_reachability()
+
+            # Verify Health Probe peer was found and its private key used
+            mock_mgr.add_client.assert_not_called()
+            mock_check.assert_awaited_once_with(
+                host="1.2.3.4",
+                port=55424,
+                server_public_key="srvpub123",
+                client_private_key="probe_priv_key_123",
+                psk="psk123",
+                awg_params={"h1": "1000"},
+                timeout=3.0,
+            )
+            mock_run_trials.assert_awaited_once_with(
+                host="1.2.3.4",
+                port=55424,
+                server_public_key="srvpub123",
+                client_private_key="probe_priv_key_123",
+                psk="psk123",
+                awg_params={"h1": "1000"},
+                timeout=2.0,
+            )
+            assert results[1]["reachable"] is True
+            assert orchestrator._health_probe_keys[1]["client_priv"] == "probe_priv_key_123"
+
+    @pytest.mark.asyncio
+    async def test_server_reachability_creates_health_probe_if_missing(self, orchestrator):
+        """When Health Probe client does not exist on server, orchestrator calls add_client."""
+        mock_db = MagicMock()
+        mock_server = {
+            "id": 2,
+            "host": "10.0.0.1",
+            "protocols": {
+                "awg": {
+                    "installed": True,
+                    "port": 51820,
+                    "public_key": "srvpub456",
+                    "psk": "psk456",
+                    "awg_params": {},
+                }
+            },
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+
+        mock_ssh = MagicMock()
+        mock_mgr = MagicMock()
+        # No Health Probe client in get_clients
+        mock_mgr.get_clients.return_value = [
+            {
+                "clientId": "user_pub_key",
+                "userData": {
+                    "clientName": "Regular User",
+                    "clientPrivateKey": "user_priv_key",
+                },
+            }
+        ]
+        # add_client provisions new Health Probe
+        mock_mgr.add_client.return_value = {
+            "client_name": "Health Probe",
+            "client_id": "new_probe_pub",
+            "config": "[Interface]\nPrivateKey = newly_generated_probe_key\nAddress = 10.8.0.99/32",
+        }
+
+        mock_reach = {
+            "reachable": True,
+            "latency_ms": 20,
+            "protocol": "awg",
+            "last_checked": "2026-08-20T12:00:00",
+            "error": "",
+        }
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.services.background_orchestrator.get_protocol_manager",
+                return_value=mock_mgr,
+            ),
+            patch(
+                "app.managers.awg_health.check_awg_reachability",
+                new_callable=AsyncMock,
+                return_value=mock_reach,
+            ) as mock_check,
+            patch(
+                "app.managers.awg_health.run_auto_trial_profiles",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            results = await orchestrator.check_server_reachability()
+
+            # Verify add_client was called with Health Probe
+            mock_mgr.add_client.assert_called_once_with(
+                "awg",
+                "Health Probe",
+                "10.0.0.1",
+                51820,
+                stored_awg_params={},
+                server_protocols=mock_server["protocols"],
+            )
+            # Verify private key was extracted and used
+            assert mock_check.call_args.kwargs["client_private_key"] == "newly_generated_probe_key"
+            assert orchestrator._health_probe_keys[2]["client_priv"] == "newly_generated_probe_key"
+
+    @pytest.mark.asyncio
+    async def test_server_reachability_uses_cached_health_probe(self, orchestrator):
+        """When Health Probe is already cached, orchestrator uses cached credentials without SSH."""
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        BackgroundTaskOrchestrator._health_probe_keys[3] = {
+            "client_priv": "cached_probe_key_789",
+            "server_pub": "cached_srv_pub",
+            "psk": "cached_psk",
+        }
+
+        mock_db = MagicMock()
+        mock_server = {
+            "id": 3,
+            "host": "5.6.7.8",
+            "protocols": {
+                "awg": {
+                    "installed": True,
+                    "port": 55424,
+                    "public_key": "cached_srv_pub",
+                    "psk": "cached_psk",
+                }
+            },
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+
+        mock_ssh = MagicMock()
+        mock_reach = {
+            "reachable": True,
+            "latency_ms": 10,
+            "protocol": "awg",
+            "last_checked": "2026-08-20T12:00:00",
+            "error": "",
+        }
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch("app.services.background_orchestrator.get_ssh", return_value=mock_ssh),
+            patch(
+                "app.managers.awg_health.check_awg_reachability",
+                new_callable=AsyncMock,
+                return_value=mock_reach,
+            ) as mock_check,
+            patch(
+                "app.managers.awg_health.run_auto_trial_profiles",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+        ):
+            results = await orchestrator.check_server_reachability()
+
+            # SSH was NOT needed because probe was cached
+            mock_ssh.connect.assert_not_called()
+            mock_check.assert_awaited_once_with(
+                host="5.6.7.8",
+                port=55424,
+                server_public_key="cached_srv_pub",
+                client_private_key="cached_probe_key_789",
+                psk="cached_psk",
+                awg_params={},
+                timeout=3.0,
+            )
+            assert results[3]["reachable"] is True
+
+    @pytest.mark.asyncio
+    async def test_server_reachability_invalidates_cache_on_failure(self, orchestrator):
+        """When AWG probe fails, cached health probe credentials are invalidated."""
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        BackgroundTaskOrchestrator._health_probe_keys[4] = {
+            "client_priv": "stale_key",
+            "server_pub": "srv_pub",
+            "psk": "psk",
+        }
+
+        mock_db = MagicMock()
+        mock_server = {
+            "id": 4,
+            "host": "9.9.9.9",
+            "ssh_port": 22,
+            "protocols": {
+                "awg": {
+                    "installed": True,
+                    "port": 55424,
+                    "public_key": "srv_pub",
+                    "psk": "psk",
+                }
+            },
+        }
+        mock_db.get_all_servers.return_value = [mock_server]
+
+        mock_reach = {
+            "reachable": False,
+            "latency_ms": 0,
+            "error": "handshake timeout",
+        }
+
+        mock_writer = AsyncMock()
+        mock_writer.close = MagicMock()
+        mock_writer.wait_closed = AsyncMock()
+
+        with (
+            patch("app.services.background_orchestrator.get_db", return_value=mock_db),
+            patch(
+                "app.managers.awg_health.check_awg_reachability",
+                new_callable=AsyncMock,
+                return_value=mock_reach,
+            ),
+            patch(
+                "app.managers.awg_health.run_auto_trial_profiles",
+                new_callable=AsyncMock,
+                return_value={},
+            ),
+            patch("asyncio.open_connection", return_value=(MagicMock(), mock_writer)),
+        ):
+            results = await orchestrator.check_server_reachability()
+
+            # Cache should have been evicted
+            assert 4 not in BackgroundTaskOrchestrator._health_probe_keys
+            # Fallback TCP probe was executed
+            assert results[4]["protocol"] == "tcp"
+            assert results[4]["reachable"] is True

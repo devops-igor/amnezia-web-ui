@@ -46,3 +46,69 @@ class TestDeleteServer:
         """Deleting a non-existent server should return False."""
         result = self.db.delete_server(99999)
         assert result is False
+
+
+class TestExpiresAtMigration:
+    """Tests for the expires_at column migration."""
+
+    def test_migration_without_expiration_date_column(self):
+        """Old database without expiration_date column migrates cleanly without errors."""
+        import sqlite3
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = tmp.name
+        tmp.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("""CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    password_hash TEXT,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    enabled INTEGER NOT NULL DEFAULT 1
+                )""")
+            conn.execute("INSERT INTO users (id, username) VALUES ('u1', 'alice')")
+            conn.commit()
+            conn.close()
+
+            db = Database(db_path)
+            user = db.get_user("u1")
+            assert user is not None
+            assert user.get("expires_at") is None
+            conn = db._get_conn()
+            conn.close()
+        finally:
+            if os.path.exists(db_path):
+                os.unlink(db_path)
+
+    def test_migration_with_expiration_date_column(self):
+        """Database with expiration_date column copies values to expires_at."""
+        import sqlite3
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = tmp.name
+        tmp.close()
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("""CREATE TABLE users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT NOT NULL,
+                    expiration_date TEXT,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    enabled INTEGER NOT NULL DEFAULT 1
+                )""")
+            conn.execute(
+                "INSERT INTO users (id, username, expiration_date) VALUES ('u2', 'bob', '2026-12-31T23:59:59')"
+            )
+            conn.commit()
+            conn.close()
+
+            db = Database(db_path)
+            user = db.get_user("u2")
+            assert user is not None
+            assert user.get("expires_at") == "2026-12-31T23:59:59"
+            conn = db._get_conn()
+            conn.close()
+        finally:
+            if os.path.exists(db_path):
+                os.unlink(db_path)

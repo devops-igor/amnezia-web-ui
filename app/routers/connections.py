@@ -175,7 +175,12 @@ async def api_my_add_connection(
             )
         else:
             result = await asyncio.to_thread(
-                manager.add_client, normalized_proto, req.name, server["host"], port
+                manager.add_client,
+                normalized_proto,
+                req.name,
+                server["host"],
+                port,
+                awg_mimicry=req.awg_mimicry,
             )
 
         if result.get("client_id"):
@@ -186,6 +191,7 @@ async def api_my_add_connection(
                 "protocol": normalized_proto,
                 "client_id": result["client_id"],
                 "name": req.name,
+                "awg_mimicry": req.awg_mimicry or result.get("awg_mimicry", "auto"),
                 "created_at": now.isoformat(),
                 "traffic_total_rx": 0,
                 "traffic_total_tx": 0,
@@ -206,6 +212,8 @@ async def api_my_add_connection(
             if result.get("config"):
                 response["config"] = result["config"]
                 response["vpn_link"] = generate_vpn_link(result["config"])
+            if result.get("connection_kit"):
+                response["connection_kit"] = result["connection_kit"]
             return response
         else:
             return JSONResponse({"error": "Failed to create connection on server"}, status_code=500)
@@ -245,11 +253,64 @@ async def api_my_connection_config(
             server["host"],
             port,
         )
+        kit = None
+        if normalized_proto == "awg" and hasattr(manager, "get_connection_kit"):
+            try:
+                kit = await asyncio.to_thread(
+                    manager.get_connection_kit,
+                    normalized_proto,
+                    conn["client_id"],
+                    server["host"],
+                    port,
+                )
+            except Exception as e:
+                logger.debug("Failed to generate kit: %s", e)
+
         await asyncio.to_thread(ssh.disconnect)
         vpn_link = generate_vpn_link(config) if config else ""
-        return {"config": config, "vpn_link": vpn_link}
+        resp_data = {
+            "config": config,
+            "vpn_link": vpn_link,
+            "awg_mimicry": conn.get("awg_mimicry", "auto"),
+        }
+        if kit:
+            resp_data["connection_kit"] = kit
+        return resp_data
     except Exception as e:
         logger.exception("Error getting my connection config")
+        return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
+
+
+@router.post("/{connection_id}/kit")
+async def api_my_connection_kit(
+    request: Request, connection_id: str, user: dict = Depends(get_current_user)
+):
+    try:
+        db = get_db()
+        conn = db.get_connection_by_id(connection_id)
+        if not conn or conn.get("user_id") != user["id"]:
+            return JSONResponse({"error": "Connection not found"}, status_code=404)
+        sid = conn["server_id"]
+        server = db.get_server_by_id(sid)
+        if server is None:
+            return JSONResponse({"error": "Server not found"}, status_code=404)
+        normalized_proto = normalize_protocol(conn["protocol"])
+        proto_info = server.get("protocols", {}).get(normalized_proto, {})
+        port = proto_info.get("port", "55424")
+        ssh = get_ssh(server)
+        await asyncio.to_thread(ssh.connect)
+        manager = get_protocol_manager(ssh, normalized_proto)
+        kit = await asyncio.to_thread(
+            manager.get_connection_kit,
+            normalized_proto,
+            conn["client_id"],
+            server["host"],
+            port,
+        )
+        await asyncio.to_thread(ssh.disconnect)
+        return {"status": "success", "kit": kit}
+    except Exception as e:
+        logger.exception("Error getting connection kit")
         return JSONResponse({"error": _sanitize_error(str(e))}, status_code=500)
 
 

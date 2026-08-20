@@ -145,6 +145,17 @@
                     placeholder="{{ _('connection_name_placeholder') }}">
             </div>
 
+            <div class="form-group" id="newUserMimicryGroup" style="display:none;">
+                <label class="form-label">{{ _('awg_mimicry') }}</label>
+                <select class="form-select" id="newUserAwgMimicry">
+                    <option value="auto" selected>{{ _('mimicry_auto') }}</option>
+                    <option value="tls">{{ _('mimicry_tls') }}</option>
+                    <option value="quic">{{ _('mimicry_quic') }}</option>
+                    <option value="dns">{{ _('mimicry_dns') }}</option>
+                    <option value="sip">{{ _('mimicry_sip') }}</option>
+                </select>
+            </div>
+
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('addUserModal')">{{ _('cancel')
                     }}</button>
@@ -259,6 +270,17 @@
         <div class="form-group" id="ucNameGroup">
             <label class="form-label">{{ _('conn_name_panel') }}</label>
             <input class="form-input" type="text" id="ucName" placeholder="{{ _('connection_name_placeholder') }}">
+        </div>
+
+        <div class="form-group" id="ucAwgMimicryGroup" style="display:none;">
+            <label class="form-label">{{ _('awg_mimicry') }}</label>
+            <select class="form-select" id="ucAwgMimicry">
+                <option value="auto" selected>{{ _('mimicry_auto') }}</option>
+                <option value="tls">{{ _('mimicry_tls') }}</option>
+                <option value="quic">{{ _('mimicry_quic') }}</option>
+                <option value="dns">{{ _('mimicry_dns') }}</option>
+                <option value="sip">{{ _('mimicry_sip') }}</option>
+            </select>
         </div>
 
         <div class="modal-footer">
@@ -425,6 +447,18 @@
                     }
                     return '';
                 })()}
+                             ${(() => {
+                    const exp = u.expires_at || u.expiration_date;
+                    if (exp) {
+                        const isExpired = new Date(exp) < new Date();
+                        return `<div class="client-meta" style="font-size: 0.7rem; margin-top: 2px;">
+                            <span class="badge ${isExpired ? 'badge-danger' : 'badge-info'}" style="font-size: 0.65rem;">
+                                ⌛ ${isExpired ? 'Expired' : 'Expires'}: ${formatDate(exp)}
+                            </span>
+                        </div>`;
+                    }
+                    return '';
+                })()}
                              ${u.traffic_reset_strategy !== 'never' ? `<div class="client-meta" style="font-size: 0.7rem; opacity: 0.6;">🔄 ${_('traffic_reset_strategy_label')}: ${_('traffic_reset_' + u.traffic_reset_strategy)}</div>` : ''}
                         </div>
                     </div>
@@ -443,7 +477,7 @@
                                 data-desc="${escapeHtml(u.description || '')}"
                                 data-limit="${u.traffic_limit ? (u.traffic_limit / Math.pow(1024, 3)).toFixed(2) : 0}"
                                 data-strategy="${escapeHtml(u.traffic_reset_strategy || 'never')}"
-                                data-expiration="${escapeHtml(u.expiration_date || '')}"
+                                data-expiration="${escapeHtml(u.expires_at || u.expiration_date || '')}"
                                 title="${_('edit')}">✏️</button>
                         <button class="btn btn-secondary btn-sm btn-icon" onclick="openShareModal(this.dataset)"
                                 data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" data-token="${escapeHtml(u.share_token || '')}"
@@ -452,7 +486,7 @@
                                 title="${_('share_access')}">📤</button>
                         ${u.id !== "{{ current_user.id }}" ? `
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleUser(this.dataset)"
-                                    data-id="${escapeHtml(u.id)}" data-enable="${u.enabled ? 'false' : 'true'}"
+                                     data-id="${escapeHtml(u.id)}" data-enable="${u.enabled ? 'false' : 'true'}"
                                     title="${u.enabled ? _('stop_btn') : _('start_btn')}">
                                 ${u.enabled ? '🔵' : '⚫'}
                             </button>
@@ -485,6 +519,8 @@
 
         if (serverId === '') {
             if (group) group.style.display = 'none';
+            if (selectId === 'newUserProtocol') document.getElementById('newUserMimicryGroup').style.display = 'none';
+            if (selectId === 'ucProtocol') document.getElementById('ucAwgMimicryGroup').style.display = 'none';
             return;
         }
 
@@ -504,12 +540,20 @@
 
         if (count > 0) {
             if (group) group.style.display = '';
+            if (selectId === 'newUserProtocol') {
+                document.getElementById('newUserMimicryGroup').style.display = select.value === 'awg' ? '' : 'none';
+            }
+            if (selectId === 'ucProtocol') {
+                document.getElementById('ucAwgMimicryGroup').style.display = select.value === 'awg' ? '' : 'none';
+            }
         } else {
             const opt = document.createElement('option');
             opt.textContent = _('no_protocols');
             opt.disabled = true;
             select.appendChild(opt);
             if (group) group.style.display = '';
+            if (selectId === 'newUserProtocol') document.getElementById('newUserMimicryGroup').style.display = 'none';
+            if (selectId === 'ucProtocol') document.getElementById('ucAwgMimicryGroup').style.display = 'none';
         }
     }
 
@@ -520,6 +564,10 @@
         document.getElementById('newUserConnNameGroup').style.display = show ? '' : 'none';
     });
 
+    document.getElementById('newUserProtocol').addEventListener('change', (e) => {
+        document.getElementById('newUserMimicryGroup').style.display = e.target.value === 'awg' ? '' : 'none';
+    });
+
     document.getElementById('ucServer').addEventListener('change', (e) => {
         updateProtocols(e.target.value, 'ucProtocol');
         if (document.getElementById('ucMode').value === 'existing') {
@@ -528,6 +576,7 @@
     });
 
     document.getElementById('ucProtocol').addEventListener('change', (e) => {
+        document.getElementById('ucAwgMimicryGroup').style.display = e.target.value === 'awg' ? '' : 'none';
         if (document.getElementById('ucMode').value === 'existing') {
             fetchExistingClients();
         }
@@ -552,12 +601,16 @@
                 traffic_limit: parseFloat(document.getElementById('newTrafficLimit').value || '0'),
                 traffic_reset_strategy: document.getElementById('newTrafficResetStrategy').value,
                 expiration_date: document.getElementById('newExpirationDate').value || null,
+                expires_at: document.getElementById('newExpirationDate').value || null,
             };
             const serverId = document.getElementById('newUserServer').value;
             if (serverId !== '') {
                 body.server_id = parseInt(serverId);
                 body.protocol = document.getElementById('newUserProtocol').value;
                 body.connection_name = document.getElementById('newUserConnName').value || null;
+                if (body.protocol === 'awg') {
+                    body.awg_mimicry = document.getElementById('newUserAwgMimicry').value || 'auto';
+                }
             }
             const result = await apiCall('/api/users/add', 'POST', body);
             showToast(_('success'), 'success');
@@ -673,6 +726,10 @@
                 protocol: document.getElementById('ucProtocol').value,
                 name: document.getElementById('ucName').value || 'VPN Connection',
             };
+
+            if (body.protocol === 'awg') {
+                body.awg_mimicry = document.getElementById('ucAwgMimicry').value || 'auto';
+            }
 
             if (mode === 'existing') {
                 const clientId = document.getElementById('ucExistingClient').value;
@@ -877,6 +934,7 @@
             traffic_limit: parseFloat(document.getElementById('editUserLimit').value || '0'),
             traffic_reset_strategy: document.getElementById('editUserTrafficResetStrategy').value,
             expiration_date: document.getElementById('editUserExpiration').value || null,
+            expires_at: document.getElementById('editUserExpiration').value || null,
             password: document.getElementById('editUserPass').value || null
         };
 

@@ -12,6 +12,50 @@
         </button>
     </div>
 
+    <!-- Server Status Widget -->
+    {% if servers %}
+    <div class="card" style="margin-bottom: var(--space-lg); border-left: 4px solid var(--color-primary, #6366f1);">
+        <div class="flex items-center justify-between" style="margin-bottom: var(--space-sm);">
+            <div class="flex items-center gap-sm">
+                <span style="font-size: 1.25rem;">📡</span>
+                <div>
+                    <h3 style="margin: 0; font-size: 1rem; font-weight: 600;">{{ _('server_status') }}</h3>
+                    <p style="margin: 0; font-size: 0.8125rem; color: var(--color-text-muted);">{{ _('server_status_desc') }}</p>
+                </div>
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-top: 0.75rem;">
+            {% for srv in servers %}
+            {% set sinfo = (server_reachability.get(srv.id) if server_reachability else (server_reachability.get(srv.id|string) if server_reachability else None)) %}
+            <div style="background: var(--color-surface-hover, rgba(255,255,255,0.03)); padding: 0.6rem 0.8rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border, rgba(255,255,255,0.08));">
+                <div class="flex items-center justify-between" style="margin-bottom: 0.25rem;">
+                    <span style="font-weight: 600; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ srv.name }}</span>
+                    {% if sinfo and sinfo.reachable %}
+                    <span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ sinfo.latency_ms }}ms
+                    </span>
+                    {% elif sinfo and not sinfo.reachable %}
+                    <span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ _('unreachable') }}
+                    </span>
+                    {% else %}
+                    <span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ _('pending') if _('pending') != 'pending' else 'Pending' }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted); display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-family: monospace;">{{ srv.host }}:{{ srv.ssh_port }}</span>
+                    {% if sinfo and sinfo.last_checked %}
+                    <span title="{{ sinfo.last_checked }}">⏱ {{ sinfo.last_checked[11:19] }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {% if servers %}
     <div class="server-grid" id="serverGrid">
         {% for server in servers %}

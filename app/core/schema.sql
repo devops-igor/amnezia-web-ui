@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT,
     last_reset_at TEXT,
     expiration_date TEXT,
+    expires_at TEXT,
+    awg_mimicry TEXT DEFAULT 'auto',
     password_change_required INTEGER NOT NULL DEFAULT 0,
     limits TEXT  -- JSON blob for per-user limits override
 );
@@ -48,6 +50,7 @@ CREATE TABLE IF NOT EXISTS user_connections (
     protocol TEXT NOT NULL,
     client_id TEXT,
     name TEXT,
+    awg_mimicry TEXT DEFAULT 'auto',
     last_rx INTEGER DEFAULT 0,
     last_tx INTEGER DEFAULT 0,
     traffic_delta_rx INTEGER DEFAULT 0,

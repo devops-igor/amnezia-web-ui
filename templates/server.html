@@ -381,6 +381,21 @@
             </div>
         </div>
 
+        <div id="awgMimicryOptions"
+            style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
+            <div class="form-group">
+                <label class="form-label">{{ _('awg_mimicry') }}</label>
+                <select class="form-select" id="awgMimicryProfile">
+                    <option value="auto" selected>{{ _('mimicry_auto') }}</option>
+                    <option value="tls">{{ _('mimicry_tls') }}</option>
+                    <option value="quic">{{ _('mimicry_quic') }}</option>
+                    <option value="dns">{{ _('mimicry_dns') }}</option>
+                    <option value="sip">{{ _('mimicry_sip') }}</option>
+                </select>
+                <div class="form-hint">Auto enables continuous handshake monitoring and intelligent DPI failover.</div>
+            </div>
+        </div>
+
         <div id="awgSpeedLimitOptions"
             style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
             <div class="form-group">
@@ -445,6 +460,7 @@
             <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _('config_tab') }}</button>
             <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _('vpn_key_tab') }}</button>
             <button class="config-tab" onclick="switchConfigTab('qr')">{{ _('qr_code_tab') }}</button>
+            <button class="config-tab" id="tab-kit-btn" onclick="switchConfigTab('kit')">{{ _('connection_kit') }}</button>
         </div>
 
         <!-- Config Panel -->
@@ -461,6 +477,12 @@
                     </button>
                 </div>
             </div>
+        </div>
+
+        <!-- Connection Kit Panel -->
+        <div class="config-panel" id="panel-kit">
+            <div class="form-hint" style="margin-bottom: var(--space-sm);">{{ _('connection_kit_desc') }}</div>
+            <div id="connectionKitList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
         </div>
 
         <!-- VPN Key Panel -->
@@ -512,6 +534,25 @@
                     {{ _('save') }}
                 </button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- ===== Auto Trial Modal ===== -->
+<div class="modal-backdrop" id="autoTrialModal">
+    <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+            <h2 class="modal-title" id="autoTrialModalTitle">🎯 {{ _('start_auto_trial') }}</h2>
+            <button class="modal-close" onclick="closeModal('autoTrialModal')">×</button>
+        </div>
+        <div style="margin-bottom: var(--space-md);">
+            <div class="form-hint" style="margin-bottom: var(--space-md);">
+                Real AmneziaWG health check & Auto Trial mimicry profiles. Download or copy profile configurations to test connectivity against this server.
+            </div>
+            <div id="autoTrialList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="closeModal('autoTrialModal')">{{ _('done') if _('done') != 'done' else 'Close' }}</button>
         </div>
     </div>
 </div>
@@ -1066,6 +1107,16 @@
                     if (parts.length) metaHtml += `<span class="badge badge-warn" style="font-size:0.65rem;">⚡${parts.join(' ')} Mbps</span>`;
                 }
 
+                // AWG mimicry profile badge
+                if (proto === 'awg') {
+                    const mimicry = userData.awg_mimicry || 'auto';
+                    if (mimicry === 'auto') {
+                        metaHtml += `<span class="badge badge-info" style="font-size:0.65rem;">🛡 ${_('mimicry_auto')}</span>`;
+                    } else {
+                        metaHtml += `<span class="badge badge-success" style="font-size:0.65rem;">🔒 ${_('profile_locked').replace('{}', escapeHtml(mimicry.toUpperCase()))}</span>`;
+                    }
+                }
+
                 const disabledStyle = enabled ? '' : 'opacity:0.5;';
                 const toggleIcon = enabled ? '🔵' : '⚫';
                 const toggleTitle = enabled ? _('stop') : _('starting');
@@ -1073,8 +1124,10 @@
                 // If clientPrivateKey is missing (created via native app), we show a warning instead.
                 const canShowConfig = proto === 'xray' || true; // always show 📄 button
 
-                // AWG edit speed limit button
+                // AWG edit speed limit, auto trial & rotate buttons
                 const awgSpeedBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openEditSpeedLimitModal('${escapeJs(client.clientId)}')" title="${_('edit_speed_limit')}">⚡</button>` : '';
+                const awgTrialBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="startAutoTrial('${escapeJs(client.clientId)}', '${escapeJs(name)}')" title="${_('start_auto_trial')}">🎯</button>` : '';
+                const awgRotateBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="rotateClientMimicry('${escapeJs(client.clientId)}')" title="${_('rotate_profile')}">🔄</button>` : '';
 
                 listEl.innerHTML += `
                     <div class="client-item" style="${disabledStyle}">
@@ -1088,6 +1141,8 @@
                         <div class="client-actions">
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="showConnectionConfig('${escapeJs(client.clientId)}', '${escapeJs(name)}', ${!!userData.clientPrivateKey || proto === 'xray' || proto === 'telemt'})" title="${_('config')}">📄</button>
                             ${awgSpeedBtn}
+                            ${awgTrialBtn}
+                            ${awgRotateBtn}
                             ${proto === 'telemt' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="editConnection('${escapeJs(client.clientId)}')" title="${_('edit')}">✏️</button>` : ''}
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleConnection('${escapeJs(client.clientId)}', ${!enabled})" title="${toggleTitle}">${toggleIcon}</button>
                             <button class="btn btn-danger btn-sm btn-icon" onclick="removeConnection('${escapeJs(client.clientId)}')" title="${_('delete')}">🗑</button>
@@ -1098,6 +1153,53 @@
         } catch (err) {
             loading.style.display = 'none';
             showToast(_('loading_connections_error') + ': ' + err.message, 'error');
+        }
+    }
+
+    async function startAutoTrial(clientId, connName) {
+        try {
+            showToast(_('loading'), 'info');
+            const res = await apiCall(`/api/servers/${SERVER_ID}/connections/kit`, 'POST', {
+                protocol: 'awg',
+                client_id: clientId,
+            });
+            if (res.kit) {
+                const kit = res.kit;
+                const trialList = document.getElementById('autoTrialList');
+                if (trialList) {
+                    trialList.innerHTML = '';
+                    for (const [protoKey, confText] of Object.entries(kit)) {
+                        const item = document.createElement('div');
+                        item.style.cssText = 'background: var(--bg-primary, rgba(0,0,0,0.2)); padding: 0.75rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, rgba(255,255,255,0.08));';
+                        item.innerHTML = `
+                            <div class="flex items-center justify-between" style="margin-bottom: 0.5rem;">
+                                <span style="font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">🛡 ${escapeHtml(protoKey)} Profile</span>
+                                <div class="flex gap-sm">
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard(\`${escapeJs(confText)}\`)">${_('copy')}</button>
+                                    <button type="button" class="btn btn-primary btn-sm" onclick="downloadFile(\`${escapeJs(confText)}\`, '${escapeJs(connName || 'trial')}_${protoKey}.conf')">${_('download')}</button>
+                                </div>
+                            </div>
+                            <pre style="font-size: 0.72rem; max-height: 80px; overflow-y: auto; margin: 0; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 4px;"><code>${escapeHtml(confText)}</code></pre>
+                        `;
+                        trialList.appendChild(item);
+                    }
+                }
+                document.getElementById('autoTrialModalTitle').textContent = `🎯 ${_('start_auto_trial')} — ${escapeHtml(connName || 'Connection')}`;
+                openModal('autoTrialModal');
+            }
+        } catch (err) {
+            showToast(_('error') + ': ' + err.message, 'error');
+        }
+    }
+
+    async function rotateClientMimicry(clientId) {
+        try {
+            showToast(_('loading'), 'info');
+            const res = await apiCall(`/api/servers/${SERVER_ID}/connections/${clientId}/rotate-mimicry`, 'POST');
+            showToast(`Rotated to ${(res.rotation && res.rotation.awg_mimicry ? res.rotation.awg_mimicry : 'next').toUpperCase()}`, 'success');
+            loadConnections();
+        } catch (err) {
+            showToast(_('error') + ': ' + err.message, 'error');
         }
     }
 
@@ -1115,12 +1217,16 @@
             const params = {
                 protocol: proto, name: connName, user_id: userId,
             };
-            // AWG speed limits
+            // AWG speed limits & mimicry profile
             if (proto === 'awg') {
                 const downVal = document.getElementById('awgSpeedLimitDown').value;
                 const upVal = document.getElementById('awgSpeedLimitUp').value;
                 if (downVal !== '' && downVal !== null) params.awg_speed_limit_down = parseInt(downVal) || null;
                 if (upVal !== '' && upVal !== null) params.awg_speed_limit_up = parseInt(upVal) || null;
+                const mimicrySelect = document.getElementById('awgMimicryProfile');
+                if (mimicrySelect && mimicrySelect.value) {
+                    params.awg_mimicry = mimicrySelect.value;
+                }
             }
             if (proto === 'telemt' && isEditingConn) {
                 params.telemt_quota = document.getElementById('telemtQuota').value || null;
@@ -1146,6 +1252,12 @@
                     document.getElementById('panel-vpn').style.display = (proto === 'telemt' ? 'none' : '');
                     document.querySelectorAll('.config-tab')[1].style.display = (proto === 'telemt' ? 'none' : '');
                     document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
+                    if (proto === 'awg' && result.client_id) {
+                        document.getElementById('tab-kit-btn').style.display = '';
+                        loadConnectionKit(result.client_id, connName);
+                    } else {
+                        document.getElementById('tab-kit-btn').style.display = 'none';
+                    }
                     switchConfigTab('conf');
                     openModal('configModal');
                     generateQR(result.config);
@@ -1169,20 +1281,24 @@
         const proto = document.getElementById('connProtoSelect').value;
         const telemtOpts = document.getElementById('telemtConnOptions');
         const awgSpeedOpts = document.getElementById('awgSpeedLimitOptions');
+        const awgMimicryOpts = document.getElementById('awgMimicryOptions');
 
         document.getElementById('addConnectionModalTitle').textContent = isEdit ? _('edit_connection') : _('add_connection');
         document.getElementById('addConnBtnText').textContent = isEdit ? _('save') : _('create');
         document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
 
-        // AWG speed limit options
+        // AWG speed limit & mimicry options
         if (proto === 'awg') {
             awgSpeedOpts.style.display = 'block';
+            if (awgMimicryOpts) awgMimicryOpts.style.display = isEdit ? 'none' : 'block';
             if (!isEdit) {
                 document.getElementById('awgSpeedLimitDown').value = '';
                 document.getElementById('awgSpeedLimitUp').value = '';
+                if (document.getElementById('awgMimicryProfile')) document.getElementById('awgMimicryProfile').value = 'auto';
             }
         } else {
             awgSpeedOpts.style.display = 'none';
+            if (awgMimicryOpts) awgMimicryOpts.style.display = 'none';
         }
 
         if (proto === 'telemt' && isEdit) {
@@ -1190,7 +1306,7 @@
             if (isEdit && clientData) {
                 editingClientId = clientData.clientName;
                 document.getElementById('telemtQuota').value = clientData.quota || '';
-                document.getElementById('telemtMaxIps').value = clientData.active_ips || ''; // actually max_ips isn't stored in api data yet, assume it was active_ips for now or better - just empty
+                document.getElementById('telemtMaxIps').value = clientData.active_ips || '';
                 document.getElementById('telemtExpiry').value = clientData.expiry || '';
             } else {
                 document.getElementById('telemtQuota').value = '';
@@ -1225,6 +1341,37 @@
         }
     }
 
+    async function loadConnectionKit(clientId, connName) {
+        const kitList = document.getElementById('connectionKitList');
+        if (!kitList) return;
+        kitList.innerHTML = '<div style="color: var(--text-muted); font-size: 0.85rem;">Loading profiles...</div>';
+        try {
+            const res = await apiCall(`/api/servers/${SERVER_ID}/connections/kit`, 'POST', {
+                protocol: 'awg', client_id: clientId
+            });
+            if (res.kit) {
+                kitList.innerHTML = '';
+                for (const [protoKey, confText] of Object.entries(res.kit)) {
+                    const item = document.createElement('div');
+                    item.style.cssText = 'background: var(--bg-primary, rgba(0,0,0,0.2)); padding: 0.75rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--border-color, rgba(255,255,255,0.08));';
+                    item.innerHTML = `
+                        <div class="flex items-center justify-between" style="margin-bottom: 0.5rem;">
+                            <span style="font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">🛡 ${escapeHtml(protoKey)} Profile</span>
+                            <div class="flex gap-sm">
+                                <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard(\`${escapeJs(confText)}\`)">${_('copy')}</button>
+                                <button type="button" class="btn btn-primary btn-sm" onclick="downloadFile(\`${escapeJs(confText)}\`, '${escapeJs(connName)}_${protoKey}.conf')">${_('download')}</button>
+                            </div>
+                        </div>
+                        <pre style="font-size: 0.72rem; max-height: 80px; overflow-y: auto; margin: 0; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 4px;"><code>${escapeHtml(confText)}</code></pre>
+                    `;
+                    kitList.appendChild(item);
+                }
+            }
+        } catch (err) {
+            kitList.innerHTML = `<div style="color: var(--color-danger, #ef4444); font-size: 0.85rem;">${err.message}</div>`;
+        }
+    }
+
     async function showConnectionConfig(clientId, connName, hasKey) {
         const proto = document.getElementById('connProtoSelect').value;
 
@@ -1233,6 +1380,13 @@
         document.getElementById('panel-qr').style.display = '';
         document.querySelectorAll('.config-tab')[1].style.display = (proto === 'telemt' ? 'none' : '');
         document.querySelectorAll('.config-tab')[2].style.display = '';
+
+        if (proto === 'awg') {
+            document.getElementById('tab-kit-btn').style.display = '';
+            loadConnectionKit(clientId, connName);
+        } else {
+            document.getElementById('tab-kit-btn').style.display = 'none';
+        }
 
         document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
 
@@ -1246,6 +1400,7 @@
             document.getElementById('vpnLinkText').textContent = '';
             document.getElementById('panel-vpn').style.display = 'none';
             document.getElementById('panel-qr').style.display = 'none';
+            document.getElementById('tab-kit-btn').style.display = 'none';
             document.querySelectorAll('.config-tab')[1].style.display = 'none';
             document.querySelectorAll('.config-tab')[2].style.display = 'none';
             switchConfigTab('conf');
@@ -1293,10 +1448,10 @@
         document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
         const tabs = document.querySelectorAll('.config-tab');
-        const panels = { conf: 'panel-conf', vpn: 'panel-vpn', qr: 'panel-qr' };
-        const tabIdx = { conf: 0, vpn: 1, qr: 2 };
-        tabs[tabIdx[tab]].classList.add('active');
-        document.getElementById(panels[tab]).classList.add('active');
+        const panels = { conf: 'panel-conf', vpn: 'panel-vpn', qr: 'panel-qr', kit: 'panel-kit' };
+        const tabIdx = { conf: 0, vpn: 1, qr: 2, kit: 3 };
+        if (tabs[tabIdx[tab]]) tabs[tabIdx[tab]].classList.add('active');
+        if (document.getElementById(panels[tab])) document.getElementById(panels[tab]).classList.add('active');
     }
 
     function generateQR(text) {

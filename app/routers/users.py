@@ -120,7 +120,9 @@ async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depen
             "traffic_used": 0,
             "traffic_total": 0,
             "last_reset_at": datetime.now().isoformat(),
-            "expiration_date": req.expiration_date,
+            "expiration_date": req.expires_at or req.expiration_date,
+            "expires_at": req.expires_at or req.expiration_date,
+            "awg_mimicry": req.awg_mimicry or "auto",
             "enabled": True,
             "created_at": datetime.now().isoformat(),
             "remnawave_uuid": None,
@@ -143,7 +145,12 @@ async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depen
                 await asyncio.to_thread(ssh.connect)
                 manager = get_protocol_manager(ssh, req.protocol)
                 conn_result = await asyncio.to_thread(
-                    manager.add_client, req.protocol, conn_name, server["host"], port
+                    manager.add_client,
+                    req.protocol,
+                    conn_name,
+                    server["host"],
+                    port,
+                    awg_mimicry=req.awg_mimicry,
                 )
                 await asyncio.to_thread(ssh.disconnect)
 
@@ -155,6 +162,7 @@ async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depen
                         "protocol": req.protocol,
                         "client_id": conn_result["client_id"],
                         "name": conn_name,
+                        "awg_mimicry": req.awg_mimicry or "auto",
                         "created_at": datetime.now().isoformat(),
                     }
                     db.create_connection(conn)
@@ -162,6 +170,8 @@ async def api_add_user(request: Request, req: AddUserRequest, user: dict = Depen
                     if conn_result.get("config"):
                         result["config"] = conn_result["config"]
                         result["vpn_link"] = generate_vpn_link(conn_result["config"])
+                    if conn_result.get("connection_kit"):
+                        result["connection_kit"] = conn_result["connection_kit"]
                 else:
                     # API call failed â€” skip writing connection, include error in response
                     error_msg = conn_result.get("error", "Failed to create auto-connection")
@@ -201,8 +211,13 @@ async def api_update_user(
             updates["traffic_reset_strategy"] = req.traffic_reset_strategy
             updates["last_reset_at"] = datetime.now().isoformat()
 
-        if req.expiration_date is not None:
-            updates["expiration_date"] = req.expiration_date or None
+        if req.expires_at is not None or req.expiration_date is not None:
+            exp_val = req.expires_at if req.expires_at is not None else req.expiration_date
+            updates["expiration_date"] = exp_val or None
+            updates["expires_at"] = exp_val or None
+
+        if req.awg_mimicry is not None:
+            updates["awg_mimicry"] = req.awg_mimicry or "auto"
 
         if req.password:
             updates["password_hash"] = hash_password(req.password)
@@ -293,7 +308,12 @@ async def api_add_user_connection(
         else:
             # Create new client
             result = await asyncio.to_thread(
-                manager.add_client, req.protocol, req.name, server["host"], port
+                manager.add_client,
+                req.protocol,
+                req.name,
+                server["host"],
+                port,
+                awg_mimicry=req.awg_mimicry,
             )
 
         await asyncio.to_thread(ssh.disconnect)
@@ -306,6 +326,7 @@ async def api_add_user_connection(
                 "protocol": req.protocol,
                 "client_id": result["client_id"],
                 "name": req.name,
+                "awg_mimicry": req.awg_mimicry or result.get("awg_mimicry", "auto"),
                 "created_at": datetime.now().isoformat(),
             }
             db.create_connection(conn)
@@ -313,6 +334,8 @@ async def api_add_user_connection(
             resp = {"status": "success"}
             resp["config"] = result["config"]
             resp["vpn_link"] = generate_vpn_link(result["config"])
+            if result.get("connection_kit"):
+                resp["connection_kit"] = result["connection_kit"]
         else:
             # API call failed â€” do not write to data.json
             error_msg = result.get("error", "Failed to create connection")

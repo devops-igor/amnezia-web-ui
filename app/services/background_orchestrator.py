@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Any
 from typing import Dict
@@ -21,6 +22,10 @@ logger = logging.getLogger(__name__)
 class BackgroundTaskOrchestrator:
     """Orchestrates periodic background operations with error isolation."""
 
+    HEALTH_PROBE_CLIENT_NAME: str = "Health Probe"
+    _server_reachability: Dict[Any, Dict[str, Any]] = {}
+    _health_probe_keys: Dict[Any, Dict[str, str]] = {}
+
     def __init__(self) -> None:
         self._task: Optional[asyncio.Task] = None
 
@@ -31,10 +36,10 @@ class BackgroundTaskOrchestrator:
     ) -> None:
         """Check and disable expired users.
 
-        Currently embedded in sync_traffic's inner loop.
-        Extract expiry date checking into its own method.
+        Extracts expiry date checking into its own method.
+        Supports both expires_at and expiration_date.
         """
-        exp_str = user.get("expiration_date")
+        exp_str = user.get("expires_at") or user.get("expiration_date")
         if exp_str and user.get("enabled", True):
             try:
                 exp_date = datetime.fromisoformat(exp_str)
@@ -304,11 +309,12 @@ class BackgroundTaskOrchestrator:
                             if uid not in to_disable_uids:
                                 to_disable_uids.append(uid)
 
-                        # Check expiration date
-                        await self.check_expiry(now, u, uid, to_disable_uids)
+        # Unconditional check_expiry for all users in users_map
+        for uid, u in users_map.items():
+            await self.check_expiry(now, u, uid, to_disable_uids)
 
         if to_disable_uids:
-            logger.info("Traffic limit reached, disabling users: %s", to_disable_uids)
+            logger.info("Traffic limit or expiration reached, disabling users: %s", to_disable_uids)
             await perform_mass_operations(toggle_uids=[(uid, False) for uid in to_disable_uids])
 
         # --- TELEM QUOTA ENFORCEMENT ---
@@ -332,6 +338,199 @@ class BackgroundTaskOrchestrator:
             except Exception as e:
                 logger.error("Error disabling over-quota users on server %s: %s", sid, e)
 
+    async def check_server_reachability(self) -> Dict[Any, Dict[str, Any]]:
+        """Test server reachability using AmneziaWG protocol for AWG servers and socket probe for others.
+
+        Runs every 5 minutes as part of the background orchestrator schedule (Auto Trials).
+        Client statuses and handshakes are NEVER monitored.
+        """
+        import time
+        from app.managers.awg_health import check_awg_reachability, run_auto_trial_profiles
+
+        logger.info("Starting background server reachability check...")
+        db = get_db()
+        servers = db.get_all_servers()
+        results: Dict[Any, Dict[str, Any]] = {}
+
+        for server in servers:
+            sid = server["id"]
+            host = server.get("host", "")
+            if not host:
+                continue
+
+            protocols = server.get("protocols", {})
+            awg_info = protocols.get("awg", {})
+
+            if awg_info.get("installed"):
+                port = int(awg_info.get("port") or 55424)
+                awg_params = awg_info.get("awg_params") or {}
+                server_pub = awg_info.get("public_key") or ""
+                psk = awg_info.get("psk") or ""
+
+                cached_probe = BackgroundTaskOrchestrator._health_probe_keys.get(sid, {})
+                client_priv = cached_probe.get("client_priv")
+                if not server_pub:
+                    server_pub = cached_probe.get("server_pub", "")
+                if not psk:
+                    psk = cached_probe.get("psk", "")
+
+                # If server_pub or client_priv is missing, attempt to fetch/provision dedicated Health Probe peer via SSH
+                if not server_pub or not client_priv:
+                    ssh = None
+                    try:
+                        ssh = get_ssh(server)
+                        await asyncio.to_thread(ssh.connect)
+                        mgr = get_protocol_manager(ssh, "awg")
+                        if not server_pub:
+                            server_pub = await asyncio.to_thread(mgr._get_server_public_key, "awg")
+                        if not psk:
+                            psk = await asyncio.to_thread(mgr._get_server_psk, "awg")
+
+                        if not client_priv:
+                            # Look for existing dedicated "Health Probe" client on server
+                            clients = await asyncio.to_thread(mgr.get_clients, "awg")
+                            for cl in clients:
+                                u_data = cl.get("userData", {})
+                                c_name = u_data.get("clientName", "")
+                                if c_name.strip().lower() == "health probe":
+                                    priv = u_data.get("clientPrivateKey")
+                                    if priv:
+                                        client_priv = priv
+                                        break
+
+                            # If no "Health Probe" peer exists, provision one
+                            if not client_priv:
+                                logger.info(
+                                    "Health Probe client not found on server %s; provisioning dedicated peer...",
+                                    sid,
+                                )
+                                new_client = await asyncio.to_thread(
+                                    mgr.add_client,
+                                    "awg",
+                                    self.HEALTH_PROBE_CLIENT_NAME,
+                                    host,
+                                    port,
+                                    stored_awg_params=awg_params,
+                                    server_protocols=protocols,
+                                )
+                                if isinstance(new_client, dict):
+                                    conf_str = new_client.get("config", "")
+                                    match = re.search(r"PrivateKey\s*=\s*(\S+)", conf_str)
+                                    if match:
+                                        client_priv = match.group(1).strip()
+                                    if not client_priv:
+                                        updated_clients = await asyncio.to_thread(
+                                            mgr.get_clients, "awg"
+                                        )
+                                        for cl in updated_clients:
+                                            if (
+                                                cl.get("userData", {})
+                                                .get("clientName", "")
+                                                .strip()
+                                                .lower()
+                                                == "health probe"
+                                            ):
+                                                client_priv = cl.get("userData", {}).get(
+                                                    "clientPrivateKey"
+                                                )
+                                                break
+                                logger.info(
+                                    "Provisioned Health Probe peer for server %s (key_found=%s)",
+                                    sid,
+                                    bool(client_priv),
+                                )
+
+                        if client_priv and server_pub:
+                            BackgroundTaskOrchestrator._health_probe_keys[sid] = {
+                                "client_priv": client_priv,
+                                "server_pub": server_pub,
+                                "psk": psk,
+                            }
+                    except Exception as e:
+                        logger.debug(
+                            "Could not fetch/provision AWG health probe via SSH for server %s: %s",
+                            sid,
+                            e,
+                        )
+                    finally:
+                        if ssh:
+                            try:
+                                await asyncio.to_thread(ssh.disconnect)
+                            except Exception:
+                                pass
+
+                if server_pub:
+                    # Perform real AmneziaWG health check using dedicated health probe
+                    try:
+                        reach_res = await check_awg_reachability(
+                            host=host,
+                            port=port,
+                            server_public_key=server_pub,
+                            client_private_key=client_priv,
+                            psk=psk,
+                            awg_params=awg_params,
+                            timeout=3.0,
+                        )
+                        # Also run Auto Trials profile probes
+                        auto_trials = await run_auto_trial_profiles(
+                            host=host,
+                            port=port,
+                            server_public_key=server_pub,
+                            client_private_key=client_priv,
+                            psk=psk,
+                            awg_params=awg_params,
+                            timeout=2.0,
+                        )
+                        reach_res["auto_trials"] = auto_trials
+
+                        if reach_res["reachable"]:
+                            results[sid] = reach_res
+                            continue
+                        else:
+                            logger.debug(
+                                "AWG UDP check failed (%s), falling back to SSH probe",
+                                reach_res.get("error"),
+                            )
+                            # Invalidate cached probe key on failure to re-provision next time if needed
+                            BackgroundTaskOrchestrator._health_probe_keys.pop(sid, None)
+                    except Exception as err:
+                        logger.debug("AWG reachability check failed for server %s: %s", sid, err)
+                        BackgroundTaskOrchestrator._health_probe_keys.pop(sid, None)
+
+            # Fallback for non-AWG servers or if AWG handshake could not be initiated
+            port = int(server.get("ssh_port") or server.get("port") or 22)
+            t0 = time.time()
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port), timeout=3.0
+                )
+                writer.close()
+                await writer.wait_closed()
+                latency = int((time.time() - t0) * 1000)
+                results[sid] = {
+                    "reachable": True,
+                    "latency_ms": latency,
+                    "protocol": "tcp",
+                    "last_checked": datetime.now().isoformat(),
+                    "error": "",
+                }
+            except Exception as e:
+                results[sid] = {
+                    "reachable": False,
+                    "latency_ms": 0,
+                    "protocol": "tcp",
+                    "last_checked": datetime.now().isoformat(),
+                    "error": str(e),
+                }
+
+        BackgroundTaskOrchestrator._server_reachability = results
+        return results
+
+    @classmethod
+    def get_cached_server_reachability(cls) -> Dict[Any, Dict[str, Any]]:
+        """Return cached server reachability results without fake fallbacks."""
+        return cls._server_reachability
+
     async def sync_remnawave(self) -> None:
         """Sync users with Remnawave if enabled."""
         logger.info("Starting background Remnawave sync...")
@@ -348,6 +547,7 @@ class BackgroundTaskOrchestrator:
         """Run all background operations. Errors in one don't prevent others."""
         operations = [
             ("traffic_sync", self.sync_traffic),
+            ("server_reachability", self.check_server_reachability),
             ("remnawave_sync", self.sync_remnawave),
         ]
         for name, operation in operations:
@@ -372,7 +572,7 @@ class BackgroundTaskOrchestrator:
                 logger.info("Background task cancelled successfully")
 
     async def _run_loop(self) -> None:
-        """Main loop: sleep 60s initially, then run_all every 600s."""
+        """Main loop: sleep 60s initially, then run_all every 300s (5 minutes)."""
         await asyncio.sleep(60)
         while True:
             try:
@@ -382,4 +582,4 @@ class BackgroundTaskOrchestrator:
                 raise
             except Exception as e:
                 logger.error("Error in background task loop: %s", e, exc_info=True)
-            await asyncio.sleep(600)
+            await asyncio.sleep(300)

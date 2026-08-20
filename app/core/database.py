@@ -81,6 +81,8 @@ class Database:
             "created_at",
             "last_reset_at",
             "expiration_date",
+            "expires_at",
+            "awg_mimicry",
             "password_change_required",
             "limits",
         }
@@ -93,6 +95,7 @@ class Database:
             "protocol",
             "client_id",
             "name",
+            "awg_mimicry",
             "last_rx",
             "last_tx",
             "traffic_delta_rx",
@@ -276,6 +279,36 @@ class Database:
                     conn.commit()
             self.set_migration_flag("ssl_keys_encrypted", "1")
             logger.info("Migration: ssl_keys_encrypted complete")
+
+        # Migration: add expires_at and awg_mimicry columns to users table
+        try:
+            conn.execute("SELECT expires_at FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating users table: adding expires_at column")
+            conn.execute("ALTER TABLE users ADD COLUMN expires_at TEXT")
+            try:
+                conn.execute("SELECT expiration_date FROM users LIMIT 1")
+                conn.execute(
+                    "UPDATE users SET expires_at = expiration_date WHERE expires_at IS NULL AND expiration_date IS NOT NULL"
+                )
+            except sqlite3.OperationalError:
+                pass
+            conn.commit()
+
+        try:
+            conn.execute("SELECT awg_mimicry FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating users table: adding awg_mimicry column")
+            conn.execute("ALTER TABLE users ADD COLUMN awg_mimicry TEXT DEFAULT 'auto'")
+            conn.commit()
+
+        # Migration: add awg_mimicry column to user_connections table
+        try:
+            conn.execute("SELECT awg_mimicry FROM user_connections LIMIT 1")
+        except sqlite3.OperationalError:
+            logger.info("Migrating user_connections table: adding awg_mimicry column")
+            conn.execute("ALTER TABLE user_connections ADD COLUMN awg_mimicry TEXT DEFAULT 'auto'")
+            conn.commit()
 
     def _ensure_indexes(self) -> None:
         """Create missing indexes on existing databases.
@@ -706,6 +739,7 @@ class Database:
         Assumes `user` dict has already been validated/hashed by the caller.
         """
         limits_json = json.dumps(user.get("limits", {}))
+        exp_date = user.get("expiration_date") or user.get("expires_at")
         conn.execute(
             """INSERT INTO users (id, username, email, telegramId, description,
                password_hash, role, enabled, traffic_limit, traffic_used,
@@ -713,10 +747,10 @@ class Database:
                monthly_rx, monthly_tx, monthly_reset_at,
                traffic_reset_strategy, share_enabled, share_token,
                share_password_hash, remnawave_uuid, created_at,
-               last_reset_at, expiration_date, password_change_required, limits)
+               last_reset_at, expiration_date, expires_at, awg_mimicry, password_change_required, limits)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                       ?, ?, ?, ?, ?, ?)""",
+                       ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user.get("id", ""),
                 user.get("username", ""),
@@ -741,7 +775,9 @@ class Database:
                 user.get("remnawave_uuid"),
                 user.get("created_at", datetime.now().isoformat()),
                 user.get("last_reset_at", datetime.now().isoformat()),
-                user.get("expiration_date"),
+                exp_date,
+                exp_date,
+                user.get("awg_mimicry", "auto"),
                 1 if user.get("password_change_required", False) else 0,
                 limits_json,
             ),
@@ -821,9 +857,18 @@ class Database:
             "share_password_hash",
             "remnawave_uuid",
             "expiration_date",
+            "expires_at",
         ]:
             if nullable not in d:
                 d[nullable] = None
+
+        if d.get("expires_at") and not d.get("expiration_date"):
+            d["expiration_date"] = d["expires_at"]
+        elif d.get("expiration_date") and not d.get("expires_at"):
+            d["expires_at"] = d["expiration_date"]
+
+        if "awg_mimicry" not in d or d["awg_mimicry"] is None:
+            d["awg_mimicry"] = "auto"
         return d
 
     # ----------------------------------------------------------------
@@ -866,10 +911,10 @@ class Database:
         with self._connection() as conn:
             conn.execute(
                 """INSERT INTO user_connections
-                   (id, user_id, server_id, protocol, client_id, name,
+                   (id, user_id, server_id, protocol, client_id, name, awg_mimicry,
                     last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
                     traffic_total_rx, traffic_total_tx, traffic_total, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     connection.get("id", ""),
                     connection.get("user_id", ""),
@@ -877,6 +922,7 @@ class Database:
                     connection.get("protocol", ""),
                     connection.get("client_id"),
                     connection.get("name"),
+                    connection.get("awg_mimicry", "auto"),
                     connection.get("last_rx", 0),
                     connection.get("last_tx", 0),
                     connection.get("traffic_delta_rx", 0),
@@ -1165,10 +1211,10 @@ class Database:
                 for c in data.get("user_connections", []):
                     conn.execute(
                         """INSERT INTO user_connections
-                           (id, user_id, server_id, protocol, client_id, name,
+                           (id, user_id, server_id, protocol, client_id, name, awg_mimicry,
                             last_rx, last_tx, traffic_delta_rx, traffic_delta_tx,
                             traffic_total_rx, traffic_total_tx, traffic_total, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             c.get("id", ""),
                             c.get("user_id", ""),
@@ -1176,6 +1222,7 @@ class Database:
                             c.get("protocol", ""),
                             c.get("client_id"),
                             c.get("name"),
+                            c.get("awg_mimicry", "auto"),
                             c.get("last_rx", 0),
                             c.get("last_tx", 0),
                             c.get("traffic_delta_rx", 0),
