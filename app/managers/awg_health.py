@@ -285,7 +285,11 @@ def verify_awg_response_packet(
 
     expected_len = 92 + s2
     if len(resp_packet) < expected_len:
-        logger.debug("AWG response packet too short: %d bytes, expected >= %d", len(resp_packet), expected_len)
+        logger.debug(
+            "AWG response packet too short: %d bytes, expected >= %d",
+            len(resp_packet),
+            expected_len,
+        )
         return False
 
     msg_type = struct.unpack("<I", resp_packet[:4])[0]

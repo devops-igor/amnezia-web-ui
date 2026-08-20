@@ -43,7 +43,6 @@ class SSHManager:
     def connect(self):
         """Establish SSH connection to the server with host key verification."""
         self.client = paramiko.SSHClient()
-        
 
         kwargs = {
             "hostname": self.host,
@@ -117,9 +116,6 @@ class SSHManager:
                 f"Expected: {known_fingerprint[:16]}..., "
                 f"Got: {actual_fingerprint[:16]}..."
             )
-
-        # Switch back to RejectPolicy for the rest of the session
-        
 
         return True
 

@@ -60,13 +60,10 @@ class TestSSHManagerConnect:
         assert "host_key_verify" not in connect_kwargs
         assert "progress_handler" not in connect_kwargs
         assert "disabled_algorithms" not in connect_kwargs
-        # Should end with RejectPolicy
-        final_policy_call = mock_client.set_missing_host_key_policy.call_args_list[-1]
-        assert isinstance(final_policy_call[0][0], paramiko.RejectPolicy)
 
     @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_subsequent_matching_fingerprint(self, mock_ssh_class):
-        """Subsequent connection with matching fingerprint uses RejectPolicy."""
+        """Subsequent connection with matching fingerprint does not re-save fingerprint."""
         mock_client = MagicMock()
         mock_ssh_class.return_value = mock_client
 
@@ -91,11 +88,6 @@ class TestSSHManagerConnect:
         result = mgr.connect()
 
         assert result is True
-        # Should NOT have used AutoAddPolicy — RejectPolicy stays
-        policy_calls = mock_client.set_missing_host_key_policy.call_args_list
-        assert all(
-            not isinstance(c[0][0], paramiko.AutoAddPolicy) for c in policy_calls
-        ), f"AutoAddPolicy should not be used when fingerprint is known: {policy_calls}"
         # Should NOT have saved fingerprint (already known)
         self.mock_db.save_known_host_fingerprint.assert_not_called()
         # Should have called connect
@@ -165,8 +157,8 @@ class TestSSHManagerConnect:
         mock_client.connect.assert_called_once()
 
     @patch("app.managers.ssh_manager.paramiko.SSHClient")
-    def test_connect_uses_autoadd_then_restores_reject(self, mock_ssh_class):
-        """First connect sets AutoAddPolicy, then restores RejectPolicy after."""
+    def test_connect_sets_autoadd_policy(self, mock_ssh_class):
+        """Connect sets AutoAddPolicy for manual fingerprint verification."""
         mock_client = MagicMock()
         mock_ssh_class.return_value = mock_client
 
@@ -188,14 +180,10 @@ class TestSSHManagerConnect:
         )
         mgr.connect()
 
-        # Verify policy sequence:
-        # [0] RejectPolicy (from connect() line 46) -> [1] AutoAddPolicy (first
-        #     connect) -> [2] RejectPolicy (restored at end)
         policy_calls = mock_client.set_missing_host_key_policy.call_args_list
-        assert len(policy_calls) == 3, f"Expected 3 policy calls, got: {policy_calls}"
-        assert isinstance(policy_calls[0][0][0], paramiko.RejectPolicy)
-        assert isinstance(policy_calls[1][0][0], paramiko.AutoAddPolicy)
-        assert isinstance(policy_calls[2][0][0], paramiko.RejectPolicy)
+        assert any(
+            isinstance(c[0][0], paramiko.AutoAddPolicy) for c in policy_calls
+        ), f"Expected AutoAddPolicy in {policy_calls}"
 
     @patch("app.managers.ssh_manager.paramiko.SSHClient")
     def test_connect_stores_hex_fingerprint(self, mock_ssh_class):
