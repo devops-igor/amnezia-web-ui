@@ -355,10 +355,39 @@ class TestAddClient:
         assert result["client_id"].startswith("user_")
         assert len(result["client_id"]) <= 32
 
+    def test_add_client_parses_link_directly_from_secret_add(self, manager, mock_ssh):
+        """When secret add output contains a tg:// link, it parses it directly without calling secret link."""
+        mock_ssh.run_command.return_value = (
+            "Secret added: direct_user\ntg://proxy?server=1.2.3.4&port=18443&secret=ee1616\n",
+            "",
+            0,
+        )
+        result = manager.add_client("telemt", "direct_user", "1.2.3.4", "18443")
+        assert result["client_id"] == "direct_user"
+        assert result["config"] == "tg://proxy?server=1.2.3.4&port=18443&secret=ee1616"
+        assert result["vpn_link"] == "tg://proxy?server=1.2.3.4&port=18443&secret=ee1616"
+        # Only secret add was executed (no secret link call needed)
+        assert mock_ssh.run_command.call_count == 1
+        assert "secret add direct_user" in mock_ssh.run_command.call_args[0][0]
+
     def test_add_client_failure(self, manager, mock_ssh):
         mock_ssh.run_command.return_value = ("", "error: invalid name", 1)
         result = manager.add_client("telemt", "baduser")
         assert result["client_id"] == ""
+        assert "error" in result
+
+    def test_add_client_fails_when_no_link_obtained(self, manager, mock_ssh):
+        """When neither secret add nor secret link outputs a tg:// link, returns an error."""
+        mock_ssh.run_command.side_effect = [
+            # secret add without tg://
+            ("Secret added: no_link_user", "", 0),
+            # secret link without tg://
+            ("No link available", "", 0),
+        ]
+        result = manager.add_client("telemt", "no_link_user", "1.2.3.4", "18443")
+        assert result["client_id"] == ""
+        assert result["config"] == ""
+        assert result["vpn_link"] == ""
         assert "error" in result
 
 
@@ -459,15 +488,29 @@ class TestGetClientConfig:
         link = manager.get_client_config("telemt", "testuser", "64.112.127.200", "18443")
         assert link == "tg://proxy?server=64.112.127.200&port=18443&secret=eeee1616"
 
+    def test_returns_tg_link_inline(self, manager, mock_ssh):
+        mock_ssh.run_command.return_value = (
+            "Ссылка: tg://proxy?server=64.112.127.200&port=18443&secret=eeee1616\n",
+            "",
+            0,
+        )
+        link = manager.get_client_config("telemt", "testuser", "64.112.127.200", "18443")
+        assert link == "tg://proxy?server=64.112.127.200&port=18443&secret=eeee1616"
+
     def test_not_found(self, manager, mock_ssh):
         mock_ssh.run_command.return_value = ("No such client", "", 0)
         link = manager.get_client_config("telemt", "ghost", "", "")
-        assert link == "Not found"
+        assert link == ""
 
     def test_empty_output(self, manager, mock_ssh):
         mock_ssh.run_command.return_value = ("", "", 0)
         link = manager.get_client_config("telemt", "test", "", "")
-        assert link == "Not found"
+        assert link == ""
+
+    def test_command_failed(self, manager, mock_ssh):
+        mock_ssh.run_command.return_value = ("", "error", 1)
+        link = manager.get_client_config("telemt", "test", "", "")
+        assert link == ""
 
 
 # ---------------------------------------------------------------------------

@@ -703,3 +703,230 @@ class TestApiDeleteConnection:
             "/api/my/connections/conn-1/delete",
         )
         assert response.status_code in (401, 403)
+
+
+class TestApiServerAddConnectionProtocolKwargs:
+    """Tests that /api/servers/{server_id}/connections/add passes correct kwargs per protocol."""
+
+    def setup_method(self):
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
+
+        self.db.create_server(
+            {
+                "name": "Multi-proto Server",
+                "host": "srv.example.com",
+                "protocols": {
+                    "awg": {
+                        "installed": True,
+                        "port": "55424",
+                        "awg_params": {"junk_packet_count": "5"},
+                    },
+                    "xray": {"installed": True, "port": "443"},
+                    "telemt": {"installed": True, "port": "18443"},
+                },
+            }
+        )
+        self.server_id = self.db.get_all_servers()[0]["id"]
+        self.client = create_csrf_client()
+
+    def teardown_method(self):
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_xray_add_connection_does_not_pass_awg_kwargs(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Non-AWG protocols like Xray must receive only positional arguments without AWG kwargs."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.add_client.return_value = {
+            "client_id": "xray-client-123",
+            "config": "vless://xray-client-123@srv.example.com:443",
+        }
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/add",
+                json={"protocol": "xray", "name": "XrayUser"},
+            )
+            assert response.status_code == 200
+            # Ensure add_client was called with exactly 4 positional args and NO extra kwargs
+            mock_manager.add_client.assert_called_once_with(
+                "xray", "XrayUser", "srv.example.com", "443"
+            )
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_awg_add_connection_passes_awg_kwargs(self, mock_get_pm, mock_get_ssh, mock_get_db):
+        """AWG protocol passes AWG-specific kwargs (stored_awg_params, speed limits, mimicry)."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.add_client.return_value = {
+            "client_id": "awg-client-123",
+            "config": "[Interface]\nPrivateKey=...",
+        }
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/add",
+                json={
+                    "protocol": "awg",
+                    "name": "AwgUser",
+                    "awg_mimicry": "tls",
+                    "awg_speed_limit_down": 25,
+                },
+            )
+            assert response.status_code == 200
+            server_protocols = self.db.get_server_by_id(self.server_id).get("protocols", {})
+            mock_manager.add_client.assert_called_once_with(
+                "awg",
+                "AwgUser",
+                "srv.example.com",
+                "55424",
+                stored_awg_params={"junk_packet_count": "5"},
+                speed_limit_down=25,
+                speed_limit_up=None,
+                server_protocols=server_protocols,
+                awg_mimicry="tls",
+            )
+        finally:
+            app.app.dependency_overrides.clear()
+
+
+class TestApiServerInstallPortStorage:
+    """Tests for storing shifted ports in /api/servers/{server_id}/install."""
+
+    def setup_method(self):
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
+
+        self.db.create_server(
+            {
+                "name": "Test Server",
+                "host": "srv.example.com",
+                "protocols": {},
+            }
+        )
+        self.server_id = self.db.get_all_servers()[0]["id"]
+        self.client = create_csrf_client()
+
+    def teardown_method(self):
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_install_stores_shifted_port(self, mock_get_pm, mock_get_ssh, mock_get_db):
+        """When install_protocol returns a shifted port (e.g. 18443), that port must be stored in DB."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        # Simulate MTProxyL shifting port 443 -> 18443
+        mock_manager.install_protocol.return_value = {
+            "status": "success",
+            "host": "",
+            "port": "18443",
+            "log": ["BunkerWeb detected on port 443 — using port 18443"],
+        }
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/install",
+                json={"protocol": "telemt", "port": "443"},
+            )
+            assert response.status_code == 200
+
+            # Verify server in DB has stored the shifted port 18443
+            server = self.db.get_server_by_id(self.server_id)
+            telemt_proto = server["protocols"]["telemt"]
+            assert telemt_proto["installed"] is True
+            assert telemt_proto["port"] == "18443"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_install_stores_requested_port_when_not_shifted(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """When install_protocol returns the requested port, that port is stored."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.install_protocol.return_value = {
+            "status": "success",
+            "protocol": "awg",
+            "port": "55424",
+            "awg_params": {},
+        }
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/install",
+                json={"protocol": "awg", "port": "55424"},
+            )
+            assert response.status_code == 200
+
+            server = self.db.get_server_by_id(self.server_id)
+            awg_proto = server["protocols"]["awg"]
+            assert awg_proto["installed"] is True
+            assert awg_proto["port"] == "55424"
+        finally:
+            app.app.dependency_overrides.clear()
