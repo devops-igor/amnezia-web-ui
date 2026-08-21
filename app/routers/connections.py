@@ -162,26 +162,17 @@ async def api_my_add_connection(
         manager = get_protocol_manager(ssh, normalized_proto)
 
         # Create client on remote server
+        kwargs = {}
         if normalized_proto == "telemt":
-            result = await asyncio.to_thread(
-                manager.add_client,
-                normalized_proto,
-                req.name,
-                server["host"],
-                port,
-                telemt_quota=req.telemt_quota,
-                telemt_max_ips=req.telemt_max_ips,
-                telemt_expiry=req.telemt_expiry,
-            )
-        else:
-            result = await asyncio.to_thread(
-                manager.add_client,
-                normalized_proto,
-                req.name,
-                server["host"],
-                port,
-                awg_mimicry=req.awg_mimicry,
-            )
+            kwargs["telemt_quota"] = req.telemt_quota
+            kwargs["telemt_max_ips"] = req.telemt_max_ips
+            kwargs["telemt_expiry"] = req.telemt_expiry
+        elif normalized_proto == "awg":
+            kwargs["awg_mimicry"] = req.awg_mimicry
+
+        result = await asyncio.to_thread(
+            manager.add_client, normalized_proto, req.name, server["host"], port, **kwargs
+        )
 
         if result.get("client_id"):
             new_conn = {
