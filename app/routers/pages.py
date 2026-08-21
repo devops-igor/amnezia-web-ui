@@ -56,7 +56,19 @@ async def server_detail(request: Request, server_id: int, user: dict = Depends(g
     if server is None:
         return RedirectResponse(url="/")
     users_list = db.get_all_users()
-    return tpl(request, "server.html", server=server, server_id=server_id, users=users_list)
+    from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+    reachability = BackgroundTaskOrchestrator.get_cached_server_reachability()
+    server_reach = reachability.get(server_id) or reachability.get(str(server_id))
+    return tpl(
+        request,
+        "server.html",
+        server=server,
+        server_id=server_id,
+        users=users_list,
+        server_reachability=reachability,
+        reachability=server_reach,
+    )
 
 
 @router.get("/users", response_class=HTMLResponse)

@@ -50,6 +50,26 @@
                     <span title="{{ sinfo.last_checked }}">⏱ {{ sinfo.last_checked[11:19] }}</span>
                     {% endif %}
                 </div>
+                {% if sinfo and sinfo.auto_trials %}
+                <div class="flex items-center gap-xs" style="margin-top: 0.4rem; padding-top: 0.35rem; border-top: 1px solid var(--color-border, rgba(255,255,255,0.06)); flex-wrap: wrap;" title="AWG Mimicry Network Health">
+                    {% for proto_name in ['tls', 'quic', 'dns', 'sip'] %}
+                        {% set trial = sinfo.auto_trials.get(proto_name) %}
+                        {% if trial and trial.reachable %}
+                        <span class="badge badge-success" style="font-size: 0.65rem; padding: 1px 5px;" title="{{ proto_name | upper }}: {{ _('reachable') }}{% if trial.latency_ms %} ({{ trial.latency_ms }}ms){% endif %}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% elif trial and not trial.reachable %}
+                        <span class="badge badge-danger" style="font-size: 0.65rem; padding: 1px 5px;" title="{{ proto_name | upper }}: {{ _('unreachable') }}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% else %}
+                        <span class="badge badge-warn" style="font-size: 0.65rem; padding: 1px 5px; opacity: 0.7;" title="{{ proto_name | upper }}: {{ _('pending') if _('pending') != 'pending' else 'Pending' }}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -59,6 +79,7 @@
     {% if servers %}
     <div class="server-grid" id="serverGrid">
         {% for server in servers %}
+        {% set sinfo = (server_reachability.get(server.id) if server_reachability else (server_reachability.get(server.id|string) if server_reachability else None)) %}
         <div class="card card-hover server-card" id="server-{{ server.id }}">
             <div class="server-meta">
                 <div class="server-icon">🖥</div>
@@ -86,6 +107,23 @@
                 </span>
                 {% endif %}
             </div>
+
+            {% if sinfo and sinfo.auto_trials %}
+            <div class="flex items-center gap-xs" style="margin-bottom: var(--space-sm); flex-wrap: wrap;" title="AWG Mimicry Network Health">
+                {% for proto_name in ['tls', 'quic', 'dns', 'sip'] %}
+                    {% set trial = sinfo.auto_trials.get(proto_name) %}
+                    {% if trial and trial.reachable %}
+                    <span class="badge badge-success" style="font-size: 0.65rem; padding: 1px 5px;" title="{{ proto_name | upper }}: {{ _('reachable') }}{% if trial.latency_ms %} ({{ trial.latency_ms }}ms){% endif %}">
+                        <span class="badge-dot"></span> {{ proto_name | upper }}
+                    </span>
+                    {% elif trial and not trial.reachable %}
+                    <span class="badge badge-danger" style="font-size: 0.65rem; padding: 1px 5px;" title="{{ proto_name | upper }}: {{ _('unreachable') }}">
+                        <span class="badge-dot"></span> {{ proto_name | upper }}
+                    </span>
+                    {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
 
             <div class="server-actions">
                 <a href="/server/{{ server.id }}" class="btn btn-secondary btn-sm" style="flex:1">
