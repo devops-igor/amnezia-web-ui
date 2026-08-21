@@ -436,3 +436,105 @@ class TestAWGHandshakeLive:
 
         assert len(trials) == 4
         assert sleep_calls == [0.5, 0.5, 0.5, 0.5]
+
+    def test_jc_cap_above_10(self, monkeypatch):
+        """Jc values above 10 (e.g. pro profile Jc=16) must not be capped at 10."""
+        sent_packets = []
+
+        class MockSocket:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendto(self, data, addr):
+                sent_packets.append(data)
+
+            def recvfrom(self, bufsize):
+                raise socket.timeout()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(socket, "socket", MockSocket)
+
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        params = {
+            "junk_packet_count": "16",
+            "junk_packet_min_size": "10",
+            "junk_packet_max_size": "30",
+        }
+
+        res = perform_awg_handshake(
+            host="127.0.0.1",
+            port=51820,
+            server_public_key=s_pub_b64,
+            awg_params=params,
+            mimicry_profile=None,
+            timeout=0.1,
+        )
+
+        assert res["reachable"] is False
+        # 16 junk packets + 1 handshake initiation = 17 packets (no cap at 10)
+        assert len(sent_packets) == 17
+
+
+class TestAutoTrialEndpoint:
+    """Verify the on-demand auto-trial API passes client_private_key to run_auto_trial_profiles."""
+
+    @pytest.mark.asyncio
+    async def test_api_provision_auto_trial_passes_client_private_key(self, monkeypatch):
+        from app.models.schemas import AutoTrialRequest
+        from app.routers import servers as servers_router
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        captured = {}
+
+        async def mock_run_auto_trial_profiles(*args, **kwargs):
+            captured.update(kwargs)
+            return {"tls": {"reachable": True}}
+
+        class _MockDB:
+            def get_server_by_id(self, sid):
+                return {
+                    "id": sid,
+                    "host": "10.0.0.1",
+                    "protocols": {
+                        "awg": {
+                            "installed": True,
+                            "port": "55424",
+                            "public_key": "srvpubb64",
+                            "psk": "pskb64",
+                            "awg_params": {"junk_packet_count": "3"},
+                        }
+                    },
+                }
+
+        monkeypatch.setattr(servers_router, "get_db", lambda: _MockDB())
+        monkeypatch.setattr(
+            "app.managers.awg_health.run_auto_trial_profiles", mock_run_auto_trial_profiles
+        )
+        monkeypatch.setattr(
+            BackgroundTaskOrchestrator,
+            "_health_probe_keys",
+            {1: {"client_priv": "probe_priv_b64", "server_pub": "srvpubb64", "psk": "pskb64"}},
+        )
+
+        def _fail_get_ssh(server):
+            raise AssertionError("get_ssh must not be called: all keys should come from cache")
+
+        monkeypatch.setattr(servers_router, "get_ssh", _fail_get_ssh)
+
+        req = AutoTrialRequest(protocol="awg")
+        resp = await servers_router.api_provision_auto_trial(None, 1, req, user={"role": "admin"})
+
+        assert resp["status"] == "success"
+        assert captured.get("client_private_key") == "probe_priv_b64"
+        assert captured.get("server_public_key") == "srvpubb64"
+        assert captured.get("psk") == "pskb64"
