@@ -264,6 +264,23 @@ class TestEditConnectionRequest:
         req = EditConnectionRequest()
         assert req.protocol == "telemt"
         assert req.client_id == ""
+        assert req.user_id is None
+        assert req.name is None
+
+    def test_user_id_and_name_fields(self):
+        req = EditConnectionRequest(
+            protocol="telemt", client_id="abc", user_id="user-123", name="My Conn"
+        )
+        assert req.user_id == "user-123"
+        assert req.name == "My Conn"
+
+    def test_user_id_too_long(self):
+        with pytest.raises(ValidationError):
+            EditConnectionRequest(user_id="a" * 101)
+
+    def test_name_too_long(self):
+        with pytest.raises(ValidationError):
+            EditConnectionRequest(name="a" * 256)
 
 
 # ======================== ConnectionActionRequest ========================

@@ -981,6 +981,30 @@ async def api_edit_connection(
             manager.edit_client, req.protocol, req.client_id, edit_params
         )
         await asyncio.to_thread(ssh.disconnect)
+
+        if req.user_id is not None:
+            conns = db.get_connections_by_server_and_protocol(server_id, req.protocol)
+            conn = next((c for c in conns if c.get("client_id") == req.client_id), None)
+            if req.user_id:
+                if conn:
+                    db.update_connection(
+                        conn["id"],
+                        {"user_id": req.user_id, "name": req.name or conn.get("name")},
+                    )
+                else:
+                    new_conn = {
+                        "id": str(uuid.uuid4()),
+                        "user_id": req.user_id,
+                        "server_id": server_id,
+                        "protocol": req.protocol,
+                        "client_id": req.client_id,
+                        "name": req.name or req.client_id,
+                        "created_at": datetime.now().isoformat(),
+                    }
+                    db.create_connection(new_conn)
+            elif conn:
+                db.delete_connection(conn["id"])
+
         return result
     except Exception as e:
         logger.exception("Error editing connection")

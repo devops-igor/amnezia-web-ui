@@ -230,6 +230,8 @@ class AddConnectionRequest(BaseModel):
 class EditConnectionRequest(BaseModel):
     protocol: str = Field(default="telemt", min_length=1, max_length=50)
     client_id: str = Field(default="", min_length=0, max_length=255)
+    name: Optional[str] = Field(default=None, max_length=255)
+    user_id: Optional[str] = Field(default=None, max_length=100)
     telemt_quota: Optional[str] = Field(default=None, max_length=50)
     telemt_max_ips: Optional[int] = Field(default=None, ge=1, le=1000000)
     telemt_expiry: Optional[str] = Field(default=None, max_length=50)
