@@ -39,6 +39,53 @@
         <div class="divider"></div>
         <div class="flex gap-md" style="flex-wrap:wrap" id="statusBadges"></div>
     </div>
+    <!-- Network Health Widget -->
+    <div id="networkHealthWidget" class="mt-md" style="padding-top: var(--space-sm); border-top: 1px solid var(--border-color, rgba(255,255,255,0.08));">
+        <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: var(--space-sm);">
+            <div class="flex items-center gap-sm">
+                <span style="font-size: 1rem;">📡</span>
+                <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted, #94a3b8);">{{ _('server_status') }}:</span>
+                <span id="reachabilityOverallBadge">
+                    {% if reachability and reachability.reachable %}
+                    <span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ reachability.latency_ms }}ms
+                    </span>
+                    {% elif reachability and not reachability.reachable %}
+                    <span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ _('unreachable') }}
+                    </span>
+                    {% else %}
+                    <span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;">
+                        <span class="badge-dot"></span> {{ _('pending') if _('pending') != 'pending' else 'Pending' }}
+                    </span>
+                    {% endif %}
+                </span>
+                <span id="reachabilityLastChecked" style="font-size: 0.75rem; color: var(--text-muted, #94a3b8); margin-left: 4px;">
+                    {% if reachability and reachability.last_checked %}⏱ {{ reachability.last_checked[11:19] }}{% endif %}
+                </span>
+            </div>
+            <div class="flex items-center gap-xs" id="mimicryHealthBadges" style="flex-wrap: wrap;" title="AWG Mimicry Profiles">
+                {% if reachability and reachability.auto_trials %}
+                    {% for proto_name in ['tls', 'quic', 'dns', 'sip'] %}
+                        {% set trial = reachability.auto_trials.get(proto_name) %}
+                        {% if trial and trial.reachable %}
+                        <span class="badge badge-success" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ proto_name | upper }}: {{ _('reachable') }}{% if trial.latency_ms %} ({{ trial.latency_ms }}ms){% endif %}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% elif trial and not trial.reachable %}
+                        <span class="badge badge-danger" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ proto_name | upper }}: {{ _('unreachable') }}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% else %}
+                        <span class="badge badge-warn" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px; opacity: 0.7;" title="{{ proto_name | upper }}: {{ _('pending') if _('pending') != 'pending' else 'Pending' }}">
+                            <span class="badge-dot"></span> {{ proto_name | upper }}
+                        </span>
+                        {% endif %}
+                    {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- Protocol Installation Section -->
@@ -74,6 +121,7 @@
         <div class="protocol-status" id="awg-status">
             <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
         </div>
+        <div id="awg-mimicry-health" class="flex gap-xs" style="margin-top: var(--space-xs); flex-wrap: wrap;"></div>
         <div id="awg-info" class="hidden">
             <div class="protocol-info" id="awg-info-grid"></div>
         </div>
@@ -623,6 +671,62 @@
         }
     }
 
+    // ========== Reachability & Network Health ==========
+    async function updateReachability() {
+        try {
+            const data = await apiCall(`/api/servers/${SERVER_ID}/reachability`, 'GET');
+            const reach = data.reachability;
+            const overallBadge = document.getElementById('reachabilityOverallBadge');
+            const mimicryBadges = document.getElementById('mimicryHealthBadges');
+            const awgMimicryBadges = document.getElementById('awg-mimicry-health');
+            const lastCheckedEl = document.getElementById('reachabilityLastChecked');
+
+            if (!overallBadge) return;
+
+            if (!reach) {
+                overallBadge.innerHTML = `<span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('pending') || 'Pending'}</span>`;
+                if (mimicryBadges) mimicryBadges.innerHTML = '';
+                if (awgMimicryBadges) awgMimicryBadges.innerHTML = '';
+                if (lastCheckedEl) lastCheckedEl.textContent = '';
+                return;
+            }
+
+            if (reach.reachable) {
+                const latency = (reach.latency_ms !== null && reach.latency_ms !== undefined) ? `${reach.latency_ms}ms` : (_('reachable') || 'Reachable');
+                overallBadge.innerHTML = `<span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${escapeHtml(latency)}</span>`;
+            } else {
+                overallBadge.innerHTML = `<span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('unreachable') || 'Unreachable'}</span>`;
+            }
+
+            if (lastCheckedEl && reach.last_checked) {
+                const timeStr = reach.last_checked.length >= 19 ? reach.last_checked.substring(11, 19) : reach.last_checked;
+                lastCheckedEl.textContent = `⏱ ${timeStr}`;
+                lastCheckedEl.title = reach.last_checked;
+            }
+
+            if (reach.auto_trials && typeof reach.auto_trials === 'object') {
+                const profiles = ['tls', 'quic', 'dns', 'sip'];
+                let badgesHtml = '';
+                for (const p of profiles) {
+                    const trial = reach.auto_trials[p];
+                    const label = p.toUpperCase();
+                    if (trial && trial.reachable) {
+                        const lat = (trial.latency_ms !== null && trial.latency_ms !== undefined) ? ` (${trial.latency_ms}ms)` : '';
+                        badgesHtml += `<span class="badge badge-success" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('reachable') || 'Reachable'}${escapeHtml(lat)}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                    } else if (trial && !trial.reachable) {
+                        badgesHtml += `<span class="badge badge-danger" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('unreachable') || 'Unreachable'}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                    } else {
+                        badgesHtml += `<span class="badge badge-warn" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px; opacity: 0.7;" title="${escapeHtml(label)}: ${_('pending') || 'Pending'}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                    }
+                }
+                if (mimicryBadges) mimicryBadges.innerHTML = badgesHtml;
+                if (awgMimicryBadges) awgMimicryBadges.innerHTML = badgesHtml;
+            }
+        } catch (err) {
+            console.warn('Reachability update failed:', err);
+        }
+    }
+
     // ========== Server Check ==========
     async function checkServer() {
         const btn = document.getElementById('checkBtn');
@@ -680,6 +784,7 @@
                 }
             }
             updateStatusCounts(data.protocols || {});
+            updateReachability();
             showToast(_('check_done'), 'success');
         } catch (err) {
             showToast(_('error') + ': ' + err.message, 'error');
@@ -1660,5 +1765,7 @@
     checkServer();
     loadServerStats();
     loadAwgSpeedLimitConfig();
+    updateReachability();
+    setInterval(updateReachability, 30000);
 </script>
 {% endblock %}

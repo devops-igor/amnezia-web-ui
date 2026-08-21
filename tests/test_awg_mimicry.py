@@ -392,3 +392,152 @@ class TestMimicryEndpoints:
                 assert "not installed" in resp.json()["error"]
         finally:
             app.dependency_overrides.clear()
+
+    def test_reachability_endpoint_with_auto_trials(self, csrf_client):
+        """Verify reachability endpoint returns auto_trials profile statuses."""
+        from app.main import app
+        from app.core.dependencies import get_current_user
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {"id": 1, "name": "Test Server", "host": "1.2.3.4"}
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+
+        try:
+            with (
+                patch("app.routers.servers.get_db", return_value=mock_db),
+                patch(
+                    "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
+                ) as mock_reach,
+            ):
+                mock_reach.return_value = {
+                    1: {
+                        "reachable": True,
+                        "latency_ms": 15,
+                        "protocol": "awg",
+                        "last_checked": "2026-08-20T12:00:00",
+                        "error": "",
+                        "auto_trials": {
+                            "tls": {"reachable": True, "latency_ms": 14, "profile": "tls"},
+                            "quic": {"reachable": True, "latency_ms": 16, "profile": "quic"},
+                            "dns": {"reachable": True, "latency_ms": 11, "profile": "dns"},
+                            "sip": {"reachable": False, "latency_ms": None, "profile": "sip"},
+                        },
+                    }
+                }
+
+                resp = csrf_client.get("/api/servers/1/reachability")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["status"] == "success"
+                reach = data["reachability"]
+                assert reach["reachable"] is True
+                assert "auto_trials" in reach
+                assert reach["auto_trials"]["tls"]["reachable"] is True
+                assert reach["auto_trials"]["sip"]["reachable"] is False
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_index_page_renders_mimicry_health_widget(self, csrf_client):
+        """Verify dashboard renders mimicry health indicators when auto_trials data exists."""
+        from app.main import app
+        from app.core.dependencies import get_current_user
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_all_servers.return_value = [
+            {
+                "id": 1,
+                "name": "Primary Server",
+                "host": "1.2.3.4",
+                "ssh_port": 22,
+                "protocols": {"awg": {"installed": True}},
+            }
+        ]
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+
+        try:
+            with (
+                patch("app.routers.pages.get_db", return_value=mock_db),
+                patch(
+                    "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
+                ) as mock_reach,
+            ):
+                mock_reach.return_value = {
+                    1: {
+                        "reachable": True,
+                        "latency_ms": 20,
+                        "last_checked": "2026-08-20T12:00:00",
+                        "auto_trials": {
+                            "tls": {"reachable": True, "latency_ms": 18},
+                            "quic": {"reachable": True, "latency_ms": 22},
+                            "dns": {"reachable": True, "latency_ms": 15},
+                            "sip": {"reachable": False, "latency_ms": None},
+                        },
+                    }
+                }
+
+                resp = csrf_client.get("/")
+                assert resp.status_code == 200
+                content = resp.text
+                assert "AWG Mimicry Network Health" in content
+                assert "TLS" in content
+                assert "QUIC" in content
+                assert "DNS" in content
+                assert "SIP" in content
+                assert "badge-success" in content
+                assert "badge-danger" in content
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_server_detail_page_renders_reachability_widget(self, csrf_client):
+        """Verify server detail page renders reachability and auto_trials widget with polling JS."""
+        from app.main import app
+        from app.core.dependencies import get_current_user
+
+        admin_user = {"id": "admin-1", "username": "admin", "role": "admin", "enabled": True}
+        mock_db = MagicMock()
+        mock_db.get_server_by_id.return_value = {
+            "id": 1,
+            "name": "Primary Server",
+            "host": "1.2.3.4",
+            "ssh_port": 22,
+            "username": "root",
+            "protocols": {"awg": {"installed": True, "container_running": True}},
+        }
+        mock_db.get_all_users.return_value = []
+        app.dependency_overrides[get_current_user] = lambda: admin_user
+
+        try:
+            with (
+                patch("app.routers.pages.get_db", return_value=mock_db),
+                patch(
+                    "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
+                ) as mock_reach,
+            ):
+                mock_reach.return_value = {
+                    1: {
+                        "reachable": True,
+                        "latency_ms": 25,
+                        "last_checked": "2026-08-20T12:00:00",
+                        "auto_trials": {
+                            "tls": {"reachable": True, "latency_ms": 20},
+                            "quic": {"reachable": True, "latency_ms": 25},
+                            "dns": {"reachable": True, "latency_ms": 18},
+                            "sip": {"reachable": False, "latency_ms": None},
+                        },
+                    }
+                }
+
+                resp = csrf_client.get("/server/1")
+                assert resp.status_code == 200
+                content = resp.text
+                assert "networkHealthWidget" in content
+                assert "reachabilityOverallBadge" in content
+                assert "mimicryHealthBadges" in content
+                assert "updateReachability" in content
+                assert "mimicry-badge-tls" in content
+                assert "mimicry-badge-sip" in content
+                assert "awg-mimicry-health" in content
+        finally:
+            app.dependency_overrides.clear()
