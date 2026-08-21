@@ -388,7 +388,9 @@ def perform_awg_handshake(
         jmin = int(params.get("junk_packet_min_size") or params.get("jmin") or 10)
         jmax = int(params.get("junk_packet_max_size") or params.get("jmax") or 30)
         if jc > 0 and jmax >= jmin > 0:
-            for _ in range(min(jc, 10)):
+            valid_mimicry_count = sum(1 for p in preambles if jmin <= len(p) <= jmax)
+            jc_to_add = max(0, jc - valid_mimicry_count)
+            for _ in range(min(jc_to_add, 10)):
                 pkt_len = secrets.randbelow(jmax - jmin + 1) + jmin
                 preambles.append(secrets.token_bytes(pkt_len))
     except (ValueError, TypeError):
