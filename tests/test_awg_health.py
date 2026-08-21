@@ -315,3 +315,124 @@ class TestAWGHandshakeLive:
             assert trials[proto]["reachable"] is True
             assert trials[proto]["handshake_complete"] is True
             assert trials[proto]["profile"] == proto
+
+    def test_perform_awg_handshake_sends_cps_and_jc_packets(self, monkeypatch):
+        sent_packets = []
+
+        class MockSocket:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendto(self, data, addr):
+                sent_packets.append(data)
+
+            def recvfrom(self, bufsize):
+                raise socket.timeout()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(socket, "socket", MockSocket)
+
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        params = {
+            "junk_packet_count": "3",
+            "junk_packet_min_size": "10",
+            "junk_packet_max_size": "20",
+        }
+
+        # With mimicry profile "tls" (generates 1 CPS packet) + 3 junk packets + 1 handshake initiation = 5 packets
+        res = perform_awg_handshake(
+            host="127.0.0.1",
+            port=51820,
+            server_public_key=s_pub_b64,
+            awg_params=params,
+            mimicry_profile="tls",
+            timeout=0.1,
+        )
+
+        assert res["reachable"] is False
+        assert len(sent_packets) == 5  # 1 CPS (TLS ClientHello) + 3 Jc junk + 1 initiation packet
+
+    def test_perform_awg_handshake_jc_without_mimicry(self, monkeypatch):
+        sent_packets = []
+
+        class MockSocket:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def settimeout(self, timeout):
+                pass
+
+            def sendto(self, data, addr):
+                sent_packets.append(data)
+
+            def recvfrom(self, bufsize):
+                raise socket.timeout()
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(socket, "socket", MockSocket)
+
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        params = {
+            "junk_packet_count": "4",
+            "junk_packet_min_size": "10",
+            "junk_packet_max_size": "20",
+        }
+
+        res = perform_awg_handshake(
+            host="127.0.0.1",
+            port=51820,
+            server_public_key=s_pub_b64,
+            awg_params=params,
+            mimicry_profile=None,
+            timeout=0.1,
+        )
+
+        assert res["reachable"] is False
+        assert len(sent_packets) == 5  # 4 Jc junk + 1 initiation packet
+
+    @pytest.mark.asyncio
+    async def test_run_auto_trial_profiles_delay(self, monkeypatch):
+        sleep_calls = []
+
+        async def mock_sleep(delay):
+            sleep_calls.append(delay)
+
+        async def mock_check(*args, **kwargs):
+            return {
+                "reachable": True,
+                "latency_ms": 5,
+                "protocol": "awg",
+                "handshake_complete": True,
+                "profile": kwargs.get("mimicry_profile"),
+                "last_checked": "2026-08-21T00:00:00",
+                "error": "",
+            }
+
+        monkeypatch.setattr("asyncio.sleep", mock_sleep)
+        monkeypatch.setattr("app.managers.awg_health.check_awg_reachability", mock_check)
+
+        trials = await run_auto_trial_profiles(
+            host="127.0.0.1",
+            port=51820,
+            server_public_key="dGVzdA==",
+        )
+
+        assert len(trials) == 4
+        assert sleep_calls == [0.5, 0.5, 0.5, 0.5]

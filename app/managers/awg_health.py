@@ -383,17 +383,16 @@ def perform_awg_handshake(
                     preambles.append(raw_blob)
 
     # Check junk packet count (Jc)
-    if not preambles:
-        try:
-            jc = int(params.get("junk_packet_count") or 0)
-            jmin = int(params.get("junk_packet_min_size") or 10)
-            jmax = int(params.get("junk_packet_max_size") or 30)
-            if jc > 0 and jmax >= jmin > 0:
-                for _ in range(min(jc, 10)):
-                    pkt_len = secrets.randbelow(jmax - jmin + 1) + jmin
-                    preambles.append(secrets.token_bytes(pkt_len))
-        except (ValueError, TypeError):
-            pass
+    try:
+        jc = int(params.get("junk_packet_count") or params.get("jc") or 0)
+        jmin = int(params.get("junk_packet_min_size") or params.get("jmin") or 10)
+        jmax = int(params.get("junk_packet_max_size") or params.get("jmax") or 30)
+        if jc > 0 and jmax >= jmin > 0:
+            for _ in range(min(jc, 10)):
+                pkt_len = secrets.randbelow(jmax - jmin + 1) + jmin
+                preambles.append(secrets.token_bytes(pkt_len))
+    except (ValueError, TypeError):
+        pass
 
     t0 = time.time()
     try:
@@ -517,5 +516,6 @@ async def run_auto_trial_profiles(
             timeout=timeout,
         )
         results[proto] = res
+        await asyncio.sleep(0.5)
 
     return results
