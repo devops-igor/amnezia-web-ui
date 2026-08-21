@@ -1173,6 +1173,8 @@
             window.connectionsStore = {};
             data.clients.forEach((client, idx) => {
                 const userData = client.userData || {};
+                userData.assigned_user_id = client.assigned_user_id || '';
+                userData.clientId = client.clientId || '';
                 window.connectionsStore[client.clientId] = userData;
                 const name = userData.clientName || `Connection ${idx}`;
                 const created = userData.creationDate || '';
@@ -1322,6 +1324,9 @@
             const params = {
                 protocol: proto, name: connName, user_id: userId,
             };
+            if (isEditingConn) {
+                params.client_id = editingClientId;
+            }
             // AWG speed limits & mimicry profile
             if (proto === 'awg') {
                 const downVal = document.getElementById('awgSpeedLimitDown').value;
@@ -1337,7 +1342,6 @@
                 params.telemt_quota = document.getElementById('telemtQuota').value || null;
                 params.telemt_max_ips = parseInt(document.getElementById('telemtMaxIps').value) || null;
                 params.telemt_expiry = document.getElementById('telemtExpiry').value || null;
-                params.client_id = editingClientId;
             }
             const result = await apiCall(isEditingConn ? `/api/servers/${SERVER_ID}/connections/edit` : `/api/servers/${SERVER_ID}/connections/add`, 'POST', params);
             if (isEditingConn) {
@@ -1391,6 +1395,7 @@
         document.getElementById('addConnectionModalTitle').textContent = isEdit ? _('edit_connection') : _('add_connection');
         document.getElementById('addConnBtnText').textContent = isEdit ? _('save') : _('create');
         document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
+        document.getElementById('connectionUserId').value = (isEdit && clientData && clientData.assigned_user_id) ? clientData.assigned_user_id : '';
 
         // AWG speed limit & mimicry options
         if (proto === 'awg') {
@@ -1406,10 +1411,15 @@
             if (awgMimicryOpts) awgMimicryOpts.style.display = 'none';
         }
 
+        if (isEdit && clientData) {
+            editingClientId = (clientData && (clientData.clientId || clientData.clientName)) || null;
+        } else {
+            editingClientId = null;
+        }
+
         if (proto === 'telemt' && isEdit) {
             telemtOpts.style.display = 'block';
             if (isEdit && clientData) {
-                editingClientId = clientData.clientName;
                 document.getElementById('telemtQuota').value = clientData.quota || '';
                 document.getElementById('telemtMaxIps').value = clientData.active_ips || '';
                 document.getElementById('telemtExpiry').value = clientData.expiry || '';
@@ -1428,6 +1438,7 @@
         const userData = window.connectionsStore[clientId];
         if (userData) {
             userData.clientName = clientId;
+            userData.clientId = clientId;
             openAddConnectionModal(true, userData);
         }
     }

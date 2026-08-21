@@ -930,3 +930,334 @@ class TestApiServerInstallPortStorage:
             assert awg_proto["port"] == "55424"
         finally:
             app.app.dependency_overrides.clear()
+
+
+class TestApiEditConnectionUserReassignment:
+    """Tests for connection user reassignment via /api/servers/{server_id}/connections/edit."""
+
+    def setup_method(self):
+        """Set up test users, server, and test client."""
+        self.tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        self.tmp_db_path = self.tmp_db.name
+        self.tmp_db.close()
+        self.db = Database(self.tmp_db_path)
+
+        # Create two users
+        self.db.create_user(
+            {
+                "id": "user-a",
+                "username": "user_alpha",
+                "password_hash": "hash_a",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        self.db.create_user(
+            {
+                "id": "user-b",
+                "username": "user_beta",
+                "password_hash": "hash_b",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+
+        # Create server with telemt protocol
+        self.db.create_server(
+            {
+                "name": "Telemt Server",
+                "host": "srv.example.com",
+                "protocols": {
+                    "telemt": {"installed": True, "port": "18443"},
+                },
+            }
+        )
+        self.server_id = self.db.get_all_servers()[0]["id"]
+        self.client = create_csrf_client()
+
+    def teardown_method(self):
+        """Clean up temporary database."""
+        conn = self.db._get_conn()
+        conn.close()
+        os.unlink(self.tmp_db_path)
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_reassign_connection_from_user_a_to_user_b(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Reassigning an existing connection from User A to User B updates user_connections."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        # Seed initial connection for user-a
+        self.db.create_connection(
+            {
+                "id": "conn-telemt-1",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-1",
+                "name": "Initial Telemt Conn",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-1",
+                    "user_id": "user-b",
+                    "name": "Reassigned Telemt Conn",
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+
+            # 1. Verify DB record updated
+            conn = self.db.get_connection_by_id("conn-telemt-1")
+            assert conn is not None
+            assert conn["user_id"] == "user-b"
+            assert conn["name"] == "Reassigned Telemt Conn"
+
+            # 2. Verify User A connections: 0
+            user_a_conns = self.db.get_connections_by_user("user-a")
+            assert len(user_a_conns) == 0
+
+            # 3. Verify User B connections: 1
+            user_b_conns = self.db.get_connections_by_user("user-b")
+            assert len(user_b_conns) == 1
+            assert user_b_conns[0]["client_id"] == "telemt-client-1"
+
+            # 4. Verify admin get_connections returns enriched assigned_user info
+            mock_manager.get_clients.return_value = [
+                {
+                    "clientId": "telemt-client-1",
+                    "userData": {"clientName": "Reassigned Telemt Conn"},
+                }
+            ]
+            get_resp = self.client.get(f"/api/servers/{self.server_id}/connections?protocol=telemt")
+            assert get_resp.status_code == 200
+            clients_data = get_resp.json()["clients"]
+            assert len(clients_data) == 1
+            assert clients_data[0]["assigned_user"] == "user_beta"
+            assert clients_data[0]["assigned_user_id"] == "user-b"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_assign_previously_unassigned_connection(self, mock_get_pm, mock_get_ssh, mock_get_db):
+        """Assigning a previously unassigned connection to a user creates a new record."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-unassigned",
+                    "user_id": "user-a",
+                    "name": "Newly Assigned Proxy",
+                },
+            )
+            assert response.status_code == 200
+
+            # Verify connection was created in database
+            user_a_conns = self.db.get_connections_by_user("user-a")
+            assert len(user_a_conns) == 1
+            assert user_a_conns[0]["client_id"] == "telemt-client-unassigned"
+            assert user_a_conns[0]["name"] == "Newly Assigned Proxy"
+            assert user_a_conns[0]["protocol"] == "telemt"
+            assert user_a_conns[0]["server_id"] == self.server_id
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_unassign_connection_user(self, mock_get_pm, mock_get_ssh, mock_get_db):
+        """Unassigning a connection (setting user_id='') clears the user assignment."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        # Seed connection assigned to user-a
+        self.db.create_connection(
+            {
+                "id": "conn-telemt-unassign",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-3",
+                "name": "To Unassign",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-3",
+                    "user_id": "",
+                },
+            )
+            assert response.status_code == 200
+
+            # DB connection record should be deleted to remove user assignment
+            conn = self.db.get_connection_by_id("conn-telemt-unassign")
+            assert conn is None
+
+            # User A should no longer have connections
+            user_a_conns = self.db.get_connections_by_user("user-a")
+            assert len(user_a_conns) == 0
+
+            # Admin get_connections should not report assigned_user
+            mock_manager.get_clients.return_value = [
+                {
+                    "clientId": "telemt-client-3",
+                    "userData": {"clientName": "To Unassign"},
+                }
+            ]
+            get_resp = self.client.get(f"/api/servers/{self.server_id}/connections?protocol=telemt")
+            assert get_resp.status_code == 200
+            clients_data = get_resp.json()["clients"]
+            assert len(clients_data) == 1
+            assert "assigned_user" not in clients_data[0]
+            assert "assigned_user_id" not in clients_data[0]
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_edit_connection_passes_telemt_limits_and_reassigns(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Telemt limit params are forwarded to manager while user_id is updated."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        self.db.create_connection(
+            {
+                "id": "conn-telemt-limits",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-limits",
+                "name": "Limit Conn",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-limits",
+                    "user_id": "user-b",
+                    "telemt_quota": "1073741824",
+                    "telemt_max_ips": 5,
+                    "telemt_expiry": "2026-12-31T23:59:59Z",
+                },
+            )
+            assert response.status_code == 200
+
+            # Manager edit_client received limits
+            mock_manager.edit_client.assert_called_once_with(
+                "telemt",
+                "telemt-client-limits",
+                {
+                    "telemt_quota": "1073741824",
+                    "telemt_max_ips": 5,
+                    "telemt_expiry": "2026-12-31T23:59:59Z",
+                },
+            )
+
+            # DB connection reassigned to user-b
+            conn = self.db.get_connection_by_id("conn-telemt-limits")
+            assert conn["user_id"] == "user-b"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    def test_edit_connection_server_not_found(self, mock_get_db):
+        """Returns 404 if server_id does not exist."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        try:
+            response = self.client.post(
+                "/api/servers/99999/connections/edit",
+                json={"protocol": "telemt", "client_id": "c1", "user_id": "user-a"},
+            )
+            assert response.status_code == 404
+            assert response.json()["error"] == "Server not found"
+        finally:
+            app.app.dependency_overrides.clear()
