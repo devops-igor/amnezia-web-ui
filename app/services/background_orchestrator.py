@@ -358,6 +358,7 @@ class BackgroundTaskOrchestrator:
             if not host:
                 continue
 
+            preserved_auto_trials = None
             protocols = server.get("protocols", {})
             awg_info = protocols.get("awg", {})
 
@@ -491,6 +492,7 @@ class BackgroundTaskOrchestrator:
                                 "AWG UDP check failed (%s), falling back to SSH probe",
                                 reach_res.get("error"),
                             )
+                            preserved_auto_trials = reach_res.get("auto_trials")
                             # Invalidate cached probe key on failure to re-provision next time if needed
                             BackgroundTaskOrchestrator._health_probe_keys.pop(sid, None)
                     except Exception as err:
@@ -514,6 +516,8 @@ class BackgroundTaskOrchestrator:
                     "last_checked": datetime.now().isoformat(),
                     "error": "",
                 }
+                if preserved_auto_trials is not None:
+                    results[sid]["auto_trials"] = preserved_auto_trials
             except Exception as e:
                 results[sid] = {
                     "reachable": False,
@@ -522,6 +526,8 @@ class BackgroundTaskOrchestrator:
                     "last_checked": datetime.now().isoformat(),
                     "error": str(e),
                 }
+                if preserved_auto_trials is not None:
+                    results[sid]["auto_trials"] = preserved_auto_trials
 
         BackgroundTaskOrchestrator._server_reachability = results
         return results
