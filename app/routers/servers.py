@@ -771,15 +771,93 @@ async def api_provision_auto_trial(
         server_pub = proto_info.get("public_key")
         psk = proto_info.get("psk")
 
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        cached_probe = BackgroundTaskOrchestrator._health_probe_keys.get(server_id, {})
+        client_priv = cached_probe.get("client_priv")
         if not server_pub:
-            ssh = get_ssh(server)
-            await asyncio.to_thread(ssh.connect)
+            server_pub = cached_probe.get("server_pub")
+        if not psk:
+            psk = cached_probe.get("psk")
+
+        # If server_pub or client_priv is missing, fetch/provision a dedicated
+        # Health Probe peer via SSH (same flow as BackgroundTaskOrchestrator).
+        if not server_pub or not client_priv:
+            ssh = None
             try:
+                ssh = get_ssh(server)
+                await asyncio.to_thread(ssh.connect)
                 manager = get_protocol_manager(ssh, "awg")
-                server_pub = await asyncio.to_thread(manager._get_server_public_key, "awg")
-                psk = await asyncio.to_thread(manager._get_server_psk, "awg")
+                if not server_pub:
+                    server_pub = await asyncio.to_thread(manager._get_server_public_key, "awg")
+                if not psk:
+                    psk = await asyncio.to_thread(manager._get_server_psk, "awg")
+
+                if not client_priv:
+                    clients = await asyncio.to_thread(manager.get_clients, "awg")
+                    for cl in clients:
+                        u_data = cl.get("userData", {})
+                        c_name = u_data.get("clientName", "")
+                        if c_name.strip().lower() == "health probe":
+                            priv = u_data.get("clientPrivateKey")
+                            if priv:
+                                client_priv = priv
+                                break
+
+                    if not client_priv:
+                        logger.info(
+                            "Health Probe client not found on server %s; provisioning dedicated peer...",
+                            server_id,
+                        )
+                        new_client = await asyncio.to_thread(
+                            manager.add_client,
+                            "awg",
+                            BackgroundTaskOrchestrator.HEALTH_PROBE_CLIENT_NAME,
+                            server["host"],
+                            port,
+                            stored_awg_params=awg_params,
+                            server_protocols=server.get("protocols", {}),
+                        )
+                        if isinstance(new_client, dict):
+                            conf_str = new_client.get("config", "")
+                            match = re.search(r"PrivateKey\s*=\s*(\S+)", conf_str)
+                            if match:
+                                client_priv = match.group(1).strip()
+                            if not client_priv:
+                                updated_clients = await asyncio.to_thread(
+                                    manager.get_clients, "awg"
+                                )
+                                for cl in updated_clients:
+                                    if (
+                                        cl.get("userData", {}).get("clientName", "").strip().lower()
+                                        == "health probe"
+                                    ):
+                                        client_priv = cl.get("userData", {}).get("clientPrivateKey")
+                                        break
+                        logger.info(
+                            "Provisioned Health Probe peer for server %s (key_found=%s)",
+                            server_id,
+                            bool(client_priv),
+                        )
+
+                if client_priv and server_pub:
+                    BackgroundTaskOrchestrator._health_probe_keys[server_id] = {
+                        "client_priv": client_priv,
+                        "server_pub": server_pub,
+                        "psk": psk or "",
+                    }
+            except Exception as e:
+                logger.debug(
+                    "Could not fetch/provision AWG health probe via SSH for server %s: %s",
+                    server_id,
+                    e,
+                )
             finally:
-                await asyncio.to_thread(ssh.disconnect)
+                if ssh:
+                    try:
+                        await asyncio.to_thread(ssh.disconnect)
+                    except Exception:
+                        pass
 
         from app.managers.awg_health import run_auto_trial_profiles
 
@@ -787,6 +865,7 @@ async def api_provision_auto_trial(
             host=server["host"],
             port=port,
             server_public_key=server_pub,
+            client_private_key=client_priv,
             psk=psk,
             awg_params=awg_params,
             timeout=2.5,

@@ -390,13 +390,31 @@ def perform_awg_handshake(
         if jc > 0 and jmax >= jmin > 0:
             valid_mimicry_count = sum(1 for p in preambles if jmin <= len(p) <= jmax)
             jc_to_add = max(0, jc - valid_mimicry_count)
-            for _ in range(min(jc_to_add, 10)):
+            for _ in range(jc_to_add):
                 pkt_len = secrets.randbelow(jmax - jmin + 1) + jmin
                 preambles.append(secrets.token_bytes(pkt_len))
+            logger.debug(
+                "AWG junk packets: Jc=%s Jmin=%s Jmax=%s valid_mimicry=%s added=%s",
+                jc,
+                jmin,
+                jmax,
+                valid_mimicry_count,
+                jc_to_add,
+            )
     except (ValueError, TypeError):
         pass
 
     t0 = time.time()
+    logger.debug(
+        "AWG handshake start host=%s port=%s profile=%s client_key_provided=%s "
+        "preamble_count=%s preamble_sizes=%s",
+        host,
+        port,
+        mimicry_profile or "default",
+        bool(client_private_key),
+        len(preambles),
+        [len(p) for p in preambles],
+    )
     try:
         init_packet, state = build_awg_initiation_packet(
             server_public_key=server_public_key,
@@ -433,6 +451,12 @@ def perform_awg_handshake(
                 "error": "",
             }
         else:
+            logger.debug(
+                "AWG handshake failed for %s:%s profile=%s: response verification failed",
+                host,
+                port,
+                mimicry_profile or "default",
+            )
             return {
                 "reachable": False,
                 "latency_ms": latency,
@@ -443,6 +467,16 @@ def perform_awg_handshake(
                 "error": "Handshake response verification failed",
             }
     except socket.timeout:
+        logger.debug(
+            "AWG handshake timed out for %s:%s profile=%s after %.1fs "
+            "(client_key_provided=%s, preamble_count=%s)",
+            host,
+            port,
+            mimicry_profile or "default",
+            timeout,
+            bool(client_private_key),
+            len(preambles),
+        )
         return {
             "reachable": False,
             "latency_ms": 0,
@@ -507,6 +541,9 @@ async def run_auto_trial_profiles(
     results: Dict[str, Dict[str, Any]] = {}
 
     for proto in profiles:
+        logger.debug(
+            "Running AWG auto-trial health check for profile=%s host=%s:%s", proto, host, port
+        )
         res = await check_awg_reachability(
             host=host,
             port=port,
