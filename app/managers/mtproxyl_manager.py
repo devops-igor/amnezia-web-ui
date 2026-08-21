@@ -214,8 +214,21 @@ class MTProxyLManager:
             limits_str = self._format_limits(telemt_quota, telemt_max_ips, telemt_expiry)
             self._run_cli(f"secret setlimits {username} {limits_str}")
 
-        # Get the tg:// link
-        link = self.get_client_config(protocol_type, username, host, port)
+        # Parse the tg:// link directly from `secret add` output if present
+        link = ""
+        match = re.search(r"tg://\S+", out)
+        if match:
+            link = match.group(0)
+
+        # Fallback to get_client_config if secret add output did not contain the link
+        if not link:
+            link = self.get_client_config(protocol_type, username, host, port)
+
+        if not link:
+            error_msg = "Failed to retrieve client connection link"
+            logger.error(f"Failed to get link for client {username}: {error_msg}")
+            return {"client_id": "", "config": "", "vpn_link": "", "error": error_msg}
+
         return {"client_id": username, "config": link, "vpn_link": link}
 
     def edit_client(
@@ -270,13 +283,14 @@ class MTProxyLManager:
         port: str = "",
     ) -> str:
         """Get the tg:// connection link for a client via `mtproxyl secret link`."""
-        out, _, _ = self._run_cli(f"secret link {client_id}")
+        out, _, code = self._run_cli(f"secret link {client_id}")
+        if code != 0:
+            return ""
         # Find the tg:// URL in the output
-        for line in out.strip().splitlines():
-            line = line.strip()
-            if line.startswith("tg://"):
-                return line
-        return "Not found"
+        match = re.search(r"tg://\S+", out)
+        if match:
+            return match.group(0)
+        return ""
 
     # -------------------------------------------------------------------------
     # Quota enforcement

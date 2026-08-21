@@ -427,11 +427,16 @@ async def api_install_protocol(
         else:
             result = await asyncio.to_thread(manager.install_protocol, req.protocol, port=req.port)
 
+        installed_port = (
+            str(result["port"])
+            if isinstance(result, dict) and result.get("port")
+            else str(req.port)
+        )
         new_protocols = dict(server.get("protocols", {}))
         new_protocols[req.protocol] = {
             "installed": True,
-            "port": req.port,
-            "awg_params": result.get("awg_params", {}),
+            "port": installed_port,
+            "awg_params": result.get("awg_params", {}) if isinstance(result, dict) else {},
         }
         db.update_server(server["id"], {"protocols": new_protocols})
         await asyncio.to_thread(ssh.disconnect)
@@ -641,7 +646,8 @@ async def api_add_connection(
         await asyncio.to_thread(ssh.connect)
         manager = get_protocol_manager(ssh, req.protocol)
 
-        if req.protocol == "telemt":
+        normalized_proto = normalize_protocol(req.protocol)
+        if normalized_proto == "telemt":
             result = await asyncio.to_thread(
                 manager.add_client,
                 req.protocol,
@@ -652,7 +658,7 @@ async def api_add_connection(
                 telemt_max_ips=req.telemt_max_ips,
                 telemt_expiry=req.telemt_expiry,
             )
-        else:
+        elif normalized_proto == "awg":
             # Pass stored awg_params (contains CLIENT-only I1-I5 and MTU)
             awg_params = proto_info.get("awg_params")
             result = await asyncio.to_thread(
@@ -666,6 +672,14 @@ async def api_add_connection(
                 speed_limit_up=req.awg_speed_limit_up,
                 server_protocols=server.get("protocols", {}),
                 awg_mimicry=req.awg_mimicry,
+            )
+        else:
+            result = await asyncio.to_thread(
+                manager.add_client,
+                req.protocol,
+                req.name,
+                server["host"],
+                port,
             )
         await asyncio.to_thread(ssh.disconnect)
 
