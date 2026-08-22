@@ -129,9 +129,10 @@ class TestAWGProtocolCrypt:
         psk = secrets.token_bytes(32)
         psk_b64 = _b64(psk)
 
+        s1 = 20
         params = {
             "init_packet_magic_header": "12345",
-            "init_packet_junk_size": "20",
+            "init_packet_junk_size": str(s1),
         }
 
         packet, state = build_awg_initiation_packet(
@@ -141,11 +142,22 @@ class TestAWGProtocolCrypt:
             awg_params=params,
         )
 
-        assert len(packet) == 148 + 20
-        msg_type = struct.unpack("<I", packet[:4])[0]
+        # Total wire size: S1 padding + 148-byte message
+        assert len(packet) == s1 + 148
+
+        # Message Type field is at offset S1 (padding is at the FRONT)
+        msg_type = struct.unpack("<I", packet[s1 : s1 + 4])[0]
         assert msg_type == 12345
-        sender_idx = struct.unpack("<I", packet[4:8])[0]
+        sender_idx = struct.unpack("<I", packet[s1 + 4 : s1 + 8])[0]
         assert sender_idx == state.sender_index
+
+        # MAC1 is computed over ONLY the 116-byte message body (Type+Sender+Eph+Static+Ts)
+        msg_body = packet[s1 : s1 + 116]
+        mac1_key = hashlib.blake2s(LABEL_MAC1 + s_pub_bytes).digest()
+        expected_mac1 = hashlib.blake2s(msg_body, digest_size=16, key=mac1_key).digest()
+        assert packet[s1 + 116 : s1 + 132] == expected_mac1
+        # MAC2 is all zeros (no cookie)
+        assert packet[s1 + 132 : s1 + 148] == b"\x00" * 16
 
     def test_build_awg_initiation_packet_with_range(self):
         s_priv = X25519PrivateKey.generate()
@@ -154,9 +166,10 @@ class TestAWGProtocolCrypt:
         )
         s_pub_b64 = _b64(s_pub_bytes)
 
+        s1 = 15
         params = {
             "init_packet_magic_header": "1720813138-1802285026",
-            "init_packet_junk_size": "15",
+            "init_packet_junk_size": str(s1),
         }
 
         for _ in range(20):
@@ -164,9 +177,48 @@ class TestAWGProtocolCrypt:
                 server_public_key=s_pub_b64,
                 awg_params=params,
             )
-            msg_type = struct.unpack("<I", packet[:4])[0]
+            # Type field is at offset S1 (padding at the FRONT)
+            msg_type = struct.unpack("<I", packet[s1 : s1 + 4])[0]
             assert 1720813138 <= msg_type <= 1802285026
-            assert len(packet) == 148 + 15
+            assert len(packet) == s1 + 148
+
+    def test_build_awg_initiation_packet_no_padding(self):
+        """s1=0: no padding, packet is exactly 148 bytes, Type at offset 0."""
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        params = {
+            "init_packet_magic_header": "12345",
+            "init_packet_junk_size": "0",
+        }
+        packet, state = build_awg_initiation_packet(
+            server_public_key=s_pub_b64,
+            awg_params=params,
+        )
+        assert len(packet) == 148
+        msg_type = struct.unpack("<I", packet[:4])[0]
+        assert msg_type == 12345
+
+    def test_build_awg_initiation_packet_padding_is_random(self):
+        """The first S1 bytes of the wire packet must be random padding."""
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        s1 = 20
+        params = {
+            "init_packet_magic_header": "12345",
+            "init_packet_junk_size": str(s1),
+        }
+        p1, _ = build_awg_initiation_packet(server_public_key=s_pub_b64, awg_params=params)
+        p2, _ = build_awg_initiation_packet(server_public_key=s_pub_b64, awg_params=params)
+        # Padding differs between calls (overwhelmingly probable)
+        assert p1[:s1] != p2[:s1]
 
     def test_verify_awg_response_packet_invalid(self):
         s_priv = X25519PrivateKey.generate()
@@ -180,9 +232,15 @@ class TestAWGProtocolCrypt:
         # Too short
         assert verify_awg_response_packet(b"short", state) is False
 
-        # Wrong magic header
+        # Wrong magic header (defaults: S2=18, H2=3288052141) — a zeroed type field at
+        # offset S2 does not fall in the H2 range.
         fake_packet = b"\x00" * 100
         assert verify_awg_response_packet(fake_packet, state) is False
+
+        # Correct size but wrong magic header at offset S2
+        s2 = 18
+        bad_type_pkt = secrets.token_bytes(s2) + struct.pack("<I", 999) + b"\x00" * 88
+        assert verify_awg_response_packet(bad_type_pkt, state) is False
 
     def test_verify_awg_response_packet_with_range(self):
         s_priv = X25519PrivateKey.generate()
@@ -204,10 +262,13 @@ class TestAWGProtocolCrypt:
 
         h2_min = 1849110586
         h2_max = 1900129826
+        s1 = 15
+        s2 = 18
         params = {
             "init_packet_magic_header": "1720813138-1802285026",
             "response_packet_magic_header": f"{h2_min}-{h2_max}",
-            "response_packet_junk_size": "18",
+            "init_packet_junk_size": str(s1),
+            "response_packet_junk_size": str(s2),
         }
 
         packet, state = build_awg_initiation_packet(
@@ -217,7 +278,8 @@ class TestAWGProtocolCrypt:
             awg_params=params,
         )
 
-        c_e_pub_bytes = packet[8:40]
+        # Client ephemeral public key is at offset S1+8 in the wire packet
+        c_e_pub_bytes = packet[s1 + 8 : s1 + 40]
         c_pub_bytes = c_priv.public_key().public_bytes(
             encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
         )
@@ -257,7 +319,8 @@ class TestAWGProtocolCrypt:
             mac1_key = hashlib.blake2s(LABEL_MAC1 + s_pub_bytes).digest()
             resp_mac1 = hashlib.blake2s(resp_body, digest_size=16, key=mac1_key).digest()
             resp_mac2 = b"\x00" * 16
-            return resp_body + resp_mac1 + resp_mac2 + secrets.token_bytes(18)
+            # Wire format: [S2 random padding] + [92-byte response message]
+            return secrets.token_bytes(s2) + resp_body + resp_mac1 + resp_mac2
 
         # Valid msg_types within range
         assert verify_awg_response_packet(make_resp(h2_min), state, params) is True
@@ -310,13 +373,15 @@ class TestAWGHandshakeLive:
             while not stop_event.is_set():
                 try:
                     data, addr = srv_sock.recvfrom(2048)
-                    if len(data) >= 148:
-                        msg_type = struct.unpack("<I", data[:4])[0]
+                    if len(data) >= S1 + 148:
+                        # Strip S1 padding at the FRONT (Go receive.go)
+                        msg = data[S1:]
+                        msg_type = struct.unpack("<I", msg[:4])[0]
                         if msg_type == H1:
-                            c_idx = struct.unpack("<I", data[4:8])[0]
-                            c_e_pub_bytes = data[8:40]
-                            enc_static = data[40:88]
-                            enc_ts = data[88:116]
+                            c_idx = struct.unpack("<I", msg[4:8])[0]
+                            c_e_pub_bytes = msg[8:40]
+                            enc_static = msg[40:88]
+                            enc_ts = msg[88:116]
 
                             s_h = hashlib.blake2s(INITIAL_HASH + s_pub_bytes).digest()
                             s_ck = INITIAL_CHAIN_KEY
@@ -375,8 +440,9 @@ class TestAWGHandshakeLive:
                                 resp_body, digest_size=16, key=mac1_key
                             ).digest()
                             resp_mac2 = b"\x00" * 16
+                            # Wire format: [S2 random padding] + [92-byte response message]
                             resp_packet = (
-                                resp_body + resp_mac1 + resp_mac2 + secrets.token_bytes(S2)
+                                secrets.token_bytes(S2) + resp_body + resp_mac1 + resp_mac2
                             )
                             srv_sock.sendto(resp_packet, addr)
                 except socket.timeout:
@@ -734,13 +800,15 @@ class TestAWGHandshakeRangeLive:
             while not stop_event.is_set():
                 try:
                     data, addr = srv_sock.recvfrom(2048)
-                    if len(data) >= 148:
-                        msg_type = struct.unpack("<I", data[:4])[0]
+                    if len(data) >= S1 + 148:
+                        # Strip S1 padding at the FRONT (Go receive.go)
+                        msg = data[S1:]
+                        msg_type = struct.unpack("<I", msg[:4])[0]
                         if h1_min <= msg_type <= h1_max:
-                            c_idx = struct.unpack("<I", data[4:8])[0]
-                            c_e_pub_bytes = data[8:40]
-                            enc_static = data[40:88]
-                            enc_ts = data[88:116]
+                            c_idx = struct.unpack("<I", msg[4:8])[0]
+                            c_e_pub_bytes = msg[8:40]
+                            enc_static = msg[40:88]
+                            enc_ts = msg[88:116]
 
                             s_h = hashlib.blake2s(INITIAL_HASH + s_pub_bytes).digest()
                             s_ck = INITIAL_CHAIN_KEY
@@ -800,8 +868,9 @@ class TestAWGHandshakeRangeLive:
                                 resp_body, digest_size=16, key=mac1_key
                             ).digest()
                             resp_mac2 = b"\x00" * 16
+                            # Wire format: [S2 random padding] + [92-byte response message]
                             resp_packet = (
-                                resp_body + resp_mac1 + resp_mac2 + secrets.token_bytes(S2)
+                                secrets.token_bytes(S2) + resp_body + resp_mac1 + resp_mac2
                             )
                             srv_sock.sendto(resp_packet, addr)
                 except socket.timeout:
