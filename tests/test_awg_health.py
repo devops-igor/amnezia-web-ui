@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
 from app.managers.awg_health import (
+    DEFAULT_H1,
+    DEFAULT_H2,
     INITIAL_CHAIN_KEY,
     INITIAL_HASH,
     LABEL_MAC1,
@@ -19,6 +21,7 @@ from app.managers.awg_health import (
     _kdf1,
     _kdf2,
     _kdf3,
+    _parse_magic_header_range,
     build_awg_initiation_packet,
     check_awg_reachability,
     parse_cps_blob,
@@ -65,6 +68,49 @@ class TestAWGProtocolCrypt:
         assert parse_cps_blob("") == b""
         assert parse_cps_blob("not_a_blob") == b""
 
+    def test_parse_magic_header_range(self):
+        # Single integers
+        assert _parse_magic_header_range(12345, DEFAULT_H1) == (12345, 12345)
+        assert _parse_magic_header_range(0, DEFAULT_H1) == (0, 0)
+        assert _parse_magic_header_range(2147483647, DEFAULT_H1) == (2147483647, 2147483647)
+
+        # Range strings min-max
+        assert _parse_magic_header_range("1720813138-1802285026", DEFAULT_H1) == (
+            1720813138,
+            1802285026,
+        )
+        assert _parse_magic_header_range("100-200", DEFAULT_H1) == (100, 200)
+
+        # Inverted range strings (max-min) -> normalized to (min, max)
+        assert _parse_magic_header_range("1802285026-1720813138", DEFAULT_H1) == (
+            1720813138,
+            1802285026,
+        )
+        assert _parse_magic_header_range("200-100", DEFAULT_H1) == (100, 200)
+
+        # Single integer string
+        assert _parse_magic_header_range("54321", DEFAULT_H1) == (54321, 54321)
+
+        # Whitespace handling
+        assert _parse_magic_header_range("  100 - 200  ", DEFAULT_H1) == (100, 200)
+        assert _parse_magic_header_range("  999  ", DEFAULT_H1) == (999, 999)
+
+        # None -> default
+        assert _parse_magic_header_range(None, DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range(None, DEFAULT_H2) == (DEFAULT_H2, DEFAULT_H2)
+
+        # Invalid formats / non-integer strings -> default
+        assert _parse_magic_header_range("", DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range("invalid", DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range("100-", DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range("-200", DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range("abc-def", DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+
+        # Invalid types -> default
+        assert _parse_magic_header_range([], DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range({}, DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+        assert _parse_magic_header_range(3.14, DEFAULT_H1) == (DEFAULT_H1, DEFAULT_H1)
+
     def test_build_awg_initiation_packet(self):
         s_priv = X25519PrivateKey.generate()
         s_pub_bytes = s_priv.public_key().public_bytes(
@@ -101,6 +147,27 @@ class TestAWGProtocolCrypt:
         sender_idx = struct.unpack("<I", packet[4:8])[0]
         assert sender_idx == state.sender_index
 
+    def test_build_awg_initiation_packet_with_range(self):
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        params = {
+            "init_packet_magic_header": "1720813138-1802285026",
+            "init_packet_junk_size": "15",
+        }
+
+        for _ in range(20):
+            packet, state = build_awg_initiation_packet(
+                server_public_key=s_pub_b64,
+                awg_params=params,
+            )
+            msg_type = struct.unpack("<I", packet[:4])[0]
+            assert 1720813138 <= msg_type <= 1802285026
+            assert len(packet) == 148 + 15
+
     def test_verify_awg_response_packet_invalid(self):
         s_priv = X25519PrivateKey.generate()
         s_pub_bytes = s_priv.public_key().public_bytes(
@@ -116,6 +183,94 @@ class TestAWGProtocolCrypt:
         # Wrong magic header
         fake_packet = b"\x00" * 100
         assert verify_awg_response_packet(fake_packet, state) is False
+
+    def test_verify_awg_response_packet_with_range(self):
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        c_priv = X25519PrivateKey.generate()
+        c_priv_bytes = c_priv.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        c_priv_b64 = _b64(c_priv_bytes)
+
+        psk = secrets.token_bytes(32)
+        psk_b64 = _b64(psk)
+
+        h2_min = 1849110586
+        h2_max = 1900129826
+        params = {
+            "init_packet_magic_header": "1720813138-1802285026",
+            "response_packet_magic_header": f"{h2_min}-{h2_max}",
+            "response_packet_junk_size": "18",
+        }
+
+        packet, state = build_awg_initiation_packet(
+            server_public_key=s_pub_b64,
+            client_private_key=c_priv_b64,
+            psk=psk_b64,
+            awg_params=params,
+        )
+
+        c_e_pub_bytes = packet[8:40]
+        c_pub_bytes = c_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+
+        def make_resp(resp_msg_type: int) -> bytes:
+            s_e_priv = X25519PrivateKey.generate()
+            s_e_pub_bytes = s_e_priv.public_key().public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            s_h = hashlib.blake2s(state.h + s_e_pub_bytes).digest()
+            s_ck = _kdf1(state.ck, s_e_pub_bytes)
+
+            c_e_pub = X25519PublicKey.from_public_bytes(c_e_pub_bytes)
+            c_pub = X25519PublicKey.from_public_bytes(c_pub_bytes)
+
+            ss3 = s_e_priv.exchange(c_e_pub)
+            s_ck = _kdf1(s_ck, ss3)
+
+            ss4 = s_e_priv.exchange(c_pub)
+            s_ck = _kdf1(s_ck, ss4)
+
+            s_ck, tau, s_key = _kdf3(s_ck, psk)
+            s_h = hashlib.blake2s(s_h + tau).digest()
+
+            nonce0 = b"\x00" * 12
+            ciph = ChaCha20Poly1305(s_key)
+            enc_empty = ciph.encrypt(nonce0, b"", s_h)
+
+            resp_body = (
+                struct.pack("<I", resp_msg_type)
+                + struct.pack("<I", secrets.randbelow(0xFFFFFFFF))
+                + struct.pack("<I", state.sender_index)
+                + s_e_pub_bytes
+                + enc_empty
+            )
+            mac1_key = hashlib.blake2s(LABEL_MAC1 + s_pub_bytes).digest()
+            resp_mac1 = hashlib.blake2s(resp_body, digest_size=16, key=mac1_key).digest()
+            resp_mac2 = b"\x00" * 16
+            return resp_body + resp_mac1 + resp_mac2 + secrets.token_bytes(18)
+
+        # Valid msg_types within range
+        assert verify_awg_response_packet(make_resp(h2_min), state, params) is True
+        assert verify_awg_response_packet(make_resp(h2_max), state, params) is True
+        assert verify_awg_response_packet(make_resp((h2_min + h2_max) // 2), state, params) is True
+
+        # Valid standard WireGuard type 2
+        assert verify_awg_response_packet(make_resp(2), state, params) is True
+
+        # Invalid msg_types outside range
+        assert verify_awg_response_packet(make_resp(h2_min - 1), state, params) is False
+        assert verify_awg_response_packet(make_resp(h2_max + 1), state, params) is False
+        assert verify_awg_response_packet(make_resp(999), state, params) is False
 
 
 class TestAWGHandshakeLive:
@@ -538,3 +693,173 @@ class TestAutoTrialEndpoint:
         assert captured.get("client_private_key") == "probe_priv_b64"
         assert captured.get("server_public_key") == "srvpubb64"
         assert captured.get("psk") == "pskb64"
+
+
+class TestAWGHandshakeRangeLive:
+    """Test live UDP loopback handshake exchange with magic header ranges."""
+
+    @pytest.fixture
+    def mock_range_awg_server(self):
+        s_priv = X25519PrivateKey.generate()
+        s_pub_bytes = s_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw
+        )
+        s_pub_b64 = _b64(s_pub_bytes)
+
+        c_priv = X25519PrivateKey.generate()
+        c_priv_bytes = c_priv.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        c_priv_b64 = _b64(c_priv_bytes)
+
+        psk_bytes = secrets.token_bytes(32)
+        psk_b64 = _b64(psk_bytes)
+
+        h1_range = "1720813138-1802285026"
+        h2_range = "1849110586-1900129826"
+        h1_min, h1_max = 1720813138, 1802285026
+        h2_min, h2_max = 1849110586, 1900129826
+        S1 = 15
+        S2 = 18
+
+        srv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        srv_sock.bind(("127.0.0.1", 0))
+        port = srv_sock.getsockname()[1]
+        stop_event = threading.Event()
+
+        def srv_loop():
+            srv_sock.settimeout(0.5)
+            while not stop_event.is_set():
+                try:
+                    data, addr = srv_sock.recvfrom(2048)
+                    if len(data) >= 148:
+                        msg_type = struct.unpack("<I", data[:4])[0]
+                        if h1_min <= msg_type <= h1_max:
+                            c_idx = struct.unpack("<I", data[4:8])[0]
+                            c_e_pub_bytes = data[8:40]
+                            enc_static = data[40:88]
+                            enc_ts = data[88:116]
+
+                            s_h = hashlib.blake2s(INITIAL_HASH + s_pub_bytes).digest()
+                            s_ck = INITIAL_CHAIN_KEY
+                            s_h = hashlib.blake2s(s_h + c_e_pub_bytes).digest()
+                            s_ck = _kdf1(s_ck, c_e_pub_bytes)
+
+                            c_e_pub = X25519PublicKey.from_public_bytes(c_e_pub_bytes)
+                            ss = s_priv.exchange(c_e_pub)
+                            s_ck, s_key = _kdf2(s_ck, ss)
+
+                            nonce0 = b"\x00" * 12
+                            ciph = ChaCha20Poly1305(s_key)
+                            dec_c_pub = ciph.decrypt(nonce0, enc_static, s_h)
+                            s_h = hashlib.blake2s(s_h + enc_static).digest()
+
+                            c_pub = X25519PublicKey.from_public_bytes(dec_c_pub)
+                            ss2 = s_priv.exchange(c_pub)
+                            s_ck, s_key = _kdf2(s_ck, ss2)
+
+                            ciph2 = ChaCha20Poly1305(s_key)
+                            dec_ts = ciph2.decrypt(nonce0, enc_ts, s_h)
+                            s_h = hashlib.blake2s(s_h + enc_ts).digest()
+
+                            # Generate response with random H2 in range
+                            s_e_priv = X25519PrivateKey.generate()
+                            s_e_pub_bytes = s_e_priv.public_key().public_bytes(
+                                encoding=serialization.Encoding.Raw,
+                                format=serialization.PublicFormat.Raw,
+                            )
+
+                            s_h = hashlib.blake2s(s_h + s_e_pub_bytes).digest()
+                            s_ck = _kdf1(s_ck, s_e_pub_bytes)
+
+                            ss3 = s_e_priv.exchange(c_e_pub)
+                            s_ck = _kdf1(s_ck, ss3)
+
+                            ss4 = s_e_priv.exchange(c_pub)
+                            s_ck = _kdf1(s_ck, ss4)
+
+                            s_ck, tau, s_key = _kdf3(s_ck, psk_bytes)
+                            s_h = hashlib.blake2s(s_h + tau).digest()
+
+                            ciph3 = ChaCha20Poly1305(s_key)
+                            enc_empty = ciph3.encrypt(nonce0, b"", s_h)
+                            s_h = hashlib.blake2s(s_h + enc_empty).digest()
+
+                            resp_h2 = secrets.randbelow(h2_max - h2_min + 1) + h2_min
+                            resp_body = (
+                                struct.pack("<I", resp_h2)
+                                + struct.pack("<I", secrets.randbelow(0xFFFFFFFF))
+                                + struct.pack("<I", c_idx)
+                                + s_e_pub_bytes
+                                + enc_empty
+                            )
+                            mac1_key = hashlib.blake2s(LABEL_MAC1 + s_pub_bytes).digest()
+                            resp_mac1 = hashlib.blake2s(
+                                resp_body, digest_size=16, key=mac1_key
+                            ).digest()
+                            resp_mac2 = b"\x00" * 16
+                            resp_packet = (
+                                resp_body + resp_mac1 + resp_mac2 + secrets.token_bytes(S2)
+                            )
+                            srv_sock.sendto(resp_packet, addr)
+                except socket.timeout:
+                    continue
+                except Exception:
+                    break
+
+        th = threading.Thread(target=srv_loop, daemon=True)
+        th.start()
+
+        yield {
+            "port": port,
+            "s_pub_b64": s_pub_b64,
+            "c_priv_b64": c_priv_b64,
+            "psk_b64": psk_b64,
+            "params": {
+                "init_packet_magic_header": h1_range,
+                "response_packet_magic_header": h2_range,
+                "init_packet_junk_size": str(S1),
+                "response_packet_junk_size": str(S2),
+            },
+        }
+
+        stop_event.set()
+        srv_sock.close()
+        th.join(timeout=1.0)
+
+    def test_perform_awg_handshake_with_ranges(self, mock_range_awg_server):
+        info = mock_range_awg_server
+        res = perform_awg_handshake(
+            host="127.0.0.1",
+            port=info["port"],
+            server_public_key=info["s_pub_b64"],
+            client_private_key=info["c_priv_b64"],
+            psk=info["psk_b64"],
+            awg_params=info["params"],
+            mimicry_profile="quic",
+            timeout=2.0,
+        )
+        assert res["reachable"] is True
+        assert res["handshake_complete"] is True
+        assert res["latency_ms"] >= 0
+        assert res["error"] == ""
+        assert res["profile"] == "quic"
+
+    @pytest.mark.asyncio
+    async def test_run_auto_trial_profiles_with_ranges(self, mock_range_awg_server):
+        info = mock_range_awg_server
+        trials = await run_auto_trial_profiles(
+            host="127.0.0.1",
+            port=info["port"],
+            server_public_key=info["s_pub_b64"],
+            client_private_key=info["c_priv_b64"],
+            psk=info["psk_b64"],
+            awg_params=info["params"],
+            timeout=1.5,
+        )
+        assert set(trials.keys()) == {"tls", "quic", "dns", "sip"}
+        for proto in ("tls", "quic", "dns", "sip"):
+            assert trials[proto]["reachable"] is True
+            assert trials[proto]["handshake_complete"] is True

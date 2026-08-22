@@ -91,6 +91,30 @@ def _decode_key(key_val: Any) -> bytes:
     raise TypeError(f"Invalid key type: {type(key_val)}")
 
 
+def _parse_magic_header_range(header_val: Any, default: int) -> Tuple[int, int]:
+    """Parse an integer or range string 'MIN-MAX' into (min_val, max_val)."""
+    if header_val is None:
+        return default, default
+    if isinstance(header_val, int):
+        return header_val, header_val
+    if isinstance(header_val, str):
+        val = header_val.strip()
+        if "-" in val:
+            parts = val.split("-", 1)
+            try:
+                min_v = int(parts[0].strip())
+                max_v = int(parts[1].strip())
+                return min(min_v, max_v), max(min_v, max_v)
+            except ValueError:
+                return default, default
+        try:
+            v = int(val)
+            return v, v
+        except ValueError:
+            return default, default
+    return default, default
+
+
 def parse_cps_blob(tag_str: str) -> bytes:
     """Parse AWG binary tag string format '<b 0xHEX>' or '<r N><b 0xHEX>' to bytes."""
     if not tag_str or not isinstance(tag_str, str):
@@ -176,10 +200,13 @@ def build_awg_initiation_packet(
     psk_bytes = _decode_key(psk) if psk else (b"\x00" * 32)
     params = awg_params or {}
 
-    try:
-        h1 = int(params.get("init_packet_magic_header") or params.get("h1") or DEFAULT_H1)
-    except (ValueError, TypeError):
-        h1 = DEFAULT_H1
+    h1_min, h1_max = _parse_magic_header_range(
+        params.get("init_packet_magic_header") or params.get("h1"), DEFAULT_H1
+    )
+    if h1_min == h1_max:
+        h1 = h1_min
+    else:
+        h1 = secrets.randbelow(h1_max - h1_min + 1) + h1_min
 
     try:
         s1 = int(params.get("init_packet_junk_size") or params.get("s1") or DEFAULT_S1)
@@ -273,10 +300,9 @@ def verify_awg_response_packet(
         True if the packet header, indices, and Noise authentication tag are valid.
     """
     params = awg_params or {}
-    try:
-        h2 = int(params.get("response_packet_magic_header") or params.get("h2") or DEFAULT_H2)
-    except (ValueError, TypeError):
-        h2 = DEFAULT_H2
+    h2_min, h2_max = _parse_magic_header_range(
+        params.get("response_packet_magic_header") or params.get("h2"), DEFAULT_H2
+    )
 
     try:
         s2 = int(params.get("response_packet_junk_size") or params.get("s2") or DEFAULT_S2)
@@ -293,8 +319,13 @@ def verify_awg_response_packet(
         return False
 
     msg_type = struct.unpack("<I", resp_packet[:4])[0]
-    if msg_type != h2 and msg_type != 2:
-        logger.debug("AWG response magic header mismatch: expected %d or 2, got %d", h2, msg_type)
+    if not (h2_min <= msg_type <= h2_max or msg_type == 2):
+        logger.debug(
+            "AWG response magic header mismatch: expected in range [%d, %d] or 2, got %d",
+            h2_min,
+            h2_max,
+            msg_type,
+        )
         return False
 
     receiver_idx = struct.unpack("<I", resp_packet[8:12])[0]
