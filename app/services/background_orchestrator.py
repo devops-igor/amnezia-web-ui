@@ -493,11 +493,8 @@ class BackgroundTaskOrchestrator:
                                 reach_res.get("error"),
                             )
                             preserved_auto_trials = reach_res.get("auto_trials")
-                            # Invalidate cached probe key on failure to re-provision next time if needed
-                            BackgroundTaskOrchestrator._health_probe_keys.pop(sid, None)
                     except Exception as err:
                         logger.debug("AWG reachability check failed for server %s: %s", sid, err)
-                        BackgroundTaskOrchestrator._health_probe_keys.pop(sid, None)
 
             # Fallback for non-AWG servers or if AWG handshake could not be initiated
             port = int(server.get("ssh_port") or server.get("port") or 22)

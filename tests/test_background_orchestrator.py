@@ -1003,12 +1003,12 @@ class TestServerReachabilityHealthProbe:
             assert results[3]["reachable"] is True
 
     @pytest.mark.asyncio
-    async def test_server_reachability_invalidates_cache_on_failure(self, orchestrator):
-        """When AWG probe fails, cached health probe credentials are invalidated."""
+    async def test_server_reachability_preserves_cache_on_failure(self, orchestrator):
+        """When AWG probe fails due to transient UDP issue, cached health probe credentials are preserved."""
         from app.services.background_orchestrator import BackgroundTaskOrchestrator
 
         BackgroundTaskOrchestrator._health_probe_keys[4] = {
-            "client_priv": "stale_key",
+            "client_priv": "cached_probe_key",
             "server_pub": "srv_pub",
             "psk": "psk",
         }
@@ -1055,8 +1055,12 @@ class TestServerReachabilityHealthProbe:
         ):
             results = await orchestrator.check_server_reachability()
 
-            # Cache should have been evicted
-            assert 4 not in BackgroundTaskOrchestrator._health_probe_keys
+            # Cache should be preserved across transient failures
+            assert 4 in BackgroundTaskOrchestrator._health_probe_keys
+            assert (
+                BackgroundTaskOrchestrator._health_probe_keys[4]["client_priv"]
+                == "cached_probe_key"
+            )
             # Fallback TCP probe was executed
             assert results[4]["protocol"] == "tcp"
             assert results[4]["reachable"] is True
