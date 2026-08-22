@@ -1261,3 +1261,212 @@ class TestApiEditConnectionUserReassignment:
             assert response.json()["error"] == "Server not found"
         finally:
             app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_edit_connection_preserves_existing_custom_name_when_no_name_passed(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Editing connection user assignment preserves existing custom name when name is omitted or empty."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        self.db.create_connection(
+            {
+                "id": "conn-preserve-name-1",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-preserve",
+                "name": "My Original Custom Name",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            # Reassign to user-b without providing name
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-preserve",
+                    "user_id": "user-b",
+                },
+            )
+            assert response.status_code == 200
+
+            # DB connection should have new user_id but preserved original custom name
+            conn = self.db.get_connection_by_id("conn-preserve-name-1")
+            assert conn is not None
+            assert conn["user_id"] == "user-b"
+            assert conn["name"] == "My Original Custom Name"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_edit_connection_updates_name_when_new_custom_name_passed(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Editing connection with a new custom name updates name in database."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        self.db.create_connection(
+            {
+                "id": "conn-rename-1",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-rename",
+                "name": "Old Name",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-rename",
+                    "user_id": "user-a",
+                    "name": "Brand New Custom Name",
+                },
+            )
+            assert response.status_code == 200
+
+            conn = self.db.get_connection_by_id("conn-rename-1")
+            assert conn is not None
+            assert conn["name"] == "Brand New Custom Name"
+            assert conn["user_id"] == "user-a"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_edit_connection_name_only_without_user_id(
+        self, mock_get_pm, mock_get_ssh, mock_get_db
+    ):
+        """Editing connection name without user_id updates name and preserves existing user assignment."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        self.db.create_connection(
+            {
+                "id": "conn-rename-only-1",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "telemt",
+                "client_id": "telemt-client-rename-only",
+                "name": "Initial Name",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.edit_client.return_value = {"status": "success"}
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.post(
+                f"/api/servers/{self.server_id}/connections/edit",
+                json={
+                    "protocol": "telemt",
+                    "client_id": "telemt-client-rename-only",
+                    "name": "Updated Without Changing User",
+                },
+            )
+            assert response.status_code == 200
+
+            conn = self.db.get_connection_by_id("conn-rename-only-1")
+            assert conn is not None
+            assert conn["name"] == "Updated Without Changing User"
+            assert conn["user_id"] == "user-a"
+        finally:
+            app.app.dependency_overrides.clear()
+
+    @patch("app.routers.servers.get_db")
+    @patch("app.routers.servers.get_ssh")
+    @patch("app.routers.servers.get_protocol_manager")
+    def test_api_get_connections_enriches_custom_name(self, mock_get_pm, mock_get_ssh, mock_get_db):
+        """api_get_connections returns custom friendly name in client['name'] and client['userData']['clientName']."""
+        import app
+
+        mock_get_db.return_value = self.db
+        app.app.dependency_overrides[require_admin] = lambda: {
+            "role": "admin",
+            "id": 1,
+            "username": "admin",
+        }
+
+        self.db.create_connection(
+            {
+                "id": "conn-custom-name-enrich",
+                "user_id": "user-a",
+                "server_id": self.server_id,
+                "protocol": "awg",
+                "client_id": "awg-client-enrich",
+                "name": "VIP Alice Phone",
+                "created_at": "2026-01-01T00:00:00",
+            }
+        )
+
+        mock_ssh = MagicMock()
+        mock_get_ssh.return_value = mock_ssh
+        mock_manager = MagicMock()
+        mock_manager.get_clients.return_value = [
+            {
+                "clientId": "awg-client-enrich",
+                "userData": {"clientName": "raw-generic-name"},
+            }
+        ]
+        mock_get_pm.return_value = mock_manager
+
+        try:
+            response = self.client.get(f"/api/servers/{self.server_id}/connections?protocol=awg")
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["clients"]) == 1
+            client_item = data["clients"][0]
+            assert client_item["name"] == "VIP Alice Phone"
+            assert client_item["userData"]["clientName"] == "VIP Alice Phone"
+            assert client_item["assigned_user"] == "user_alpha"
+            assert client_item["assigned_user_id"] == "user-a"
+        finally:
+            app.app.dependency_overrides.clear()

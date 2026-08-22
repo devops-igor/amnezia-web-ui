@@ -624,6 +624,10 @@ async def api_get_connections(
                     if u:
                         client["assigned_user"] = u["username"]
                         client["assigned_user_id"] = uid
+                    if uc.get("name"):
+                        client["name"] = uc["name"]
+                        if "userData" in client and isinstance(client["userData"], dict):
+                            client["userData"]["clientName"] = uc["name"]
                     break
         return {"clients": clients}
     except Exception as e:
@@ -987,10 +991,10 @@ async def api_edit_connection(
             conn = next((c for c in conns if c.get("client_id") == req.client_id), None)
             if req.user_id:
                 if conn:
-                    db.update_connection(
-                        conn["id"],
-                        {"user_id": req.user_id, "name": req.name or conn.get("name")},
-                    )
+                    updates = {"user_id": req.user_id}
+                    if req.name and req.name.strip():
+                        updates["name"] = req.name.strip()
+                    db.update_connection(conn["id"], updates)
                 else:
                     new_conn = {
                         "id": str(uuid.uuid4()),
@@ -998,12 +1002,18 @@ async def api_edit_connection(
                         "server_id": server_id,
                         "protocol": req.protocol,
                         "client_id": req.client_id,
-                        "name": req.name or req.client_id,
+                        "name": (req.name.strip() if req.name and req.name.strip() else None)
+                        or req.client_id,
                         "created_at": datetime.now().isoformat(),
                     }
                     db.create_connection(new_conn)
             elif conn:
                 db.delete_connection(conn["id"])
+        elif req.name and req.name.strip():
+            conns = db.get_connections_by_server_and_protocol(server_id, req.protocol)
+            conn = next((c for c in conns if c.get("client_id") == req.client_id), None)
+            if conn:
+                db.update_connection(conn["id"], {"name": req.name.strip()})
 
         return result
     except Exception as e:

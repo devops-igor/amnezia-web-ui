@@ -1175,8 +1175,12 @@
                 const userData = client.userData || {};
                 userData.assigned_user_id = client.assigned_user_id || '';
                 userData.clientId = client.clientId || '';
+                if (client.name) {
+                    userData.name = client.name;
+                    userData.clientName = client.name;
+                }
                 window.connectionsStore[client.clientId] = userData;
-                const name = userData.clientName || `Connection ${idx}`;
+                const name = userData.clientName || client.name || `Connection ${idx}`;
                 const created = userData.creationDate || '';
                 const handshake = userData.latestHandshake || '';
                 const received = userData.dataReceived || '';
@@ -1312,20 +1316,25 @@
 
     async function addConnection() {
         const proto = document.getElementById('connProtoSelect').value;
-        const connName = document.getElementById('connectionName').value.trim() || 'Connection';
+        const connName = document.getElementById('connectionName').value.trim();
         const userId = document.getElementById('connectionUserId').value || null;
         const btn = document.getElementById('addConnBtn');
         const text = document.getElementById('addConnBtnText');
         const spinner = document.getElementById('addConnSpinner');
         btn.disabled = true;
-        text.textContent = _('creating');
+        text.textContent = isEditingConn ? _('saving') : _('creating');
         spinner.classList.remove('hidden');
         try {
             const params = {
-                protocol: proto, name: connName, user_id: userId,
+                protocol: proto, user_id: userId,
             };
             if (isEditingConn) {
                 params.client_id = editingClientId;
+                if (connName) {
+                    params.name = connName;
+                }
+            } else {
+                params.name = connName || 'Connection';
             }
             // AWG speed limits & mimicry profile
             if (proto === 'awg') {
@@ -1348,14 +1357,14 @@
                 showToast(_('connection_updated'), 'success');
                 closeModal('addConnectionModal');
             } else {
-                showToast(_('connection_created').replace('{}', connName), 'success');
+                showToast(_('connection_created').replace('{}', connName || 'Connection'), 'success');
                 closeModal('addConnectionModal');
                 document.getElementById('connectionName').value = '';
                 if (result.config) {
                     currentConfig = result.config;
                     currentVpnLink = result.vpn_link || '';
-                    currentConfigName = connName.replace(/\s+/g, '_');
-                    document.getElementById('configModalTitle').textContent = `Конфигурация — ${connName}`;
+                    currentConfigName = (connName || 'Connection').replace(/\s+/g, '_');
+                    document.getElementById('configModalTitle').textContent = `Конфигурация — ${connName || 'Connection'}`;
                     document.getElementById('configText').textContent = result.config;
                     document.getElementById('vpnLinkText').textContent = currentVpnLink;
                     document.getElementById('panel-vpn').style.display = (proto === 'telemt' ? 'none' : '');
@@ -1363,7 +1372,7 @@
                     document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
                     if (proto === 'awg' && result.client_id) {
                         document.getElementById('tab-kit-btn').style.display = '';
-                        loadConnectionKit(result.client_id, connName);
+                        loadConnectionKit(result.client_id, connName || 'Connection');
                     } else {
                         document.getElementById('tab-kit-btn').style.display = 'none';
                     }
@@ -1377,7 +1386,7 @@
             showToast(_('error') + ': ' + err.message, 'error');
         } finally {
             btn.disabled = false;
-            text.textContent = _('create');
+            text.textContent = isEditingConn ? _('save') : _('create');
             spinner.classList.add('hidden');
         }
     }
@@ -1394,7 +1403,8 @@
 
         document.getElementById('addConnectionModalTitle').textContent = isEdit ? _('edit_connection') : _('add_connection');
         document.getElementById('addConnBtnText').textContent = isEdit ? _('save') : _('create');
-        document.getElementById('connectionNameGroup').style.display = isEdit ? 'none' : 'block';
+        document.getElementById('connectionNameGroup').style.display = 'block';
+        document.getElementById('connectionName').value = (isEdit && clientData && (clientData.name || clientData.clientName)) ? (clientData.name || clientData.clientName) : '';
         document.getElementById('connectionUserId').value = (isEdit && clientData && clientData.assigned_user_id) ? clientData.assigned_user_id : '';
 
         // AWG speed limit & mimicry options
@@ -1437,7 +1447,6 @@
     function editConnection(clientId) {
         const userData = window.connectionsStore[clientId];
         if (userData) {
-            userData.clientName = clientId;
             userData.clientId = clientId;
             openAddConnectionModal(true, userData);
         }
