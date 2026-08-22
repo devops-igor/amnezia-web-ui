@@ -256,6 +256,7 @@ def build_awg_initiation_packet(
     msg_type_bytes = struct.pack("<I", h1)
     sender_idx_bytes = struct.pack("<I", sender_idx)
 
+    # Build the 116-byte message body (without MACs, without padding)
     msg_body = (
         msg_type_bytes
         + sender_idx_bytes
@@ -263,15 +264,18 @@ def build_awg_initiation_packet(
         + encrypted_static
         + encrypted_timestamp
     )
-    if s1 > 0:
-        msg_body += secrets.token_bytes(s1)
 
-    # MAC calculation
+    # Compute MAC1 over ONLY the 116-byte message body (no padding, no MACs)
     mac1_key = hashlib.blake2s(LABEL_MAC1 + server_pub_bytes).digest()
     mac1 = hashlib.blake2s(msg_body, digest_size=16, key=mac1_key).digest()
     mac2 = b"\x00" * 16
 
-    packet = msg_body + mac1 + mac2
+    # Full 148-byte message: body + MAC1 + MAC2
+    message = msg_body + mac1 + mac2
+
+    # Prepend S1 random padding at the FRONT of the wire packet (matching Go send.go)
+    padding = secrets.token_bytes(s1) if s1 > 0 else b""
+    packet = padding + message
 
     state = NoiseClientState(
         h=h,
@@ -309,7 +313,7 @@ def verify_awg_response_packet(
     except (ValueError, TypeError):
         s2 = DEFAULT_S2
 
-    expected_len = 92 + s2
+    expected_len = s2 + 92  # minimum total packet size
     if len(resp_packet) < expected_len:
         logger.debug(
             "AWG response packet too short: %d bytes, expected >= %d",
@@ -318,7 +322,9 @@ def verify_awg_response_packet(
         )
         return False
 
-    msg_type = struct.unpack("<I", resp_packet[:4])[0]
+    # Skip S2 padding bytes at the start (matching Go receive.go)
+    offset = s2
+    msg_type = struct.unpack("<I", resp_packet[offset : offset + 4])[0]
     if not (h2_min <= msg_type <= h2_max or msg_type == 2):
         logger.debug(
             "AWG response magic header mismatch: expected in range [%d, %d] or 2, got %d",
@@ -328,15 +334,17 @@ def verify_awg_response_packet(
         )
         return False
 
-    receiver_idx = struct.unpack("<I", resp_packet[8:12])[0]
+    receiver_idx = struct.unpack("<I", resp_packet[offset + 8 : offset + 12])[0]
     if receiver_idx != state.sender_index:
         logger.debug(
             "AWG receiver index mismatch: expected %d, got %d", state.sender_index, receiver_idx
         )
         return False
 
-    server_e_pub_bytes = resp_packet[12:44]
-    encrypted_empty = resp_packet[44:60]
+    server_e_pub_bytes = resp_packet[offset + 12 : offset + 44]
+    encrypted_empty = resp_packet[offset + 44 : offset + 60]
+    # MAC1 is at resp_packet[offset + 60 : offset + 76]
+    # MAC2 is at resp_packet[offset + 76 : offset + 92]
 
     try:
         server_e_pub = X25519PublicKey.from_public_bytes(server_e_pub_bytes)
