@@ -37,9 +37,7 @@ logger = logging.getLogger(__name__)
 
 # Noise Protocol Constants (WireGuard / AmneziaWG)
 INITIAL_CHAIN_KEY = hashlib.blake2s(b"Noise_IKpsk2_25519_ChaChaPoly_BLAKE2s").digest()
-INITIAL_HASH = hashlib.blake2s(
-    INITIAL_CHAIN_KEY + b"WireGuard v1 zx2c4 JustAGermanCodingBoy!"
-).digest()
+INITIAL_HASH = hashlib.blake2s(INITIAL_CHAIN_KEY + b"WireGuard v1 zx2c4 Jason@zx2c4.com").digest()
 LABEL_MAC1 = b"mac1----"
 
 # Default AWG magic headers & sizes
@@ -56,7 +54,8 @@ def _hmac_blake2s(key: bytes, data: bytes) -> bytes:
 
 def _kdf1(key: bytes, data: bytes) -> bytes:
     """Noise KDF1: derive a new chaining key."""
-    return _hmac_blake2s(key, data)
+    prk = _hmac_blake2s(key, data)
+    return _hmac_blake2s(prk, b"\x01")
 
 
 def _kdf2(key: bytes, data: bytes) -> Tuple[bytes, bytes]:
@@ -241,10 +240,10 @@ def build_awg_initiation_packet(
     ss2 = client_priv.exchange(server_pub)
     ck, key = _kdf2(ck, ss2)
 
-    # TAI64N timestamp
+    # TAI64N timestamp (base 0x400000000000000a with leap second offset)
     now_sec = int(time.time())
-    tai_sec = (1 << 62) + now_sec
-    tai_nsec = int((time.time() - now_sec) * 1e9)
+    tai_sec = 0x400000000000000A + now_sec
+    tai_nsec = int((time.time() - now_sec) * 1e9) & ~0xFFFFFF
     tai64n = struct.pack(">QI", tai_sec, tai_nsec)
 
     cipher2 = ChaCha20Poly1305(key)
@@ -472,13 +471,26 @@ def perform_awg_handshake(
         # Send Handshake Initiation
         sock.sendto(init_packet, (host, port))
 
-        # Receive Response
-        resp_data, _ = sock.recvfrom(2048)
+        # Receive Response (in loop to handle potential junk/mimicry packets from server)
+        valid = False
+        received_count = 0
+        deadline = t0 + timeout
+        while time.time() < deadline:
+            remaining = max(0.05, deadline - time.time())
+            sock.settimeout(remaining)
+            try:
+                resp_data, _ = sock.recvfrom(2048)
+                received_count += 1
+                if verify_awg_response_packet(resp_data, state, params):
+                    valid = True
+                    break
+            except socket.timeout:
+                break
         sock.close()
+        if not valid and received_count == 0:
+            raise socket.timeout("Handshake timeout (no response from server)")
         t1 = time.time()
         latency = max(1, int((t1 - t0) * 1000))
-
-        valid = verify_awg_response_packet(resp_data, state, params)
         if valid:
             return {
                 "reachable": True,
