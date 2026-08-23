@@ -289,6 +289,16 @@ class TestMyConnectionsHealthAndPrivacy:
             assert "Online" in html or "18ms" in html
             assert "Unavailable" in html
 
+            # Network Health widget must be positioned above My Connections section
+            health_pos = html.find("Stockholm Node")
+            header_pos = html.find("section-title")
+            connections_pos = html.find("myConnectionsList")
+            assert health_pos != -1
+            assert header_pos != -1
+            assert connections_pos != -1
+            assert health_pos < header_pos
+            assert health_pos < connections_pos
+
             # Sensitive server IPs and hostnames must NEVER appear in regular user HTML
             assert "198.51.100.77" not in html
             assert "198.51.100.88" not in html
