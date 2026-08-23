@@ -81,15 +81,6 @@
                     <div class="client-name">{{ c.name or 'VPN Connection' }}</div>
                     <div class="client-meta">
                         <span>🖥 {{ c.server_name }}</span>
-                        {% if c.server_status == 'online' %}
-                        <span class="badge badge-success" style="font-size:0.65rem;" title="{{ _('server_operational_desc') }}">🟢 {{ _('status_online') }}</span>
-                        {% elif c.server_status == 'degraded' %}
-                        <span class="badge badge-warn" style="font-size:0.65rem;" title="{{ _('server_degraded_desc') }}">🟡 {{ _('status_degraded') }}</span>
-                        {% elif c.server_status == 'offline' %}
-                        <span class="badge badge-danger" style="font-size:0.65rem;" title="{{ _('server_offline_desc') }}">🔴 {{ _('status_offline') }}</span>
-                        {% elif c.server_status == 'pending' %}
-                        <span class="badge badge-secondary" style="font-size:0.65rem;" title="{{ _('server_pending_desc') }}">⏱ {{ _('status_pending') }}</span>
-                        {% endif %}
                         <span class="badge badge-info" style="font-size:0.65rem;">
                             {{ 'AmneziaWG' if c.protocol == 'awg' else ('Xray' if c.protocol == 'xray' else c.protocol | upper) }}
                         </span>
@@ -382,16 +373,6 @@
         const mimicryBadge = (conn.protocol === 'awg' && conn.awg_mimicry)
             ? `<span class="badge badge-info" style="font-size:0.65rem;">🛡 ${escapeHtml(conn.awg_mimicry.toUpperCase())}</span>`
             : '';
-        let statusBadge = '';
-        if (conn.server_status === 'online') {
-            statusBadge = `<span class="badge badge-success" style="font-size:0.65rem;" title="{{ _('server_operational_desc') }}">🟢 {{ _('status_online') }}</span>`;
-        } else if (conn.server_status === 'degraded') {
-            statusBadge = `<span class="badge badge-warn" style="font-size:0.65rem;" title="{{ _('server_degraded_desc') }}">🟡 {{ _('status_degraded') }}</span>`;
-        } else if (conn.server_status === 'offline') {
-            statusBadge = `<span class="badge badge-danger" style="font-size:0.65rem;" title="{{ _('server_offline_desc') }}">🔴 {{ _('status_offline') }}</span>`;
-        } else if (conn.server_status === 'pending') {
-            statusBadge = `<span class="badge badge-secondary" style="font-size:0.65rem;" title="{{ _('server_pending_desc') }}">⏱ {{ _('status_pending') }}</span>`;
-        }
         const topClass = isTopConsumer ? ' top-consumer' : '';
         return `
         <div class="client-item${topClass}" data-conn-id="${connId}" data-id="${connId}">
@@ -401,7 +382,6 @@
                     <div class="client-name">${name}</div>
                     <div class="client-meta">
                         <span>🖥 ${serverName}</span>
-                        ${statusBadge}
                         <span class="badge badge-info" style="font-size:0.65rem;">
                             ${protoLabel}
                         </span>
