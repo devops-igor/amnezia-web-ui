@@ -631,7 +631,7 @@ class TestGenerateAwgParamsCPS:
         """Standard profile includes I1 as <b 0x...> QUIC Initial, I2-I5 empty, no cps."""
         params = generate_awg_params(profile="standard")
         assert params["i1"].startswith("<b 0x"), f"I1 format: {params['i1'][:50]}"
-        assert len(params["i1"]) >= 2400  # 1200 bytes hex
+        assert len(params["i1"]) == 438  # 216 bytes hex (<b 0x432hex>)
         assert params["i2"] == ""
         assert params["i3"] == ""
         assert params["i4"] == ""
