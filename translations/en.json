@@ -401,5 +401,15 @@
   "rotate_profile": "Rotate Profile",
   "connection_kit": "Connection Kit",
   "connection_kit_desc": "Multi-profile configs for instant DPI failover",
-  "expires_at_label": "Expiration Date"
+  "expires_at_label": "Expiration Date",
+  "status_online": "Online",
+  "status_degraded": "Degraded",
+  "status_offline": "Unavailable",
+  "status_pending": "Checking...",
+  "network_health": "Network Health",
+  "network_health_desc": "Real-time server operational status",
+  "server_operational_desc": "Server is operational and reachable",
+  "server_degraded_desc": "Some connection protocols may experience issues",
+  "server_offline_desc": "Server is currently unavailable",
+  "server_pending_desc": "Checking server availability..."
 }

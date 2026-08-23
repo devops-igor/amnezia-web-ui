@@ -24,6 +24,7 @@ class TestApiListServers:
                 "id": "admin-1",
                 "username": "admin",
                 "password_hash": "hashed",
+                "role": "admin",
                 "enabled": True,
                 "traffic_limit": 0,
                 "traffic_used": 0,
@@ -82,6 +83,7 @@ class TestApiListServers:
                 "id": "admin-1",
                 "username": "admin",
                 "password_hash": "hashed",
+                "role": "admin",
                 "enabled": True,
                 "traffic_limit": 0,
                 "traffic_used": 0,
@@ -137,6 +139,7 @@ class TestApiListServers:
                 "id": "admin-1",
                 "username": "admin",
                 "password_hash": "hashed",
+                "role": "admin",
                 "enabled": True,
                 "traffic_limit": 0,
                 "traffic_used": 0,
@@ -188,3 +191,45 @@ class TestApiListServers:
             conn = srv_db._get_conn()
             conn.close()
             os.unlink(srv_db.db_path)
+
+    @patch("app.routers.servers.get_db")
+    def test_api_list_servers_user_role_sanitizes_host(self, mock_get_db):
+        """GET /api/servers for role 'user' hides host and credentials."""
+        import app
+
+        user_db = Database(tempfile.NamedTemporaryFile(suffix=".db", delete=False).name)
+        user_db.create_user(
+            {
+                "id": "user-regular",
+                "username": "user1",
+                "password_hash": "hashed",
+                "role": "user",
+                "enabled": True,
+                "traffic_limit": 0,
+                "traffic_used": 0,
+                "limits": {},
+            }
+        )
+        user_db.create_server(
+            {
+                "name": "Secret Server",
+                "host": "secret.example.com",
+                "username": "root",
+                "protocols": {"awg": {"installed": True}},
+            }
+        )
+        mock_get_db.return_value = user_db
+        app.app.dependency_overrides[get_current_user] = lambda: user_db.get_user("user-regular")
+        try:
+            client = create_csrf_client()
+            response = client.get("/api/servers")
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data) == 1
+            assert data[0]["host"] == ""
+            assert data[0]["name"] == "Secret Server"
+        finally:
+            app.app.dependency_overrides.clear()
+            conn = user_db._get_conn()
+            conn.close()
+            os.unlink(user_db.db_path)

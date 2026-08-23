@@ -364,5 +364,15 @@
   "rotate_profile": "轮换伪装",
   "connection_kit": "连接套件",
   "connection_kit_desc": "用于即时 DPI 绕过的多配置套件",
-  "expires_at_label": "到期时间"
+  "expires_at_label": "到期时间",
+  "status_online": "在线",
+  "status_degraded": "降级",
+  "status_offline": "不可用",
+  "status_pending": "检查中...",
+  "network_health": "网络健康状况",
+  "network_health_desc": "实时服务器运行状态",
+  "server_operational_desc": "服务器运行正常且可访问",
+  "server_degraded_desc": "部分连接协议可能存在异常",
+  "server_offline_desc": "服务器当前不可用",
+  "server_pending_desc": "正在检查服务器可用性..."
 }

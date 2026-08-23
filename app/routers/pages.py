@@ -6,7 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from app.utils.helpers import get_leaderboard_entries
+from app.utils.helpers import get_leaderboard_entries, sanitize_server_for_user
 from app.utils.templates import tpl
 from app.core.config import get_db
 from app.core.dependencies import get_current_user, get_current_user_optional
@@ -87,19 +87,48 @@ async def users_page(request: Request, user: dict = Depends(get_current_user)):
 
 @router.get("/my", response_class=HTMLResponse)
 async def my_connections_page(request: Request, user: dict = Depends(get_current_user)):
+    from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
     db = get_db()
+    raw_servers = db.get_all_servers()
+    cached_reach = BackgroundTaskOrchestrator.get_cached_server_reachability()
+
+    servers_map = {}
+    sanitized_servers = []
+    simplified_reachability = {}
+    for srv in raw_servers:
+        sid = srv.get("id")
+        r_info = cached_reach.get(sid) or cached_reach.get(str(sid))
+        s_clean = sanitize_server_for_user(srv, r_info)
+        sanitized_servers.append(s_clean)
+        servers_map[sid] = s_clean
+        simplified_reachability[sid] = {
+            "status": s_clean["status"],
+            "latency_ms": s_clean["latency_ms"],
+            "last_checked": s_clean["last_checked"],
+            "reachable": s_clean["reachable"],
+        }
+
     conns = db.get_connections_by_user(user["id"])
-    # Enrich with server names
     for c in conns:
         sid = c.get("server_id", 0)
-        srv = db.get_server_by_id(sid)
-        if srv:
-            c["server_name"] = srv.get("name", srv.get("host", ""))
+        srv_clean = servers_map.get(sid)
+        if srv_clean:
+            c["server_name"] = srv_clean["name"]
+            c["server_status"] = srv_clean["status"]
+            c["server_reachable"] = srv_clean["reachable"]
         else:
-            c["server_name"] = "Unknown"
-    # Add explicit id to each server for template
-    servers = db.get_all_servers()
-    return tpl(request, "my_connections.html", connections=conns, servers=servers)
+            c["server_name"] = f"Server #{sid}" if sid else "Unknown"
+            c["server_status"] = "unknown"
+            c["server_reachable"] = False
+
+    return tpl(
+        request,
+        "my_connections.html",
+        connections=conns,
+        servers=sanitized_servers,
+        server_reachability=simplified_reachability,
+    )
 
 
 @router.get("/leaderboard", response_class=HTMLResponse)

@@ -402,5 +402,15 @@
   "rotate_profile": "Сменить маскировку",
   "connection_kit": "Набор конфигураций",
   "connection_kit_desc": "Альтернативные профили маскировки для быстрого обхода блокировок",
-  "expires_at_label": "Срок действия"
+  "expires_at_label": "Срок действия",
+  "status_online": "Онлайн",
+  "status_degraded": "Частично доступен",
+  "status_offline": "Недоступен",
+  "status_pending": "Проверка...",
+  "network_health": "Состояние сети",
+  "network_health_desc": "Текущий статус доступности серверов",
+  "server_operational_desc": "Сервер работает в штатном режиме",
+  "server_degraded_desc": "Некоторые протоколы подключения могут работать нестабильно",
+  "server_offline_desc": "Сервер временно недоступен",
+  "server_pending_desc": "Проверка доступности сервера..."
 }
