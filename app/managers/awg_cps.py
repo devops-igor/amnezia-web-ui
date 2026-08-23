@@ -132,12 +132,12 @@ def _rand_private_ip():
 
 
 def gen_quic_initial(domain=None):
-    """Generate a realistic QUIC Initial packet (exactly 1200 bytes).
+    """Generate a realistic QUIC Initial packet (compact 216 bytes).
 
     Mimics Chrome's QUIC fingerprint: first byte 0xC0 or 0xC3,
-    DCID=8B random, SCID=8B random, token=0, padded to 1200 bytes.
+    DCID=8B random, SCID=8B random, token=0, compact realistic Initial.
     """
-    TARGET = 1200
+    TARGET = 216
     fb = _rc([0xC0, 0xC0, 0xC0, 0xC3])
     pn_len = (fb & 0x03) + 1
     dcid = _rh(8)

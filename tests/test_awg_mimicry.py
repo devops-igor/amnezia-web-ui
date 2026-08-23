@@ -29,8 +29,8 @@ class TestMimicryGenerators:
     def test_gen_quic_initial_format(self):
         pkt = gen_quic_initial("google.com")
         assert isinstance(pkt, bytes)
-        # Total byte length of QUIC Initial should be 1200 bytes
-        assert len(pkt) == 1200
+        # Total byte length of compact QUIC Initial should be 216 bytes
+        assert len(pkt) == 216
         assert pkt[0] in (0xC0, 0xC3)
 
     def test_gen_dns_format(self):

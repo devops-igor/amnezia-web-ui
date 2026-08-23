@@ -29,10 +29,10 @@ class TestBinaryPacketGenerators:
     """Tests for raw binary packet generators."""
 
     def test_gen_quic_initial_size(self):
-        """gen_quic_initial() produces exactly 1200 bytes."""
+        """gen_quic_initial() produces exactly 216 bytes."""
         for _ in range(20):
             pkt = gen_quic_initial()
-            assert len(pkt) == 1200, f"QUIC Initial packet size: {len(pkt)}, expected 1200"
+            assert len(pkt) == 216, f"QUIC Initial packet size: {len(pkt)}, expected 216"
 
     def test_gen_quic_initial_first_byte(self):
         """QUIC Initial first byte is 0xC0 or 0xC3 (mimics Chrome)."""
@@ -82,12 +82,12 @@ class TestToCpsFormat:
         assert result == "<b 0x>"
 
     def test_to_cps_large_packet(self):
-        """1200 byte QUIC packet produces valid tag."""
+        """216 byte QUIC packet produces valid tag."""
         pkt = gen_quic_initial()
         tag = to_cps(pkt)
         assert tag.startswith("<b 0x")
         assert tag.endswith(">")
-        assert len(tag) == 2406  # "<b 0x" (5) + 2400 hex chars + ">" (1)
+        assert len(tag) == 438  # "<b 0x" (5) + 432 hex chars + ">" (1)
 
 
 class TestCPSPacketGeneration:
@@ -112,8 +112,8 @@ class TestCPSPacketGeneration:
             assert len(result) == 5
             assert "cps" not in result
             assert HEX_BLOB_RE.match(result["i1"]), f"I1 format: {result['i1'][:80]}"
-            # QUIC Initial = 1200 bytes = 2400 hex chars in <b 0x...>
-            assert len(result["i1"]) >= 2400, f"I1 too short: {len(result['i1'])}"
+            # QUIC Initial = 216 bytes = 432 hex chars in <b 0x...>
+            assert len(result["i1"]) == 438, f"I1 length: {len(result['i1'])}"
             assert result["i2"] == ""
             assert result["i3"] == ""
             assert result["i4"] == ""
@@ -130,8 +130,8 @@ class TestCPSPacketGeneration:
             assert HEX_BLOB_RE.match(result["i3"]), f"I3 format: {result['i3'][:80]}"
             assert HEX_BLOB_RE.match(result["i4"]), f"I4 format: {result['i4'][:80]}"
             assert HEX_BLOB_RE.match(result["i5"]), f"I5 format: {result['i5'][:80]}"
-            # I1 = 1200 bytes, I2-I5 = 50-103 bytes each
-            assert len(result["i1"]) >= 2400
+            # I1 = 216 bytes (438 chars in <b 0x...>), I2-I5 = 50-103 bytes each
+            assert len(result["i1"]) == 438
             assert 100 <= len(result["i2"]) <= 250
 
     def test_no_cps_key_in_result(self):
