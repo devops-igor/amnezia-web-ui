@@ -308,6 +308,49 @@ class TestMyConnectionsHealthAndPrivacy:
         finally:
             app.app.dependency_overrides.clear()
 
+    @patch("app.routers.pages.get_db")
+    @patch(
+        "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
+    )
+    def test_my_page_connection_cards_have_no_status_badge(self, mock_reach, mock_get_db):
+        """Connection cards in /my must not render status badges (Issue #361)."""
+        import app
+
+        mock_get_db.return_value = self.db
+        mock_reach.return_value = {
+            self.server1_id: {
+                "reachable": True,
+                "latency_ms": 18,
+                "last_checked": "2026-08-23T12:00:00",
+            },
+        }
+        app.app.dependency_overrides[get_current_user] = lambda: self.db.get_user("user-100")
+        try:
+            client = create_csrf_client()
+            response = client.get("/my")
+            assert response.status_code == 200
+            html = response.text
+
+            # Connection card area
+            connections_pos = html.find('id="myConnectionsList"')
+            assert connections_pos != -1
+            cards_html = html[connections_pos : html.find('id="emptyState"')]
+
+            # Assert connection card contains server name & protocol badge
+            assert "Stockholm Node" in cards_html
+            assert "AmneziaWG" in cards_html
+
+            # Assert connection card does NOT contain status badges
+            assert "badge-success" not in cards_html
+            assert "badge-warn" not in cards_html
+            assert "badge-danger" not in cards_html
+            assert "badge-secondary" not in cards_html
+
+            # Also verify renderConnectionItem in JS template does not include statusBadge
+            assert "statusBadge" not in html
+        finally:
+            app.app.dependency_overrides.clear()
+
     @patch("app.routers.connections.get_db")
     @patch(
         "app.services.background_orchestrator.BackgroundTaskOrchestrator.get_cached_server_reachability"
