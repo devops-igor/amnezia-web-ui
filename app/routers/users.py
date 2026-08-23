@@ -360,5 +360,7 @@ async def api_get_user_connections(
         sid = c.get("server_id", 0)
         srv = db.get_server_by_id(sid)
         if srv:
-            c["server_name"] = srv.get("name", "")
+            c["server_name"] = srv.get("name") or f"Server #{sid}"
+        else:
+            c["server_name"] = f"Server #{sid}" if sid else "Unknown"
     return {"connections": conns}

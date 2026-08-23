@@ -106,7 +106,7 @@ async def api_share_connections(token: str, request: Request):
         sid = c["server_id"]
         srv = db.get_server_by_id(sid)
         if srv:
-            c["server_name"] = srv.get("name") or srv["host"]
+            c["server_name"] = srv.get("name") or f"Server #{sid}"
         else:
             c["server_name"] = "Unknown"
 

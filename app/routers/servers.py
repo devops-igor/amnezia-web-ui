@@ -12,9 +12,11 @@ from fastapi.responses import JSONResponse
 
 from app.utils.helpers import (
     _sanitize_error,
+    compute_simplified_server_health,
     generate_vpn_link,
     get_protocol_manager,
     get_ssh,
+    sanitize_server_for_user,
 )
 from app.utils.rate_limiter import limiter
 from app.core.config import get_db
@@ -49,7 +51,28 @@ async def api_list_servers(request: Request, user: dict = Depends(get_current_us
     """Return all servers as JSON (sensitive fields stripped)."""
     db = get_db()
     servers = db.get_all_servers()
-    # Strip decrypted credentials from API response â€” they are for SSHManager only
+    if user.get("role") not in ("admin", "support"):
+        from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+        cached_reach = BackgroundTaskOrchestrator.get_cached_server_reachability()
+        sanitized = []
+        for srv in servers:
+            r_info = cached_reach.get(srv["id"]) or cached_reach.get(str(srv["id"]))
+            s_clean = sanitize_server_for_user(srv, r_info)
+            sanitized.append(
+                ServerItemResponse(
+                    id=s_clean["id"],
+                    name=s_clean["name"],
+                    host="",
+                    ssh_port=0,
+                    username="",
+                    server_info="",
+                    protocols=s_clean["protocols"],
+                )
+            )
+        return sanitized
+
+    # Strip decrypted credentials from API response — they are for SSHManager only
     for server in servers:
         server.pop("password", None)
         server.pop("private_key", None)
@@ -755,6 +778,19 @@ async def api_server_reachability(
 
         cached = BackgroundTaskOrchestrator.get_cached_server_reachability()
         server_status = cached.get(server_id) or cached.get(str(server_id))
+        if user.get("role") not in ("admin", "support"):
+            status, latency_ms, last_checked, reachable = compute_simplified_server_health(
+                server_status
+            )
+            return {
+                "status": "success",
+                "reachability": {
+                    "status": status,
+                    "latency_ms": latency_ms,
+                    "last_checked": last_checked,
+                    "reachable": reachable,
+                },
+            }
         return {"status": "success", "reachability": server_status}
     except Exception as e:
         logger.exception("Error getting server reachability")

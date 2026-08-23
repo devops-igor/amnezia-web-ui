@@ -19,6 +19,58 @@
         </div>
     </div>
 
+    {# Network Health / Server Status Section #}
+    {% if servers %}
+    <div class="card" style="margin-bottom: var(--space-lg); padding: var(--space-md);">
+        <div class="flex items-center justify-between" style="margin-bottom: var(--space-xs); flex-wrap: wrap; gap: var(--space-xs);">
+            <div class="flex items-center gap-sm">
+                <span style="font-size: 1.25rem;">📡</span>
+                <div>
+                    <h2 style="margin: 0; font-size: 1rem; font-weight: 600;">{{ _('network_health') }}</h2>
+                    <p style="margin: 0; font-size: 0.8125rem; color: var(--color-text-muted, #94a3b8);">{{ _('network_health_desc') }}</p>
+                </div>
+            </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; margin-top: 0.75rem;">
+            {% for srv in servers %}
+            <div style="background: var(--color-surface-hover, rgba(255,255,255,0.03)); padding: 0.6rem 0.8rem; border-radius: var(--radius-sm, 6px); border: 1px solid var(--color-border, rgba(255,255,255,0.08));">
+                <div class="flex items-center justify-between" style="margin-bottom: 0.25rem;">
+                    <span style="font-weight: 600; font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">🖥 {{ srv.name }}</span>
+                    {% if srv.status == 'online' %}
+                    <span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ _('server_operational_desc') }}">
+                        <span class="badge-dot"></span> {{ _('status_online') }}{% if srv.latency_ms is not none %} · {{ srv.latency_ms }}ms{% endif %}
+                    </span>
+                    {% elif srv.status == 'degraded' %}
+                    <span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ _('server_degraded_desc') }}">
+                        <span class="badge-dot"></span> {{ _('status_degraded') }}{% if srv.latency_ms is not none %} · {{ srv.latency_ms }}ms{% endif %}
+                    </span>
+                    {% elif srv.status == 'offline' %}
+                    <span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ _('server_offline_desc') }}">
+                        <span class="badge-dot"></span> {{ _('status_offline') }}
+                    </span>
+                    {% else %}
+                    <span class="badge badge-secondary" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ _('server_pending_desc') }}">
+                        <span class="badge-dot"></span> {{ _('status_pending') }}
+                    </span>
+                    {% endif %}
+                </div>
+                <div style="font-size: 0.75rem; color: var(--color-text-muted, #94a3b8);">
+                    {% if srv.status == 'online' %}
+                    <span>{{ _('server_operational_desc') }}</span>
+                    {% elif srv.status == 'degraded' %}
+                    <span>{{ _('server_degraded_desc') }}</span>
+                    {% elif srv.status == 'offline' %}
+                    <span>{{ _('server_offline_desc') }}</span>
+                    {% else %}
+                    <span>{{ _('server_pending_desc') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     {# Always render the list container so JS can insert into it without reload #}
     <div class="clients-list{% if not connections %} hidden{% endif %}" id="myConnectionsList">
         {% for c in connections %}
@@ -29,9 +81,21 @@
                     <div class="client-name">{{ c.name or 'VPN Connection' }}</div>
                     <div class="client-meta">
                         <span>🖥 {{ c.server_name }}</span>
+                        {% if c.server_status == 'online' %}
+                        <span class="badge badge-success" style="font-size:0.65rem;" title="{{ _('server_operational_desc') }}">🟢 {{ _('status_online') }}</span>
+                        {% elif c.server_status == 'degraded' %}
+                        <span class="badge badge-warn" style="font-size:0.65rem;" title="{{ _('server_degraded_desc') }}">🟡 {{ _('status_degraded') }}</span>
+                        {% elif c.server_status == 'offline' %}
+                        <span class="badge badge-danger" style="font-size:0.65rem;" title="{{ _('server_offline_desc') }}">🔴 {{ _('status_offline') }}</span>
+                        {% elif c.server_status == 'pending' %}
+                        <span class="badge badge-secondary" style="font-size:0.65rem;" title="{{ _('server_pending_desc') }}">⏱ {{ _('status_pending') }}</span>
+                        {% endif %}
                         <span class="badge badge-info" style="font-size:0.65rem;">
                             {{ 'AmneziaWG' if c.protocol == 'awg' else ('Xray' if c.protocol == 'xray' else c.protocol | upper) }}
                         </span>
+                        {% if c.protocol == 'awg' and c.awg_mimicry %}
+                        <span class="badge badge-info" style="font-size:0.65rem;">🛡 {{ c.awg_mimicry | upper }}</span>
+                        {% endif %}
                         {% if c.created_at %}
                         <span>📅 {{ c.created_at[:10] }}</span>
                         {% endif %}
@@ -139,7 +203,7 @@
                 <select class="form-select" id="createServerSelect" required onchange="onServerSelected()">
                     <option value="">- {{ _('select') }} -</option>
                     {% for srv in servers %}
-                    <option value="{{ srv.id }}" data-protocols="{{ srv.protocols | tojson | safe }}">{{ srv.name or srv.host }}</option>
+                    <option value="{{ srv.id }}" data-protocols="{{ srv.protocols | tojson | safe }}">{{ srv.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -318,6 +382,16 @@
         const mimicryBadge = (conn.protocol === 'awg' && conn.awg_mimicry)
             ? `<span class="badge badge-info" style="font-size:0.65rem;">🛡 ${escapeHtml(conn.awg_mimicry.toUpperCase())}</span>`
             : '';
+        let statusBadge = '';
+        if (conn.server_status === 'online') {
+            statusBadge = `<span class="badge badge-success" style="font-size:0.65rem;" title="{{ _('server_operational_desc') }}">🟢 {{ _('status_online') }}</span>`;
+        } else if (conn.server_status === 'degraded') {
+            statusBadge = `<span class="badge badge-warn" style="font-size:0.65rem;" title="{{ _('server_degraded_desc') }}">🟡 {{ _('status_degraded') }}</span>`;
+        } else if (conn.server_status === 'offline') {
+            statusBadge = `<span class="badge badge-danger" style="font-size:0.65rem;" title="{{ _('server_offline_desc') }}">🔴 {{ _('status_offline') }}</span>`;
+        } else if (conn.server_status === 'pending') {
+            statusBadge = `<span class="badge badge-secondary" style="font-size:0.65rem;" title="{{ _('server_pending_desc') }}">⏱ {{ _('status_pending') }}</span>`;
+        }
         const topClass = isTopConsumer ? ' top-consumer' : '';
         return `
         <div class="client-item${topClass}" data-conn-id="${connId}" data-id="${connId}">
@@ -327,6 +401,7 @@
                     <div class="client-name">${name}</div>
                     <div class="client-meta">
                         <span>🖥 ${serverName}</span>
+                        ${statusBadge}
                         <span class="badge badge-info" style="font-size:0.65rem;">
                             ${protoLabel}
                         </span>

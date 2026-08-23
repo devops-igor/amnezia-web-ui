@@ -8,7 +8,13 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 
-from app.utils.helpers import _sanitize_error, generate_vpn_link, get_ssh, get_protocol_manager
+from app.utils.helpers import (
+    _sanitize_error,
+    generate_vpn_link,
+    get_ssh,
+    get_protocol_manager,
+    sanitize_server_for_user,
+)
 from app.core.config import get_db
 from app.core.dependencies import get_current_user
 from app.models.schemas import MyAddConnectionRequest, RenameConnectionRequest, normalize_protocol
@@ -20,15 +26,30 @@ router = APIRouter(prefix="/api/my/connections")
 
 @router.get("")
 async def api_my_connections(request: Request, user: dict = Depends(get_current_user)):
+    from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
     db = get_db()
     conns = db.get_connections_by_user(user["id"])
+    raw_servers = db.get_all_servers()
+    cached_reach = BackgroundTaskOrchestrator.get_cached_server_reachability()
+
+    servers_map = {}
+    for srv in raw_servers:
+        sid = srv.get("id")
+        r_info = cached_reach.get(sid) or cached_reach.get(str(sid))
+        servers_map[sid] = sanitize_server_for_user(srv, r_info)
+
     for c in conns:
         sid = c.get("server_id", 0)
-        srv = db.get_server_by_id(sid)
-        if srv:
-            c["server_name"] = srv.get("name", srv.get("host", ""))
+        srv_clean = servers_map.get(sid)
+        if srv_clean:
+            c["server_name"] = srv_clean["name"]
+            c["server_status"] = srv_clean["status"]
+            c["server_reachable"] = srv_clean["reachable"]
         else:
-            c["server_name"] = "Unknown"
+            c["server_name"] = f"Server #{sid}" if sid else "Unknown"
+            c["server_status"] = "unknown"
+            c["server_reachable"] = False
 
     # Include effective limits for the frontend
     settings = db.get_all_settings()
@@ -191,8 +212,15 @@ async def api_my_add_connection(
             db.create_connection(new_conn)
             db.log_connection_creation(user["id"])
 
-            # Enrich connection with server_name for frontend
-            new_conn["server_name"] = server.get("name", server.get("host", "Unknown"))
+            # Enrich connection with server_name and status for frontend
+            from app.services.background_orchestrator import BackgroundTaskOrchestrator
+
+            cached_reach = BackgroundTaskOrchestrator.get_cached_server_reachability()
+            r_info = cached_reach.get(req.server_id) or cached_reach.get(str(req.server_id))
+            srv_clean = sanitize_server_for_user(server, r_info)
+            new_conn["server_name"] = srv_clean["name"]
+            new_conn["server_status"] = srv_clean["status"]
+            new_conn["server_reachable"] = srv_clean["reachable"]
 
             # Build response
             response = {

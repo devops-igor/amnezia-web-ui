@@ -278,3 +278,67 @@ def format_bytes(n: int | float | None) -> str:
 
     result = f"{n:.2f} EB"
     return f"-{result}" if negative else result
+
+
+def compute_simplified_server_health(
+    reach_info: dict | None,
+) -> tuple[str, int | None, str | None, bool | None]:
+    """Compute simplified status, latency_ms, last_checked, and reachable boolean.
+
+    Args:
+        reach_info: Raw reachability dict from BackgroundTaskOrchestrator.
+
+    Returns:
+        tuple of (status, latency_ms, last_checked, reachable)
+        where status is 'online', 'degraded', 'offline', or 'pending'.
+    """
+    if reach_info is None:
+        return "pending", None, None, None
+    if not reach_info.get("reachable", False):
+        return "offline", None, reach_info.get("last_checked"), False
+
+    latency_ms = reach_info.get("latency_ms")
+    last_checked = reach_info.get("last_checked")
+    auto_trials = reach_info.get("auto_trials") or {}
+
+    # If auto_trials has results and any profile failed while server is reachable -> degraded
+    if auto_trials:
+        valid_trials = [t for t in auto_trials.values() if isinstance(t, dict)]
+        if valid_trials and any(not t.get("reachable", False) for t in valid_trials):
+            return "degraded", latency_ms, last_checked, True
+
+    return "online", latency_ms, last_checked, True
+
+
+def sanitize_server_for_user(server: dict, reach_info: dict | None = None) -> dict:
+    """Sanitize server dictionary for regular user view.
+
+    Strips host, IP, SSH credentials, private keys, etc.
+    Provides friendly name fallback and simplified health metrics.
+    """
+    sid = server.get("id")
+    name = server.get("name")
+    if not name or not str(name).strip():
+        name = f"Server #{sid}"
+
+    status, latency_ms, last_checked, reachable = compute_simplified_server_health(reach_info)
+
+    # Sanitize protocols: only preserve installed flags and protocol names
+    raw_protocols = server.get("protocols") or {}
+    sanitized_protocols = {}
+    if isinstance(raw_protocols, dict):
+        for proto, info in raw_protocols.items():
+            if isinstance(info, dict):
+                sanitized_protocols[proto] = {"installed": bool(info.get("installed", False))}
+            else:
+                sanitized_protocols[proto] = {"installed": bool(info)}
+
+    return {
+        "id": sid,
+        "name": name,
+        "protocols": sanitized_protocols,
+        "status": status,
+        "latency_ms": latency_ms,
+        "last_checked": last_checked,
+        "reachable": reachable,
+    }

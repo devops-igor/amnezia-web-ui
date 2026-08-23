@@ -365,5 +365,15 @@
   "rotate_profile": "Changer le profil",
   "connection_kit": "Kit de connexion",
   "connection_kit_desc": "Profils alternatifs pour contournement instantané du DPI",
-  "expires_at_label": "Date d'expiration"
+  "expires_at_label": "Date d'expiration",
+  "status_online": "En ligne",
+  "status_degraded": "Dégradé",
+  "status_offline": "Indisponible",
+  "status_pending": "Vérification...",
+  "network_health": "Santé du réseau",
+  "network_health_desc": "État opérationnel des serveurs en temps réel",
+  "server_operational_desc": "Le serveur est opérationnel et accessible",
+  "server_degraded_desc": "Certains protocoles de connexion peuvent rencontrer des problèmes",
+  "server_offline_desc": "Le serveur est actuellement indisponible",
+  "server_pending_desc": "Vérification de la disponibilité du serveur..."
 }

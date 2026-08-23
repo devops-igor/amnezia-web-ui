@@ -365,5 +365,15 @@
   "rotate_profile": "چرخش پروفایل",
   "connection_kit": "بسته پیکربندی اتصال",
   "connection_kit_desc": "پروفایل‌های جایگزین برای دور زدن فوری DPI",
-  "expires_at_label": "تاریخ انقضا"
+  "expires_at_label": "تاریخ انقضا",
+  "status_online": "آنلاین",
+  "status_degraded": "مختل شده",
+  "status_offline": "آفلاین",
+  "status_pending": "در حال بررسی...",
+  "network_health": "سلامت شبکه",
+  "network_health_desc": "وضعیت لحظه‌ای عملکرد سرورها",
+  "server_operational_desc": "سرور فعال و در دسترس است",
+  "server_degraded_desc": "برخی از پروتکل‌های اتصال ممکن است با اختلال مواجه شوند",
+  "server_offline_desc": "سرور در حال حاضر در دسترس نیست",
+  "server_pending_desc": "در حال بررسی وضعیت سرور..."
 }
