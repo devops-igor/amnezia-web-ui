@@ -447,8 +447,10 @@ class TestAWGHandshakeLive:
                             srv_sock.sendto(resp_packet, addr)
                 except socket.timeout:
                     continue
-                except Exception:
+                except OSError:
                     break
+                except Exception:
+                    continue
 
         th = threading.Thread(target=srv_loop, daemon=True)
         th.start()
@@ -875,8 +877,10 @@ class TestAWGHandshakeRangeLive:
                             srv_sock.sendto(resp_packet, addr)
                 except socket.timeout:
                     continue
-                except Exception:
+                except OSError:
                     break
+                except Exception:
+                    continue
 
         th = threading.Thread(target=srv_loop, daemon=True)
         th.start()
