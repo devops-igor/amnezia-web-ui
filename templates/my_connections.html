@@ -4,21 +4,6 @@
 
 {% block content %}
 <section>
-    <div class="flex items-center justify-between" style="margin-bottom: var(--space-lg); flex-wrap: wrap; gap: var(--space-md);">
-        <h1 class="section-title" style="margin-bottom:0;">
-            <span class="icon">🔗</span>
-            {{ _('my_connections_title') }}
-        </h1>
-        <div class="flex items-center gap-sm">
-            <button class="btn btn-secondary btn-sm sort-toggle" id="sortToggle" onclick="toggleSortOrder()">
-                📊 {{ _('sort_by_traffic') }}
-            </button>
-            <button class="btn btn-primary" onclick="openCreateConnectionModal()">
-                <span>+</span> {{ _('create_connection') }}
-            </button>
-        </div>
-    </div>
-
     {# Network Health / Server Status Section #}
     {% if servers %}
     <div class="card" style="margin-bottom: var(--space-lg); padding: var(--space-md);">
@@ -70,6 +55,21 @@
         </div>
     </div>
     {% endif %}
+
+    <div class="flex items-center justify-between" style="margin-bottom: var(--space-lg); flex-wrap: wrap; gap: var(--space-md);">
+        <h1 class="section-title" style="margin-bottom:0;">
+            <span class="icon">🔗</span>
+            {{ _('my_connections_title') }}
+        </h1>
+        <div class="flex items-center gap-sm">
+            <button class="btn btn-secondary btn-sm sort-toggle" id="sortToggle" onclick="toggleSortOrder()">
+                📊 {{ _('sort_by_traffic') }}
+            </button>
+            <button class="btn btn-primary" onclick="openCreateConnectionModal()">
+                <span>+</span> {{ _('create_connection') }}
+            </button>
+        </div>
+    </div>
 
     {# Always render the list container so JS can insert into it without reload #}
     <div class="clients-list{% if not connections %} hidden{% endif %}" id="myConnectionsList">
