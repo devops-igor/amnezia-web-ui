@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block title_extra %} — {{ _('leaderboard_title') }}{% endblock %}
+
+{% block content %}
+<section class="leaderboard-section">
+    {# Header row #}
+    <div class="flex items-center justify-between"
+        style="gap: var(--space-md); flex-wrap: wrap;">
+        <h1 class="section-title" style="margin-bottom:0; flex-shrink: 0;">
+            <span class="icon">🏆</span>
+            {{ _('leaderboard_title') }}
+        </h1>
+
+        <div class="leaderboard-period-toggle">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">{{ _('period_label') }}:</span>
+            <button class="btn btn-sm" id="period-all"
+                onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
+            <button class="btn btn-sm" id="period-month"
+                onclick="switchPeriod('monthly')">{{ _('period_monthly') }}</button>
+            <button class="btn btn-sm" id="period-last"
+                onclick="switchPeriod('last-month')">{{ _('period_last_month') }}</button>
+            <span id="monthly-label"
+                style="color: var(--text-muted); font-size: 0.85rem;{% if not monthly_label %} display: none;{% endif %}">{{ monthly_label if monthly_label else '' }}</span>
+        </div>
+    </div>
+
+    {# Your rank card — always rendered, JS shows only when user has rank #}
+    <div id="your-rank-card" class="leaderboard-rank-card" style="display: none;">
+        <div class="leaderboard-rank-icon">🎯</div>
+        <div class="leaderboard-rank-info">
+            <div class="leaderboard-rank-label">{{ _('your_rank') }}</div>
+            <div class="leaderboard-rank-value" id="your-rank-value">{{ '#' ~ current_user_rank if current_user_rank else '#—' }}</div>
+        </div>
+    </div>
+
+    {# Loading spinner #}
+    <div id="loading-spinner" style="display: none; text-align: center; padding: var(--space-xl);">
+        <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto;"></div>
+    </div>
+
+    {# Table #}
+    <div id="leaderboard-content">
+        {% if entries %}
+        <div class="table-container" id="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th class="rank-cell">#</th>
+                        <th>{{ _('username_label') }}</th>
+                        <th style="text-align: right;">{{ _('download_label') }}</th>
+                        <th style="text-align: right;">{{ _('upload_label') }}</th>
+                        <th style="text-align: right;">{{ _('total_label') }}</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboard-tbody">
+                    {% for entry in entries %}
+                    <tr class="{% if entry.username == current_user.username %}current-user{% endif %}">
+                        <td class="rank-cell">
+                            {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
+                        </td>
+                        <td class="username-cell">
+                            {{ entry.username }}
+                            {% if entry.username == current_user.username %}
+                            <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _('you_label') or 'you' }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="traffic-cell">{{ format_bytes(entry.download) }}</td>
+                        <td class="traffic-cell">{{ format_bytes(entry.upload) }}</td>
+                        <td class="traffic-cell">{{ format_bytes(entry.total) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">🏆</div>
+            <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+            <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+        </div>
+        {% endif %}
+    </div>
+
+    {# Dynamic empty state (hidden by default) #}
+    <div id="empty-state" class="empty-state" style="display: none;">
+        <div class="empty-icon">🏆</div>
+        <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
+        <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+    </div>
+</section>
+
+<script>
+let currentPeriod = '{{ period }}';
+
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+function updatePeriodButtons() {
+    const allBtn = document.getElementById('period-all');
+    const monthBtn = document.getElementById('period-month');
+    const lastBtn = document.getElementById('period-last');
+    if (allBtn && monthBtn && lastBtn) {
+        allBtn.className = 'btn btn-sm ' + (currentPeriod === 'all-time' ? 'btn-primary' : 'btn-secondary');
+        monthBtn.className = 'btn btn-sm ' + (currentPeriod === 'monthly' ? 'btn-primary' : 'btn-secondary');
+        lastBtn.className = 'btn btn-sm ' + (currentPeriod === 'last-month' ? 'btn-primary' : 'btn-secondary');
+    }
+}
+
+async function switchPeriod(period) {
+    if (period === currentPeriod) return;
+    currentPeriod = period;
+    updatePeriodButtons();
+
+    const spinner = document.getElementById('loading-spinner');
+    const tableContainer = document.getElementById('table-container');
+    const emptyState = document.getElementById('empty-state');
+    const yourRankCard = document.getElementById('your-rank-card');
+
+    if (spinner) spinner.style.display = 'block';
+    if (tableContainer) tableContainer.style.opacity = '0.4';
+    if (emptyState) emptyState.style.display = 'none';
+    if (yourRankCard) yourRankCard.style.display = 'none';
+
+    try {
+        const resp = await fetch('/api/leaderboard?period=' + encodeURIComponent(period));
+        if (!resp.ok) throw new Error('Failed to fetch');
+        const data = await resp.json();
+
+        if (spinner) spinner.style.display = 'none';
+
+        const tbody = document.getElementById('leaderboard-tbody');
+        const tableContainer2 = document.getElementById('table-container');
+
+        if (data.entries && data.entries.length > 0) {
+            if (tableContainer2) {
+                tableContainer2.style.display = 'block';
+                tableContainer2.style.opacity = '1';
+            }
+            if (emptyState) emptyState.style.display = 'none';
+
+            let html = '';
+            const currentUsername = '{{ current_user.username | e }}';
+            const youLabel = '{{ _("you_label") or "you" }}';
+            for (const entry of data.entries) {
+                const isCurrentUser = entry.username === currentUsername;
+                const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
+                html += '<tr class="' + (isCurrentUser ? 'current-user' : '') + '">';
+                html += '<td class="rank-cell">' + medal + '</td>';
+                html += '<td class="username-cell">' + escapeHtml(entry.username) + (isCurrentUser ? ' <span class="badge badge-primary" style="font-size: 0.7rem;">' + youLabel + '</span>' : '') + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.download) + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.upload) + '</td>';
+                html += '<td class="traffic-cell">' + formatBytes(entry.total) + '</td>';
+                html += '</tr>';
+            }
+            if (tbody) {
+                tbody.innerHTML = html;
+                if (tableContainer2) tableContainer2.style.opacity = '1';
+            }
+
+            if (data.current_user_rank) {
+                const yourRankCard = document.getElementById('your-rank-card');
+                const rankVal = document.getElementById('your-rank-value');
+                if (yourRankCard && rankVal) {
+                    yourRankCard.style.display = 'flex';
+                    rankVal.textContent = '#' + data.current_user_rank;
+                }
+            }
+
+            // Update monthly label
+            const monthlyLabelEl = document.getElementById('monthly-label');
+            if (monthlyLabelEl) {
+                if (data.monthly_label) {
+                    monthlyLabelEl.textContent = data.monthly_label;
+                    monthlyLabelEl.style.display = 'inline';
+                } else {
+                    monthlyLabelEl.style.display = 'none';
+                }
+            }
+        } else {
+            if (tableContainer2) tableContainer2.style.display = 'none';
+            if (emptyState) emptyState.style.display = 'block';
+        }
+    } catch (err) {
+        console.error('Failed to load leaderboard:', err);
+        if (spinner) spinner.style.display = 'none';
+        if (tableContainer) tableContainer.style.opacity = '1';
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    updatePeriodButtons();
+    // Show the card on initial load if user has a rank (current_user_rank is set server-side)
+    const initialRank = document.getElementById('your-rank-value');
+    const yourRankCard = document.getElementById('your-rank-card');
+    if (yourRankCard && initialRank && initialRank.textContent !== '#—') {
+        yourRankCard.style.display = 'flex';
+    }
+});
+</script>
+{% endblock %}

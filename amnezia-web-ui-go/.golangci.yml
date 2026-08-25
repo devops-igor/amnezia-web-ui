@@ -1,0 +1,44 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - gocyclo
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - revive
+    - staticcheck
+    - unused
+
+linters-settings:
+  gocyclo:
+    min-complexity: 25
+  gosec:
+    excludes:
+      - G101 # Ignore potential hardcoded credentials false positives on test strings/keys
+      - G115 # Potential integer overflow conversion false positives on standard port ints
+  revive:
+    rules:
+      - name: exported
+        disabled: false
+      - name: blank-imports
+        disabled: false
+      - name: var-naming
+        disabled: false
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - venv
+    - .venv
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gosec
+        - errcheck

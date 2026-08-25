@@ -3,10 +3,9 @@ venv/
 env/
 .venv/
 
-# PyInstaller folders
-build/
-dist/
-*.spec
+# Build output
+bin/
+
 
 # Python
 __pycache__/
