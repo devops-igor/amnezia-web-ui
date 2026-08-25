@@ -50,7 +50,7 @@ func run(ctx context.Context) error {
 	slog.Info("Starting Amnezia Web Panel", "version", cfg.AppVersion, "port", cfg.Port)
 
 	// 3. Initialize SQLite database
-	db, err := database.New(cfg.DBPath)
+	db, err := database.New(cfg.DBPath, cfg.SecretKey)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
 	}
@@ -59,13 +59,6 @@ func run(ctx context.Context) error {
 			slog.Warn("Error closing database", "err", closeErr)
 		}
 	}()
-
-	initCtx, initCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer initCancel()
-
-	if err := db.InitSchema(initCtx); err != nil {
-		return fmt.Errorf("failed to initialize database schema: %w", err)
-	}
 
 	// 4. Background supervisor
 	sup := service.NewSupervisor()

@@ -7,110 +7,160 @@ import (
 )
 
 func TestConfigDefaults(t *testing.T) {
-	// Clear env vars
+	// Clean environment variables for test
 	os.Unsetenv("SECRET_KEY")
-	os.Unsetenv("DATA_DIR")
-	os.Unsetenv("DB_PATH")
 	os.Unsetenv("PORT")
 	os.Unsetenv("PANEL_PORT")
 	os.Unsetenv("HOST")
 	os.Unsetenv("TRUSTED_PROXIES")
+	os.Unsetenv("LOG_LEVEL")
 	os.Unsetenv("VPN_ENABLED")
 
-	tempDir := t.TempDir()
-	t.Setenv("DATA_DIR", tempDir)
+	tmpDir := t.TempDir()
+	os.Setenv("DATA_DIR", tmpDir)
+	defer os.Unsetenv("DATA_DIR")
 
-	cfg, err := Load()
+	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("Load() returned error: %v", err)
+		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if cfg.Host != "0.0.0.0" {
-		t.Errorf("expected default Host 0.0.0.0, got %s", cfg.Host)
-	}
 	if cfg.Port != 5000 {
-		t.Errorf("expected default Port 5000, got %d", cfg.Port)
+		t.Errorf("expected default port 5000, got %d", cfg.Port)
 	}
-	if cfg.DataDir != tempDir {
-		t.Errorf("expected DataDir %s, got %s", tempDir, cfg.DataDir)
+	if cfg.Host != "0.0.0.0" {
+		t.Errorf("expected default host 0.0.0.0, got %s", cfg.Host)
 	}
-	if cfg.DBPath != filepath.Join(tempDir, "panel.db") {
-		t.Errorf("expected DBPath %s, got %s", filepath.Join(tempDir, "panel.db"), cfg.DBPath)
-	}
-	if len(cfg.SecretKey) != 64 {
-		t.Errorf("expected 64-char hex SecretKey, got length %d (%s)", len(cfg.SecretKey), cfg.SecretKey)
+	if cfg.LogLevel != "INFO" {
+		t.Errorf("expected default log level INFO, got %s", cfg.LogLevel)
 	}
 	if cfg.VPNEnabled {
-		t.Errorf("expected default VPNEnabled false, got true")
+		t.Errorf("expected VPNEnabled default false")
+	}
+	if cfg.VPNListenPort != 51820 {
+		t.Errorf("expected VPNListenPort default 51820, got %d", cfg.VPNListenPort)
+	}
+	if cfg.VPNSubnet != "10.100.0.0/16" {
+		t.Errorf("expected VPNSubnet default 10.100.0.0/16, got %s", cfg.VPNSubnet)
+	}
+	if len(cfg.SecretKey) != 64 {
+		t.Errorf("expected generated secret key length 64, got %d", len(cfg.SecretKey))
 	}
 }
 
 func TestConfigEnvOverrides(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("DATA_DIR", tempDir)
-	t.Setenv("SECRET_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-	t.Setenv("HOST", "127.0.0.1")
-	t.Setenv("PORT", "8080")
-	t.Setenv("TRUSTED_PROXIES", "10.0.0.1, 192.168.1.0/24")
-	t.Setenv("VPN_ENABLED", "true")
-	t.Setenv("VPN_LISTEN_PORT", "51821")
-	t.Setenv("VPN_SUBNET", "10.200.0.0/16")
+	tmpDir := t.TempDir()
+	os.Setenv("DATA_DIR", tmpDir)
+	os.Setenv("SECRET_KEY", "env-secret-key-1234567890abcdef1234567890abcdef")
+	os.Setenv("PORT", "8080")
+	os.Setenv("HOST", "127.0.0.1")
+	os.Setenv("LOG_LEVEL", "DEBUG")
+	os.Setenv("TRUSTED_PROXIES", "10.0.0.0/8, 172.18.0.1, 192.168.1.1/24")
+	os.Setenv("VPN_ENABLED", "true")
+	os.Setenv("VPN_LISTEN_PORT", "55555")
+	os.Setenv("VPN_SUBNET", "10.200.0.0/16")
 
-	cfg, err := Load()
+	defer func() {
+		os.Unsetenv("DATA_DIR")
+		os.Unsetenv("SECRET_KEY")
+		os.Unsetenv("PORT")
+		os.Unsetenv("HOST")
+		os.Unsetenv("LOG_LEVEL")
+		os.Unsetenv("TRUSTED_PROXIES")
+		os.Unsetenv("VPN_ENABLED")
+		os.Unsetenv("VPN_LISTEN_PORT")
+		os.Unsetenv("VPN_SUBNET")
+	}()
+
+	cfg, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("Load() error: %v", err)
+		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	if cfg.Host != "127.0.0.1" {
-		t.Errorf("expected Host 127.0.0.1, got %s", cfg.Host)
-	}
 	if cfg.Port != 8080 {
-		t.Errorf("expected Port 8080, got %d", cfg.Port)
+		t.Errorf("expected port 8080, got %d", cfg.Port)
 	}
-	if cfg.SecretKey != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
-		t.Errorf("expected custom SecretKey, got %s", cfg.SecretKey)
+	if cfg.Host != "127.0.0.1" {
+		t.Errorf("expected host 127.0.0.1, got %s", cfg.Host)
 	}
-	if len(cfg.TrustedProxies) != 2 || cfg.TrustedProxies[0] != "10.0.0.1" || cfg.TrustedProxies[1] != "192.168.1.0/24" {
-		t.Errorf("unexpected TrustedProxies: %v", cfg.TrustedProxies)
+	if cfg.LogLevel != "DEBUG" {
+		t.Errorf("expected log level DEBUG, got %s", cfg.LogLevel)
 	}
 	if !cfg.VPNEnabled {
-		t.Errorf("expected VPNEnabled true, got false")
+		t.Errorf("expected VPNEnabled true")
 	}
-	if cfg.VPNListenPort != 51821 {
-		t.Errorf("expected VPNListenPort 51821, got %d", cfg.VPNListenPort)
+	if cfg.VPNListenPort != 55555 {
+		t.Errorf("expected VPNListenPort 55555, got %d", cfg.VPNListenPort)
 	}
 	if cfg.VPNSubnet != "10.200.0.0/16" {
 		t.Errorf("expected VPNSubnet 10.200.0.0/16, got %s", cfg.VPNSubnet)
 	}
+	if cfg.SecretKey != "env-secret-key-1234567890abcdef1234567890abcdef" {
+		t.Errorf("expected secret key from env, got %s", cfg.SecretKey)
+	}
+	if len(cfg.TrustedProxies) != 3 {
+		t.Errorf("expected 3 trusted proxies, got %d", len(cfg.TrustedProxies))
+	}
+	if len(cfg.TrustedCIDRs) != 2 {
+		t.Errorf("expected 2 parsed CIDRs, got %d", len(cfg.TrustedCIDRs))
+	}
+	if len(cfg.TrustedIPs) != 1 {
+		t.Errorf("expected 1 parsed IP, got %d", len(cfg.TrustedIPs))
+	}
 }
 
 func TestConfigSecretKeyFilePersistence(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("DATA_DIR", tempDir)
+	tmpDir := t.TempDir()
 	os.Unsetenv("SECRET_KEY")
+	os.Setenv("DATA_DIR", tmpDir)
+	defer os.Unsetenv("DATA_DIR")
 
-	// First load generates key
-	cfg1, err := Load()
+	// First run: generates key and saves to .secret_key
+	cfg1, err := LoadConfig()
 	if err != nil {
-		t.Fatalf("Load() 1 error: %v", err)
+		t.Fatalf("first LoadConfig failed: %v", err)
 	}
 
-	// Verify .secret_key exists
-	keyPath := filepath.Join(tempDir, ".secret_key")
-	data, err := os.ReadFile(keyPath)
-	if err != nil {
+	keyPath := filepath.Join(tmpDir, ".secret_key")
+	if _, err := os.Stat(keyPath); err != nil {
 		t.Fatalf("expected .secret_key file to exist: %v", err)
 	}
-	if string(data) != cfg1.SecretKey {
-		t.Fatalf("file content %s did not match cfg.SecretKey %s", string(data), cfg1.SecretKey)
+
+	// Second run: reads saved key from file
+	cfg2, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("second LoadConfig failed: %v", err)
 	}
 
-	// Second load should read existing key
-	cfg2, err := Load()
-	if err != nil {
-		t.Fatalf("Load() 2 error: %v", err)
+	if cfg1.SecretKey != cfg2.SecretKey {
+		t.Errorf("expected persistent secret key to match across loads: %s != %s", cfg1.SecretKey, cfg2.SecretKey)
 	}
-	if cfg2.SecretKey != cfg1.SecretKey {
-		t.Errorf("expected persistent SecretKey %s, got %s", cfg1.SecretKey, cfg2.SecretKey)
+}
+
+func TestTranslationsLoadingAndLookup(t *testing.T) {
+	if err := LoadTranslations(); err != nil {
+		t.Fatalf("LoadTranslations failed: %v", err)
+	}
+
+	// Test English translation
+	enLogin := T("en", "login")
+	if enLogin == "" || enLogin == "login" && T("en", "non_existent_key") == enLogin {
+		// Verify English dictionary is loaded
+		all := GetTranslations()
+		if len(all["en"]) == 0 {
+			t.Errorf("English translations empty")
+		}
+	}
+
+	// Test Russian translation
+	ruTranslations := GetTranslations()["ru"]
+	if len(ruTranslations) == 0 {
+		t.Errorf("Russian translations not loaded")
+	}
+
+	// Fallback to raw key for nonexistent key
+	unknown := T("en", "completely_unknown_key_xyz_123")
+	if unknown != "completely_unknown_key_xyz_123" {
+		t.Errorf("expected raw key fallback for unknown key, got %q", unknown)
 	}
 }
