@@ -533,3 +533,424 @@ func (r *AddUserRequest) Validate() error {
 	}
 	return nil
 }
+
+// SessionData represents authenticated session information stored in signed cookies and request context.
+type SessionData struct {
+	UserID                 string          `json:"user_id,omitempty"`
+	Username               string          `json:"username,omitempty"`
+	Role                   UserRole        `json:"role,omitempty"`
+	PasswordChangeRequired bool            `json:"password_change_required,omitempty"`
+	CaptchaAnswer          string          `json:"captcha_answer,omitempty"`
+	ShareAuthenticated     map[string]bool `json:"share_authenticated,omitempty"`
+	Extra                  map[string]any  `json:"extra,omitempty"`
+}
+
+// IsAuthenticated returns true if the session contains a valid user ID.
+func (s *SessionData) IsAuthenticated() bool {
+	return s != nil && s.UserID != ""
+}
+
+// IsAdmin returns true if the session user has admin privileges.
+func (s *SessionData) IsAdmin() bool {
+	return s != nil && s.Role == RoleAdmin
+}
+
+// IsAdminOrSupport returns true if the session user has admin or support privileges.
+func (s *SessionData) IsAdminOrSupport() bool {
+	return s != nil && s.Role.IsAdminOrSupport()
+}
+
+// ToMap converts SessionData to a map for serialization.
+func (s *SessionData) ToMap() map[string]any {
+	if s == nil {
+		return nil
+	}
+	m := make(map[string]any)
+	if s.UserID != "" {
+		m["user_id"] = s.UserID
+	}
+	if s.Username != "" {
+		m["username"] = s.Username
+	}
+	if s.Role != "" {
+		m["role"] = string(s.Role)
+	}
+	if s.PasswordChangeRequired {
+		m["password_change_required"] = true
+	}
+	if s.CaptchaAnswer != "" {
+		m["captcha_answer"] = s.CaptchaAnswer
+	}
+	if len(s.ShareAuthenticated) > 0 {
+		m["share_authenticated"] = s.ShareAuthenticated
+	}
+	for k, v := range s.Extra {
+		m[k] = v
+	}
+	return m
+}
+
+// SessionDataFromMap converts a generic map into typed SessionData.
+func SessionDataFromMap(m map[string]any) *SessionData {
+	if m == nil {
+		return nil
+	}
+	s := &SessionData{
+		ShareAuthenticated: make(map[string]bool),
+		Extra:              make(map[string]any),
+	}
+	for k, v := range m {
+		switch k {
+		case "user_id":
+			if str, ok := v.(string); ok {
+				s.UserID = str
+			}
+		case "username":
+			if str, ok := v.(string); ok {
+				s.Username = str
+			}
+		case "role":
+			if str, ok := v.(string); ok {
+				s.Role = UserRole(str)
+			}
+		case "password_change_required":
+			if b, ok := v.(bool); ok {
+				s.PasswordChangeRequired = b
+			}
+		case "captcha_answer":
+			if str, ok := v.(string); ok {
+				s.CaptchaAnswer = str
+			}
+		case "share_authenticated":
+			if sm, ok := v.(map[string]bool); ok {
+				for token, auth := range sm {
+					s.ShareAuthenticated[token] = auth
+				}
+			} else if sm, ok := v.(map[string]any); ok {
+				for token, auth := range sm {
+					if b, ok := auth.(bool); ok {
+						s.ShareAuthenticated[token] = b
+					}
+				}
+			}
+		default:
+			s.Extra[k] = v
+		}
+	}
+	return s
+}
+
+// ProtocolRequest defines a request with just a protocol name.
+type ProtocolRequest struct {
+	Protocol string `json:"protocol"`
+}
+
+func (r *ProtocolRequest) Validate() error {
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	return nil
+}
+
+// ServerConfigSaveRequest defines a payload to save server protocol configuration.
+type ServerConfigSaveRequest struct {
+	Protocol string `json:"protocol"`
+	Config   string `json:"config"`
+}
+
+func (r *ServerConfigSaveRequest) Validate() error {
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	if len(r.Config) == 0 || len(r.Config) > 65536 {
+		return errors.New("config must be between 1 and 65536 characters")
+	}
+	return nil
+}
+
+// AddConnectionRequest defines parameters for adding a new connection to a server.
+type AddConnectionRequest struct {
+	Protocol          string  `json:"protocol"`
+	Name              string  `json:"name"`
+	UserID            *string `json:"user_id,omitempty"`
+	TelemtQuota       *string `json:"telemt_quota,omitempty"`
+	TelemtMaxIPs      *int    `json:"telemt_max_ips,omitempty"`
+	TelemtExpiry      *string `json:"telemt_expiry,omitempty"`
+	AWGSpeedLimitDown *int    `json:"awg_speed_limit_down,omitempty"`
+	AWGSpeedLimitUp   *int    `json:"awg_speed_limit_up,omitempty"`
+	AWGMimicry        *string `json:"awg_mimicry,omitempty"`
+}
+
+func (r *AddConnectionRequest) Validate() error {
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	r.Name = strings.TrimSpace(r.Name)
+	if r.Name == "" || len(r.Name) > 255 {
+		return errors.New("name must be between 1 and 255 characters")
+	}
+	return nil
+}
+
+// MyAddConnectionRequest defines parameters for adding a user's own connection.
+type MyAddConnectionRequest struct {
+	ServerID          int64   `json:"server_id"`
+	Protocol          string  `json:"protocol"`
+	Name              string  `json:"name"`
+	TelemtQuota       *string `json:"telemt_quota,omitempty"`
+	TelemtMaxIPs      *int    `json:"telemt_max_ips,omitempty"`
+	TelemtExpiry      *string `json:"telemt_expiry,omitempty"`
+	AWGSpeedLimitDown *int    `json:"awg_speed_limit_down,omitempty"`
+	AWGSpeedLimitUp   *int    `json:"awg_speed_limit_up,omitempty"`
+	AWGMimicry        *string `json:"awg_mimicry,omitempty"`
+}
+
+func (r *MyAddConnectionRequest) Validate() error {
+	if r.ServerID <= 0 {
+		return errors.New("server_id must be greater than 0")
+	}
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	r.Name = strings.TrimSpace(r.Name)
+	if r.Name == "" || len(r.Name) > 255 {
+		return errors.New("name must be between 1 and 255 characters")
+	}
+	return nil
+}
+
+// AddUserConnectionRequest defines parameters for adding a connection to a specific user.
+type AddUserConnectionRequest struct {
+	ServerID     int64   `json:"server_id"`
+	Protocol     string  `json:"protocol"`
+	Name         string  `json:"name"`
+	ClientID     *string `json:"client_id,omitempty"`
+	TelemtQuota  *string `json:"telemt_quota,omitempty"`
+	TelemtMaxIPs *int    `json:"telemt_max_ips,omitempty"`
+	TelemtExpiry *string `json:"telemt_expiry,omitempty"`
+	AWGMimicry   *string `json:"awg_mimicry,omitempty"`
+}
+
+func (r *AddUserConnectionRequest) Validate() error {
+	if r.ServerID <= 0 {
+		return errors.New("server_id must be greater than 0")
+	}
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	r.Name = strings.TrimSpace(r.Name)
+	if r.Name == "" || len(r.Name) > 255 {
+		return errors.New("name must be between 1 and 255 characters")
+	}
+	return nil
+}
+
+// EditConnectionRequest defines parameters for editing an existing connection.
+type EditConnectionRequest struct {
+	Protocol          string  `json:"protocol"`
+	ClientID          string  `json:"client_id"`
+	Name              *string `json:"name,omitempty"`
+	UserID            *string `json:"user_id,omitempty"`
+	TelemtQuota       *string `json:"telemt_quota,omitempty"`
+	TelemtMaxIPs      *int    `json:"telemt_max_ips,omitempty"`
+	TelemtExpiry      *string `json:"telemt_expiry,omitempty"`
+	AWGSpeedLimitDown *int    `json:"awg_speed_limit_down,omitempty"`
+	AWGSpeedLimitUp   *int    `json:"awg_speed_limit_up,omitempty"`
+	AWGMimicry        *string `json:"awg_mimicry,omitempty"`
+}
+
+// RenameConnectionRequest defines connection rename payload.
+type RenameConnectionRequest struct {
+	Name string `json:"name"`
+}
+
+func (r *RenameConnectionRequest) Validate() error {
+	r.Name = strings.TrimSpace(r.Name)
+	if strings.Contains(r.Name, "\x00") {
+		return errors.New("name cannot contain null bytes")
+	}
+	if r.Name == "" || len(r.Name) > 255 {
+		return errors.New("name must be between 1 and 255 characters")
+	}
+	return nil
+}
+
+// SpeedLimitRequest defines client speed limit configuration.
+type SpeedLimitRequest struct {
+	ClientID       string `json:"client_id"`
+	SpeedLimitDown *int   `json:"speed_limit_down,omitempty"`
+	SpeedLimitUp   *int   `json:"speed_limit_up,omitempty"`
+}
+
+// AwgSpeedLimitConfigRequest defines AWG server-wide speed limits.
+type AwgSpeedLimitConfigRequest struct {
+	GlobalSpeedLimitDown  *int `json:"global_speed_limit_down,omitempty"`
+	GlobalSpeedLimitUp    *int `json:"global_speed_limit_up,omitempty"`
+	DefaultSpeedLimitDown *int `json:"default_speed_limit_down,omitempty"`
+	DefaultSpeedLimitUp   *int `json:"default_speed_limit_up,omitempty"`
+}
+
+// UpdateUserRequest defines parameters for updating an existing user.
+type UpdateUserRequest struct {
+	TelegramID           *string  `json:"telegramId,omitempty"`
+	Email                *string  `json:"email,omitempty"`
+	Description          *string  `json:"description,omitempty"`
+	TrafficLimit         *float64 `json:"traffic_limit,omitempty"`
+	TrafficResetStrategy *string  `json:"traffic_reset_strategy,omitempty"`
+	ExpirationDate       *string  `json:"expiration_date,omitempty"`
+	ExpiresAt            *string  `json:"expires_at,omitempty"`
+	AWGMimicry           *string  `json:"awg_mimicry,omitempty"`
+	Password             *string  `json:"password,omitempty"`
+}
+
+func (r *UpdateUserRequest) Validate() error {
+	if r.Password != nil && *r.Password != "" {
+		if len(*r.Password) < 8 || len(*r.Password) > 4096 {
+			return errors.New("password must be between 8 and 4096 characters")
+		}
+		return ValidatePasswordComplexity(*r.Password)
+	}
+	return nil
+}
+
+// ToggleUserRequest defines user enable/disable payload.
+type ToggleUserRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// ToggleConnectionRequest defines connection enable/disable payload.
+type ToggleConnectionRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// ConnectionActionRequest defines common client ID + protocol request payload.
+type ConnectionActionRequest struct {
+	ClientID string `json:"client_id"`
+	Protocol string `json:"protocol"`
+}
+
+func (r *ConnectionActionRequest) Validate() error {
+	if r.ClientID == "" {
+		return errors.New("client_id is required")
+	}
+	r.Protocol = NormalizeProtocol(r.Protocol)
+	if !IsValidProtocol(r.Protocol) {
+		return fmt.Errorf("invalid protocol: %s", r.Protocol)
+	}
+	return nil
+}
+
+// ShareSetupRequest defines parameters for configuring user share link.
+type ShareSetupRequest struct {
+	Password       *string `json:"password,omitempty"`
+	ExpiresInHours *int    `json:"expires_in_hours,omitempty"`
+}
+
+// ShareAuthRequest defines password verification payload for public share link.
+type ShareAuthRequest struct {
+	Password string `json:"password"`
+}
+
+// AutoTrialRequest defines parameters for server reachability/auto-trial testing.
+type AutoTrialRequest struct {
+	ServerID  int64    `json:"server_id"`
+	Protocols []string `json:"protocols"`
+}
+
+// SaveSettingsRequest defines settings save payload.
+type SaveSettingsRequest struct {
+	Appearance AppearanceSettings     `json:"appearance"`
+	Sync       SyncSettings           `json:"sync"`
+	Captcha    CaptchaSettings        `json:"captcha"`
+	Telegram   map[string]interface{} `json:"telegram,omitempty"`
+	SSL        SSLSettings            `json:"ssl"`
+	Limits     ConnectionLimits       `json:"limits"`
+}
+
+// ServerItemResponse represents server data in responses.
+type ServerItemResponse struct {
+	ID         int64          `json:"id"`
+	Name       string         `json:"name"`
+	Host       string         `json:"host"`
+	SSHPort    int            `json:"ssh_port"`
+	Username   string         `json:"username"`
+	ServerInfo map[string]any `json:"server_info,omitempty"`
+	Protocols  map[string]any `json:"protocols"`
+}
+
+// ServerStatsResponse represents server resource telemetry.
+type ServerStatsResponse struct {
+	CPU         float64 `json:"cpu"`
+	RAMUsed     int64   `json:"ram_used"`
+	RAMTotal    int64   `json:"ram_total"`
+	RAMPercent  float64 `json:"ram_percent"`
+	DiskUsed    int64   `json:"disk_used"`
+	DiskTotal   int64   `json:"disk_total"`
+	DiskPercent float64 `json:"disk_percent"`
+	NetRx       int64   `json:"net_rx"`
+	NetTx       int64   `json:"net_tx"`
+	Uptime      string  `json:"uptime"`
+}
+
+// ServerCheckResponse represents server connectivity check result.
+type ServerCheckResponse struct {
+	Connection      string         `json:"connection"`
+	DockerInstalled bool           `json:"docker_installed"`
+	Protocols       map[string]any `json:"protocols"`
+}
+
+// UserItemResponse represents user data in responses.
+type UserItemResponse struct {
+	ID                   string  `json:"id"`
+	Username             string  `json:"username"`
+	Role                 string  `json:"role"`
+	Enabled              bool    `json:"enabled"`
+	CreatedAt            string  `json:"created_at"`
+	TelegramID           *string `json:"telegramId,omitempty"`
+	Email                *string `json:"email,omitempty"`
+	Description          *string `json:"description,omitempty"`
+	ConnectionsCount     int     `json:"connections_count"`
+	TrafficUsed          int64   `json:"traffic_used"`
+	TrafficTotal         int64   `json:"traffic_total"`
+	TrafficLimit         int64   `json:"traffic_limit"`
+	TrafficResetStrategy string  `json:"traffic_reset_strategy"`
+	LastResetAt          *string `json:"last_reset_at,omitempty"`
+	ExpirationDate       *string `json:"expiration_date,omitempty"`
+	ExpiresAt            *string `json:"expires_at,omitempty"`
+	AWGMimicry           *string `json:"awg_mimicry,omitempty"`
+	ShareEnabled         bool    `json:"share_enabled"`
+	ShareToken           *string `json:"share_token,omitempty"`
+	HasSharePassword     bool    `json:"has_share_password"`
+	Source               string  `json:"source"`
+}
+
+// PaginatedUsersResponse represents paginated user list response.
+type PaginatedUsersResponse struct {
+	Users []UserItemResponse `json:"users"`
+	Total int                `json:"total"`
+	Page  int                `json:"page"`
+	Size  int                `json:"size"`
+	Pages int                `json:"pages"`
+}
+
+// LeaderboardEntryResponse represents ranked user in leaderboard response.
+type LeaderboardEntryResponse struct {
+	Rank     int    `json:"rank"`
+	Username string `json:"username"`
+	Download int64  `json:"download"`
+	Upload   int64  `json:"upload"`
+	Total    int64  `json:"total"`
+}
+
+// LeaderboardResponse represents leaderboard response.
+type LeaderboardResponse struct {
+	Period          string                     `json:"period"`
+	Entries         []LeaderboardEntryResponse `json:"entries"`
+	CurrentUserRank *int                       `json:"current_user_rank,omitempty"`
+	MonthlyLabel    *string                    `json:"monthly_label,omitempty"`
+}

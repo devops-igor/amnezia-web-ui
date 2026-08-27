@@ -297,3 +297,159 @@ func TestValidationHelpers(t *testing.T) {
 		t.Errorf("ValidateTLSDomain succeeded for invalid domain")
 	}
 }
+
+func TestSessionDataMethods(t *testing.T) {
+	var nilSession *SessionData
+	if nilSession.IsAuthenticated() {
+		t.Errorf("nil session should not be authenticated")
+	}
+	if nilSession.IsAdmin() {
+		t.Errorf("nil session should not be admin")
+	}
+	if nilSession.IsAdminOrSupport() {
+		t.Errorf("nil session should not be admin or support")
+	}
+	if nilSession.ToMap() != nil {
+		t.Errorf("nil session ToMap should return nil")
+	}
+	if SessionDataFromMap(nil) != nil {
+		t.Errorf("SessionDataFromMap(nil) should return nil")
+	}
+
+	userSession := &SessionData{
+		UserID:                 "user-1",
+		Username:               "john",
+		Role:                   RoleUser,
+		PasswordChangeRequired: true,
+		CaptchaAnswer:          "ABCD",
+		ShareAuthenticated:     map[string]bool{"token1": true},
+		Extra:                  map[string]any{"custom": "val"},
+	}
+
+	if !userSession.IsAuthenticated() {
+		t.Errorf("userSession should be authenticated")
+	}
+	if userSession.IsAdmin() {
+		t.Errorf("userSession should not be admin")
+	}
+	if userSession.IsAdminOrSupport() {
+		t.Errorf("userSession should not be admin or support")
+	}
+
+	m := userSession.ToMap()
+	if m["user_id"] != "user-1" || m["role"] != "user" || m["captcha_answer"] != "ABCD" {
+		t.Errorf("ToMap serialized incorrectly: %+v", m)
+	}
+
+	parsed := SessionDataFromMap(m)
+	if parsed.UserID != "user-1" || parsed.Role != RoleUser || !parsed.PasswordChangeRequired || parsed.CaptchaAnswer != "ABCD" {
+		t.Errorf("SessionDataFromMap parsed incorrectly: %+v", parsed)
+	}
+	if !parsed.ShareAuthenticated["token1"] {
+		t.Errorf("ShareAuthenticated not restored: %+v", parsed.ShareAuthenticated)
+	}
+
+	adminSession := &SessionData{
+		UserID: "admin-1",
+		Role:   RoleAdmin,
+	}
+	if !adminSession.IsAdmin() || !adminSession.IsAdminOrSupport() {
+		t.Errorf("adminSession should be admin and admin_or_support")
+	}
+
+	supportSession := &SessionData{
+		UserID: "support-1",
+		Role:   RoleSupport,
+	}
+	if supportSession.IsAdmin() || !supportSession.IsAdminOrSupport() {
+		t.Errorf("supportSession should be admin_or_support but not admin")
+	}
+}
+
+func TestAdditionalRequestModelsValidation(t *testing.T) {
+	// ProtocolRequest
+	prValid := ProtocolRequest{Protocol: "awg"}
+	if err := prValid.Validate(); err != nil {
+		t.Errorf("ProtocolRequest.Validate failed: %v", err)
+	}
+	prInvalid := ProtocolRequest{Protocol: "invalid_proto"}
+	if err := prInvalid.Validate(); err == nil {
+		t.Errorf("ProtocolRequest.Validate should fail for invalid proto")
+	}
+
+	// ServerConfigSaveRequest
+	scValid := ServerConfigSaveRequest{Protocol: "awg", Config: "[Interface]\nPrivateKey = ..."}
+	if err := scValid.Validate(); err != nil {
+		t.Errorf("ServerConfigSaveRequest.Validate failed: %v", err)
+	}
+	scInvalidProto := ServerConfigSaveRequest{Protocol: "unknown", Config: "valid"}
+	if err := scInvalidProto.Validate(); err == nil {
+		t.Errorf("ServerConfigSaveRequest.Validate should fail for invalid proto")
+	}
+	scEmptyConfig := ServerConfigSaveRequest{Protocol: "awg", Config: ""}
+	if err := scEmptyConfig.Validate(); err == nil {
+		t.Errorf("ServerConfigSaveRequest.Validate should fail for empty config")
+	}
+
+	// AddConnectionRequest
+	acValid := AddConnectionRequest{Protocol: "awg", Name: "my-conn"}
+	if err := acValid.Validate(); err != nil {
+		t.Errorf("AddConnectionRequest.Validate failed: %v", err)
+	}
+	acInvalidName := AddConnectionRequest{Protocol: "awg", Name: "   "}
+	if err := acInvalidName.Validate(); err == nil {
+		t.Errorf("AddConnectionRequest.Validate should fail for empty name")
+	}
+
+	// MyAddConnectionRequest
+	myAcValid := MyAddConnectionRequest{ServerID: 1, Protocol: "awg", Name: "conn-1"}
+	if err := myAcValid.Validate(); err != nil {
+		t.Errorf("MyAddConnectionRequest.Validate failed: %v", err)
+	}
+	myAcInvalidID := MyAddConnectionRequest{ServerID: 0, Protocol: "awg", Name: "conn-1"}
+	if err := myAcInvalidID.Validate(); err == nil {
+		t.Errorf("MyAddConnectionRequest.Validate should fail for server_id <= 0")
+	}
+
+	// AddUserConnectionRequest
+	aucValid := AddUserConnectionRequest{ServerID: 1, Protocol: "awg", Name: "conn-1"}
+	if err := aucValid.Validate(); err != nil {
+		t.Errorf("AddUserConnectionRequest.Validate failed: %v", err)
+	}
+	aucInvalidID := AddUserConnectionRequest{ServerID: -1, Protocol: "awg", Name: "conn-1"}
+	if err := aucInvalidID.Validate(); err == nil {
+		t.Errorf("AddUserConnectionRequest.Validate should fail for server_id <= 0")
+	}
+
+	// RenameConnectionRequest
+	rcValid := RenameConnectionRequest{Name: "new-name"}
+	if err := rcValid.Validate(); err != nil {
+		t.Errorf("RenameConnectionRequest.Validate failed: %v", err)
+	}
+	rcNullByte := RenameConnectionRequest{Name: "new\x00name"}
+	if err := rcNullByte.Validate(); err == nil {
+		t.Errorf("RenameConnectionRequest.Validate should fail for null bytes")
+	}
+
+	// UpdateUserRequest
+	validPass := "NewPassword123!"
+	uuValid := UpdateUserRequest{Password: &validPass}
+	if err := uuValid.Validate(); err != nil {
+		t.Errorf("UpdateUserRequest.Validate failed: %v", err)
+	}
+	shortPass := "short"
+	uuShort := UpdateUserRequest{Password: &shortPass}
+	if err := uuShort.Validate(); err == nil {
+		t.Errorf("UpdateUserRequest.Validate should fail for short password")
+	}
+
+	// ConnectionActionRequest
+	caValid := ConnectionActionRequest{ClientID: "c1", Protocol: "awg"}
+	if err := caValid.Validate(); err != nil {
+		t.Errorf("ConnectionActionRequest.Validate failed: %v", err)
+	}
+	caEmptyClient := ConnectionActionRequest{ClientID: "", Protocol: "awg"}
+	if err := caEmptyClient.Validate(); err == nil {
+		t.Errorf("ConnectionActionRequest.Validate should fail for empty client_id")
+	}
+}

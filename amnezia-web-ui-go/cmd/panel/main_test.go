@@ -131,3 +131,36 @@ func TestServerCredentialsEncryptionEndToEnd(t *testing.T) {
 		t.Errorf("GetAllServers decrypted credentials mismatch: %+v", allServers[0])
 	}
 }
+
+func TestRunLogLevels(t *testing.T) {
+	logLevels := []string{"DEBUG", "WARN", "ERROR", "INFO"}
+
+	for _, lvl := range logLevels {
+		t.Run("LogLevel_"+lvl, func(t *testing.T) {
+			tempDir := t.TempDir()
+			t.Setenv("DATA_DIR", tempDir)
+			t.Setenv("DB_PATH", filepath.Join(tempDir, "panel_log.db"))
+			t.Setenv("PORT", "59199")
+			t.Setenv("LOG_LEVEL", lvl)
+			t.Setenv("SECRET_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
+			ctx, cancel := context.WithCancel(context.Background())
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- run(ctx)
+			}()
+
+			time.Sleep(50 * time.Millisecond)
+			cancel()
+
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Fatalf("run with log level %s failed: %v", lvl, err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatalf("timed out for log level %s", lvl)
+			}
+		})
+	}
+}
