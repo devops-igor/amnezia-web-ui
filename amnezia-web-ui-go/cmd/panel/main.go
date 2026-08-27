@@ -49,7 +49,9 @@ func run(ctx context.Context) error {
 
 	slog.Info("Starting Amnezia Web Panel", "version", cfg.AppVersion, "port", cfg.Port)
 
-	// 3. Initialize SQLite database
+	// 3. Initialize SQLite database & translations
+	_ = config.LoadTranslations()
+
 	db, err := database.New(cfg.DBPath, cfg.SecretKey)
 	if err != nil {
 		return fmt.Errorf("failed to initialize database: %w", err)
@@ -69,7 +71,7 @@ func run(ctx context.Context) error {
 
 	// 5. Initialize HTTP Router and Server
 	r := router.NewRouter(cfg, db)
-	srv := router.NewServer(cfg, r)
+	srv := router.NewServer(cfg, r, db)
 
 	serverErrCh := make(chan error, 1)
 	go func() {
