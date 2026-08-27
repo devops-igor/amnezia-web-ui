@@ -140,3 +140,18 @@ func GetSystemInfo(ctx context.Context, client SSHClient) (map[string]any, error
 
 	return info, nil
 }
+
+// DetectAppArmor checks if AppArmor is enabled on the remote host.
+func DetectAppArmor(ctx context.Context, client SSHClient) (bool, error) {
+	if client == nil {
+		return false, ErrNotConnected
+	}
+
+	cmd := "([ -f /sys/module/apparmor/parameters/enabled ] && grep -qi '^[y1]' /sys/module/apparmor/parameters/enabled) || [ -d /sys/kernel/security/apparmor ] || aa-status --enabled >/dev/null 2>&1"
+	_, _, code, err := client.RunCommand(ctx, cmd)
+	if err != nil {
+		return false, fmt.Errorf("failed to detect apparmor: %w", err)
+	}
+
+	return code == 0, nil
+}

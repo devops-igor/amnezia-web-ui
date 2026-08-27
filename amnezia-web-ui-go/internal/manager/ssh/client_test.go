@@ -2,8 +2,10 @@ package ssh
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -437,5 +439,157 @@ func TestClient_CloseNotConnected(t *testing.T) {
 	}
 	if err := client.UploadFile(ctx, "/tmp/a", []byte("a"), 0644); err != ErrNotConnected {
 		t.Fatalf("expected ErrNotConnected, got %v", err)
+	}
+}
+
+func TestClient_ConcurrentRunCommands(t *testing.T) {
+	server := NewMockSSHServer(t, "root", "secretPass")
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cfg := Config{
+		Host:            server.Host(),
+		Port:            server.Port(),
+		User:            "root",
+		Password:        "secretPass",
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+		Timeout:         3 * time.Second,
+	}
+
+	client, err := Dial(ctx, cfg)
+	if err != nil {
+		t.Fatalf("failed to dial mock server: %v", err)
+	}
+	defer client.Close()
+
+	const concurrency = 20
+	var wg sync.WaitGroup
+	errCh := make(chan error, concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			cmd := fmt.Sprintf("echo worker-%d", idx)
+			out, stderr, code, err := client.RunCommand(ctx, cmd)
+			if err != nil {
+				errCh <- fmt.Errorf("worker %d err: %w (stderr: %s)", idx, err, stderr)
+				return
+			}
+			if code != 0 {
+				errCh <- fmt.Errorf("worker %d exit code: %d", idx, code)
+				return
+			}
+			expected := fmt.Sprintf("worker-%d", idx)
+			if out != expected {
+				errCh <- fmt.Errorf("worker %d expected %q, got %q", idx, expected, out)
+				return
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		t.Errorf("concurrent RunCommand failed: %v", err)
+	}
+}
+
+func TestClient_UploadSudoFile_CleanupOnMoveFailure(t *testing.T) {
+	server := NewMockSSHServer(t, "ubuntu", "ubuntuPass")
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := Config{
+		Host:            server.Host(),
+		Port:            server.Port(),
+		User:            "ubuntu",
+		Password:        "ubuntuPass",
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+	}
+
+	client, err := Dial(ctx, cfg)
+	if err != nil {
+		t.Fatalf("failed to dial: %v", err)
+	}
+	defer client.Close()
+
+	// Simulate failure on mv
+	server.SetCommandHandler("sudo -S -p '' -- /bin/bash -c 'mv", func(cmd string, stdin []byte) (string, string, int) {
+		return "", "permission denied / disk full", 1
+	})
+
+	var rmCalled bool
+	var rmMu sync.Mutex
+	server.SetCommandHandler("sudo -S -p '' -- /bin/bash -c 'rm -f", func(cmd string, stdin []byte) (string, string, int) {
+		rmMu.Lock()
+		rmCalled = true
+		rmMu.Unlock()
+		return "", "", 0
+	})
+
+	targetFile := filepath.Join(server.BaseDir(), "etc", "protected", "file.conf")
+	err = client.UploadSudoFile(ctx, targetFile, []byte("sensitive content"), 0600)
+	if err == nil {
+		t.Fatal("expected error on failed mv, got nil")
+	}
+
+	rmMu.Lock()
+	wasRmCalled := rmCalled
+	rmMu.Unlock()
+
+	if !wasRmCalled {
+		t.Fatal("expected temporary file cleanup via rm -f after mv failure")
+	}
+}
+
+func TestClient_StaleSFTPRefresh(t *testing.T) {
+	server := NewMockSSHServer(t, "root", "pass")
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := Config{
+		Host:            server.Host(),
+		Port:            server.Port(),
+		User:            "root",
+		Password:        "pass",
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+	}
+
+	client, err := Dial(ctx, cfg)
+	if err != nil {
+		t.Fatalf("failed to dial: %v", err)
+	}
+	defer client.Close()
+
+	testPath := filepath.Join(server.BaseDir(), "etc", "sftp-refresh.txt")
+
+	// 1. Initial SFTP upload
+	if err := client.UploadFile(ctx, testPath, []byte("initial"), 0644); err != nil {
+		t.Fatalf("initial upload failed: %v", err)
+	}
+
+	// 2. Force close internal sftp client to make it stale
+	client.mu.Lock()
+	if client.sftpClient != nil {
+		_ = client.sftpClient.Close()
+	}
+	client.mu.Unlock()
+
+	// 3. Subsequent SFTP upload should detect stale client, refresh it, and succeed
+	if err := client.UploadFile(ctx, testPath, []byte("refreshed"), 0644); err != nil {
+		t.Fatalf("upload after stale sftp client failed: %v", err)
+	}
+
+	// 4. Verify downloaded content
+	content, err := client.DownloadFile(ctx, testPath)
+	if err != nil {
+		t.Fatalf("download failed: %v", err)
+	}
+	if string(content) != "refreshed" {
+		t.Fatalf("expected 'refreshed', got %q", string(content))
 	}
 }

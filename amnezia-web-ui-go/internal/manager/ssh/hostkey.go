@@ -58,24 +58,56 @@ func FingerprintSHA256(key gossh.PublicKey) string {
 	return gossh.FingerprintSHA256(key)
 }
 
+// FingerprintLegacyMD5 computes the legacy OpenSSH MD5 fingerprint formatted as "aa:bb:cc:...".
+func FingerprintLegacyMD5(key gossh.PublicKey) string {
+	if key == nil {
+		return ""
+	}
+	return gossh.FingerprintLegacyMD5(key)
+}
+
+func normalizeMD5(fp string) string {
+	s := strings.TrimSpace(fp)
+	s = strings.TrimPrefix(s, "MD5:")
+	s = strings.TrimPrefix(s, "md5:")
+	s = strings.ReplaceAll(s, ":", "")
+	return strings.ToLower(s)
+}
+
 // CompareFingerprints performs a timing-safe, format-tolerant comparison of two fingerprints.
+// It supports OpenSSH SHA-256 (e.g. "SHA256:<base64>" or "<base64>") and legacy MD5
+// (e.g. "MD5:aa:bb:...", "aa:bb:...", or raw 32-char hex "aabb...").
 func CompareFingerprints(stored, actual string) bool {
 	s := strings.TrimSpace(stored)
 	a := strings.TrimSpace(actual)
 
-	if subtle.ConstantTimeCompare([]byte(s), []byte(a)) == 1 {
+	if len(s) == 0 || len(a) == 0 {
+		return false
+	}
+
+	// 1. Direct constant-time compare
+	if len(s) == len(a) && subtle.ConstantTimeCompare([]byte(s), []byte(a)) == 1 {
 		return true
 	}
 
-	// Normalize potential SHA256: prefix differences
+	// 2. SHA-256 prefix normalization
 	sTrim := strings.TrimPrefix(s, "SHA256:")
 	aTrim := strings.TrimPrefix(a, "SHA256:")
-	if subtle.ConstantTimeCompare([]byte(sTrim), []byte(aTrim)) == 1 {
+	if len(sTrim) == len(aTrim) && subtle.ConstantTimeCompare([]byte(sTrim), []byte(aTrim)) == 1 {
 		return true
 	}
 
-	// Case-insensitive check for legacy hex fingerprints (MD5 / raw sha256 hex)
-	if strings.EqualFold(s, a) {
+	// 3. MD5 normalization (strips MD5: prefix, colons, lowercases)
+	sMD5 := normalizeMD5(s)
+	aMD5 := normalizeMD5(a)
+	if len(sMD5) == 32 && len(aMD5) == 32 && subtle.ConstantTimeCompare([]byte(sMD5), []byte(aMD5)) == 1 {
+		return true
+	}
+
+	// 4. Case-insensitive constant-time compare
+	sLower := strings.ToLower(s)
+	aLower := strings.ToLower(a)
+	if len(sLower) == len(aLower) && subtle.ConstantTimeCompare([]byte(sLower), []byte(aLower)) == 1 {
 		return true
 	}
 
@@ -129,16 +161,24 @@ func NewHostKeyCallback(ctx context.Context, opts HostKeyCallbackOptions) gossh.
 			return nil
 		}
 
-		// Known host verification
-		if !CompareFingerprints(knownFP, actualFP) {
-			return &ErrHostKeyMismatch{
-				ServerID: serverID,
-				Host:     hostname,
-				Expected: knownFP,
-				Actual:   actualFP,
-			}
+		// Known host verification: check SHA-256 match
+		if CompareFingerprints(knownFP, actualFP) {
+			return nil
 		}
 
-		return nil
+		// Check legacy MD5 match
+		actualMD5 := FingerprintLegacyMD5(key)
+		if actualMD5 != "" && CompareFingerprints(knownFP, actualMD5) {
+			// Opportunistically upgrade stored fingerprint to SHA-256
+			_ = opts.Store.SaveKnownHostFingerprint(ctx, serverID, actualFP)
+			return nil
+		}
+
+		return &ErrHostKeyMismatch{
+			ServerID: serverID,
+			Host:     hostname,
+			Expected: knownFP,
+			Actual:   actualFP,
+		}
 	}
 }

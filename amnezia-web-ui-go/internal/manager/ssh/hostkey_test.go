@@ -68,6 +68,18 @@ func TestFingerprintSHA256(t *testing.T) {
 	}
 }
 
+func TestFingerprintLegacyMD5(t *testing.T) {
+	pub := generateDummyPublicKey(t)
+	fp := FingerprintLegacyMD5(pub)
+	if len(fp) != 47 || strings.Count(fp, ":") != 15 {
+		t.Fatalf("expected 16-byte colon-separated MD5 fingerprint, got %s", fp)
+	}
+
+	if FingerprintLegacyMD5(nil) != "" {
+		t.Fatalf("expected empty fingerprint for nil key")
+	}
+}
+
 func TestCompareFingerprints(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -80,6 +92,15 @@ func TestCompareFingerprints(t *testing.T) {
 		{"reverse prefix match", "SHA256:abc123xyz", "abc123xyz", true},
 		{"hex case insensitive", "ab:cd:ef:01", "AB:CD:EF:01", true},
 		{"mismatch", "SHA256:abc123xyz", "SHA256:different", false},
+		{"empty stored", "", "SHA256:abc123xyz", false},
+		{"empty actual", "SHA256:abc123xyz", "", false},
+		{"both empty", "", "", false},
+		// MD5 format tests
+		{"legacy md5 colon formatted", "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", true},
+		{"legacy md5 MD5: prefix vs raw colon", "MD5:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", true},
+		{"legacy md5 raw hex vs colon", "aabbccddee00112233445566778899aa", "aa:bb:cc:dd:ee:00:11:22:33:44:55:66:77:88:99:aa", true},
+		{"legacy md5 uppercase raw hex vs lowercase colon", "AABBCCDDEE00112233445566778899AA", "aa:bb:cc:dd:ee:00:11:22:33:44:55:66:77:88:99:aa", true},
+		{"legacy md5 mismatch", "aabbccddee0011223344556677889900", "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99", false},
 	}
 
 	for _, tt := range tests {
@@ -244,5 +265,72 @@ func TestHostKeyCallback_FallbackAndErrors(t *testing.T) {
 	store2.err = errors.New("db save error")
 	if err := saveErrCallback("1.2.3.4", dummyAddr, pub); err == nil {
 		t.Fatal("expected store save error, got nil")
+	}
+}
+
+func TestHostKeyCallback_LegacyMD5Upgrade(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryHostKeyStore()
+	serverID := int64(105)
+
+	pub := generateDummyPublicKey(t)
+	legacyMD5 := FingerprintLegacyMD5(pub)
+	expectedSHA256 := FingerprintSHA256(pub)
+
+	// Save legacy MD5 in store (e.g. from Python paramiko)
+	_ = store.SaveKnownHostFingerprint(ctx, serverID, legacyMD5)
+
+	callback := NewHostKeyCallback(ctx, HostKeyCallbackOptions{
+		ServerID: &serverID,
+		Store:    store,
+	})
+
+	dummyAddr, _ := net.ResolveTCPAddr("tcp", "1.2.3.4:22")
+
+	// Verification should succeed with legacy MD5
+	if err := callback("1.2.3.4", dummyAddr, pub); err != nil {
+		t.Fatalf("expected legacy MD5 verification to succeed, got: %v", err)
+	}
+
+	// Should have opportunistically upgraded store to SHA-256
+	updatedFP, err := store.GetKnownHostFingerprint(ctx, serverID)
+	if err != nil {
+		t.Fatalf("failed to read updated fingerprint: %v", err)
+	}
+	if updatedFP != expectedSHA256 {
+		t.Fatalf("expected store to be upgraded to %s, got %s", expectedSHA256, updatedFP)
+	}
+}
+
+func TestHostKeyCallback_LegacyRawHexMD5Upgrade(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryHostKeyStore()
+	serverID := int64(106)
+
+	pub := generateDummyPublicKey(t)
+	legacyMD5 := FingerprintLegacyMD5(pub)
+	rawHexMD5 := strings.ReplaceAll(legacyMD5, ":", "")
+	expectedSHA256 := FingerprintSHA256(pub)
+
+	// Save raw 32-char hex MD5 in store (Paramiko .hex() format)
+	_ = store.SaveKnownHostFingerprint(ctx, serverID, rawHexMD5)
+
+	callback := NewHostKeyCallback(ctx, HostKeyCallbackOptions{
+		ServerID: &serverID,
+		Store:    store,
+	})
+
+	dummyAddr, _ := net.ResolveTCPAddr("tcp", "1.2.3.4:22")
+
+	if err := callback("1.2.3.4", dummyAddr, pub); err != nil {
+		t.Fatalf("expected raw hex MD5 verification to succeed, got: %v", err)
+	}
+
+	updatedFP, err := store.GetKnownHostFingerprint(ctx, serverID)
+	if err != nil {
+		t.Fatalf("failed to read updated fingerprint: %v", err)
+	}
+	if updatedFP != expectedSHA256 {
+		t.Fatalf("expected store to be upgraded to %s, got %s", expectedSHA256, updatedFP)
 	}
 }

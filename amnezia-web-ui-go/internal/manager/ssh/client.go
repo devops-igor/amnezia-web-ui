@@ -170,6 +170,11 @@ func (c *Client) Connect(ctx context.Context) error {
 		return fmt.Errorf("ssh handshake failed with %s: %w", addr, err)
 	}
 
+	if c.sftpClient != nil {
+		_ = c.sftpClient.Close()
+		c.sftpClient = nil
+	}
+
 	c.sshClient = gossh.NewClient(sshConn, chans, reqs)
 	c.closed = false
 	c.lastActive = time.Now()
@@ -177,7 +182,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	return nil
 }
 
-// getSFTP returns an initialized SFTP client instance, creating one if not present.
+// getSFTP returns an initialized SFTP client instance, creating one if not present or refreshing if stale.
 func (c *Client) getSFTP() (*sftp.Client, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -187,7 +192,13 @@ func (c *Client) getSFTP() (*sftp.Client, error) {
 	}
 
 	if c.sftpClient != nil {
-		return c.sftpClient, nil
+		// Verify if cached SFTP client session is still healthy
+		if _, err := c.sftpClient.Getwd(); err == nil {
+			return c.sftpClient, nil
+		}
+		// Stale / broken SFTP client session -> close and recreate
+		_ = c.sftpClient.Close()
+		c.sftpClient = nil
 	}
 
 	sftpClient, err := sftp.NewClient(c.sshClient)

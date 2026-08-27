@@ -227,3 +227,48 @@ func TestCheckCommandExists(t *testing.T) {
 		t.Fatalf("expected empty command exists=false, got %v", exists)
 	}
 }
+
+func TestDetectAppArmor(t *testing.T) {
+	server := NewMockSSHServer(t, "root", "pass")
+	defer server.Close()
+
+	ctx := context.Background()
+	cfg := Config{
+		Host:            server.Host(),
+		Port:            server.Port(),
+		User:            "root",
+		Password:        "pass",
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(),
+	}
+
+	client, err := Dial(ctx, cfg)
+	if err != nil {
+		t.Fatalf("failed to dial: %v", err)
+	}
+	defer client.Close()
+
+	// 1. AppArmor enabled (exit code 0)
+	server.SetCommandHandler("([ -f /sys/module/apparmor/parameters/enabled ]", func(cmd string, stdin []byte) (string, string, int) {
+		return "", "", 0
+	})
+
+	enabled, err := DetectAppArmor(ctx, client)
+	if err != nil || !enabled {
+		t.Fatalf("expected AppArmor enabled=true, got %v, err=%v", enabled, err)
+	}
+
+	// 2. AppArmor disabled (exit code 1)
+	server.SetCommandHandler("([ -f /sys/module/apparmor/parameters/enabled ]", func(cmd string, stdin []byte) (string, string, int) {
+		return "", "", 1
+	})
+
+	enabled, err = DetectAppArmor(ctx, client)
+	if err != nil || enabled {
+		t.Fatalf("expected AppArmor enabled=false, got %v, err=%v", enabled, err)
+	}
+
+	// 3. Nil client
+	if _, err := DetectAppArmor(ctx, nil); err == nil {
+		t.Fatal("expected error on nil client")
+	}
+}

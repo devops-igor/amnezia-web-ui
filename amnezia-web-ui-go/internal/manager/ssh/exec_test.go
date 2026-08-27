@@ -19,6 +19,11 @@ func TestEscapeShellArg(t *testing.T) {
 		{"it's me", `'it'\''s me'`},
 		{"$VAR and `calc`", `'$VAR and ` + "`calc`'"},
 		{"'quoted'", `''\''quoted'\'''`},
+		// Null byte sanitization tests
+		{"hello\x00world", "'helloworld'"},
+		{"\x00", "''"},
+		{"\x00\x00\x00", "''"},
+		{"\x00it's\x00", `'it'\''s'`},
 	}
 
 	for _, tt := range tests {
@@ -72,26 +77,6 @@ func TestFormatSudoCommand(t *testing.T) {
 	}
 	if stdin != "" {
 		t.Fatalf("expected empty stdin, got %q", stdin)
-	}
-}
-
-func TestFormatSudoCommandLine(t *testing.T) {
-	// 1. Root
-	line := FormatSudoCommandLine("docker ps", "pass", true)
-	if line != "docker ps" {
-		t.Fatalf("expected raw command for root, got %s", line)
-	}
-
-	// 2. Non-root with pass
-	line = FormatSudoCommandLine("docker ps", "p@ss'word", false)
-	if !strings.HasPrefix(line, "echo 'p@ss'\\''word' | sudo -S -p '' -- /bin/bash -c 'docker ps'") {
-		t.Fatalf("unexpected command line: %s", line)
-	}
-
-	// 3. Non-root without pass
-	line = FormatSudoCommandLine("docker ps", "", false)
-	if line != "sudo -n -p '' -- /bin/bash -c 'docker ps'" {
-		t.Fatalf("unexpected command line: %s", line)
 	}
 }
 

@@ -20,12 +20,14 @@ var (
 )
 
 // EscapeShellArg safely quotes a string for use as a single argument in a POSIX shell command line.
+// Null bytes (\x00) are stripped to prevent argument truncation attacks.
 func EscapeShellArg(arg string) string {
-	if arg == "" {
+	sanitized := strings.ReplaceAll(arg, "\x00", "")
+	if sanitized == "" {
 		return "''"
 	}
 	// Replace single quotes with '\'', and enclose the whole string in single quotes
-	return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
+	return "'" + strings.ReplaceAll(sanitized, "'", `'\''`) + "'"
 }
 
 // CleanSudoCommand removes leading "sudo " prefix and redundant whitespace.
@@ -56,20 +58,6 @@ func FormatSudoCommand(cmd, password string, isRoot bool) (formattedCmd string, 
 	}
 
 	return formattedCmd, stdinInput
-}
-
-// FormatSudoCommandLine generates the single-line piped sudo string echo '<pass>' | sudo -S -p ” -- /bin/bash -c '<cmd>'.
-func FormatSudoCommandLine(cmd, password string, isRoot bool) string {
-	cleanCmd := CleanSudoCommand(cmd)
-	if isRoot {
-		return cleanCmd
-	}
-	escapedCmd := EscapeShellArg(cleanCmd)
-	if password != "" {
-		escapedPass := EscapeShellArg(password)
-		return fmt.Sprintf("echo %s | sudo -S -p '' -- /bin/bash -c %s", escapedPass, escapedCmd)
-	}
-	return fmt.Sprintf("sudo -n -p '' -- /bin/bash -c %s", escapedCmd)
 }
 
 // SafeBuffer is a thread-safe bytes.Buffer.
