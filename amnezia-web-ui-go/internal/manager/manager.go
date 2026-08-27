@@ -5,18 +5,12 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/ssh"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
 
-// SSHClient defines the contract for remote server communication via SSH/SFTP.
-type SSHClient interface {
-	RunCommand(ctx context.Context, cmd string) (stdout string, stderr string, exitCode int, err error)
-	RunSudoCommand(ctx context.Context, cmd string) (stdout string, stderr string, exitCode int, err error)
-	UploadFile(ctx context.Context, remotePath string, content []byte, mode uint32) error
-	DownloadFile(ctx context.Context, remotePath string) ([]byte, error)
-	FileExists(ctx context.Context, remotePath string) (bool, error)
-	Close() error
-}
+// SSHClient aliases the SSHClient interface from the ssh package.
+type SSHClient = ssh.SSHClient
 
 // ProtocolManager defines the unified lifecycle contract for all VPN protocol backends.
 type ProtocolManager interface {
