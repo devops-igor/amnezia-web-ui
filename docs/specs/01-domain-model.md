@@ -16,7 +16,6 @@ package models
 // Valid protocols supported by the panel
 var ValidProtocols = map[string]bool{
 	"awg":    true,
-	"xray":   true,
 	"telemt": true,
 	"dns":    true,
 }
@@ -229,7 +228,7 @@ func (r *ConfirmFingerprintRequest) Validate() error {
 ### 3.3 `InstallProtocolRequest`
 * **Python Source:** `InstallProtocolRequest`
 * **Validation Rules:**
-  - `Protocol`: `awg`, `xray`, `telemt`, `dns` (default: `awg`).
+  - `Protocol`: `awg`, `telemt`, `dns` (default: `awg`).
   - `Port`: String `1 <= len <= 10` (default: `55424`), must parse to valid port number `1-65535`.
   - `TLSEmulation`: Optional bool.
   - `TLSDomain`: Optional string `1 <= len <= 128`, regex `^[a-zA-Z0-9]([a-zA-Z0-9._-]{0,126}[a-zA-Z0-9])?$|^[a-zA-Z0-9]$`.
@@ -239,7 +238,7 @@ func (r *ConfirmFingerprintRequest) Validate() error {
 
 ```go
 type InstallProtocolRequest struct {
-	Protocol       string                 `json:"protocol" validate:"required,oneof=awg xray telemt dns"`
+	Protocol       string                 `json:"protocol" validate:"required,oneof=awg telemt dns"`
 	Port           string                 `json:"port" validate:"required,min=1,max=10"`
 	TLSEmulation   *bool                  `json:"tls_emulation,omitempty"`
 	TLSDomain      *string                `json:"tls_domain,omitempty" validate:"omitempty,max=128"`

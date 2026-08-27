@@ -1,7 +1,7 @@
 # External Services & Wire Protocols Specification (`04-external-services.md`)
 
 > **Target Packages:** `internal/manager/*`, `internal/service/remnawave`, `internal/vpn/*`  
-> **Source Python Files:** `app/managers/ssh_manager.py`, `app/managers/awg_manager.py`, `app/managers/awg_cps.py`, `app/managers/awg_tc.py`, `app/managers/awg_health.py`, `app/managers/xray_manager.py`, `app/managers/mtproxyl_manager.py`, `dns_manager.py`, `app/services/remnawave_sync.py`  
+> **Source Python Files:** `app/managers/ssh_manager.py`, `app/managers/awg_manager.py`, `app/managers/awg_cps.py`, `app/managers/awg_tc.py`, `app/managers/awg_health.py`, `app/managers/mtproxyl_manager.py`, `dns_manager.py`, `app/services/remnawave_sync.py`  
 > **Status:** Ground Truth Specification for Go Rewrite
 
 ---
@@ -50,7 +50,6 @@ When running commands as non-root with password:
 | Protocol | Container Name | Docker Image | Port Bindings | Volume Mounts | Capabilities & Devices |
 |----------|----------------|--------------|---------------|---------------|------------------------|
 | **AWG** | `amnezia-awg` | `amneziavpn/amneziawg-go:latest` | `<port>:<port>/udp` | `/opt/amnezia/awg/wg0.conf:/etc/amnezia/amneziawg/wg0.conf:ro` | `CAP_NET_ADMIN`, `/dev/net/tun` |
-| **Xray** | `amnezia-xray` | `teddysun/xray:latest` | `<port>:<port>/tcp`, `<port>:<port>/udp` | `/opt/amnezia/xray/config.json:/etc/xray/config.json:ro` | None |
 | **TeleMT (MTProxyL)** | `mtproxyl` | *(Host/Script installed)* | `<port>:<port>/tcp` | `/opt/mtproxyl/secrets.conf`, `/opt/mtproxyl/settings.conf` | None |
 | **DNS** | `amnezia-dns` | `mvance/unbound:latest` | `53:53/udp`, `53:53/tcp` | `/opt/amnezia/dns/unbound.conf:/opt/unbound/etc/unbound/unbound.conf:ro` | None |
 

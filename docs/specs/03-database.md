@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS servers (
     ssh_port INTEGER DEFAULT 22,
     ssh_pass TEXT,       -- Fernet encrypted (gAAAAA...)
     ssh_key TEXT,        -- Fernet encrypted (gAAAAA...)
-    protocols TEXT,      -- JSON blob: {"awg": {...}, "xray": {...}, ...}
+    protocols TEXT,      -- JSON blob: {"awg": {...}, "telemt": {...}, ...}
     created_at TEXT
 );
 
@@ -71,8 +71,8 @@ CREATE TABLE IF NOT EXISTS user_connections (
     id TEXT PRIMARY KEY,                       -- UUID v4
     user_id TEXT NOT NULL,                     -- FK -> users(id)
     server_id INTEGER NOT NULL,                -- FK -> servers(id)
-    protocol TEXT NOT NULL,                    -- 'awg' | 'xray' | 'telemt' | 'dns'
-    client_id TEXT,                            -- Protocol-specific ID (AWG pubkey / Xray UUID / telemt secret)
+    protocol TEXT NOT NULL,                    -- 'awg' | 'telemt' | 'dns'
+    client_id TEXT,                            -- Protocol-specific ID (AWG pubkey / telemt secret)
     name TEXT,
     awg_mimicry TEXT DEFAULT 'auto',
     last_rx INTEGER DEFAULT 0,

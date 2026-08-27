@@ -14,7 +14,6 @@ import (
 // Valid protocols supported by the panel.
 var ValidProtocols = map[string]bool{
 	"awg":    true,
-	"xray":   true,
 	"telemt": true,
 	"dns":    true,
 }

@@ -58,7 +58,6 @@
 | `app/managers/awg_cps.py` | 564 | `internal/manager/awg/cps` | CPS packet generation: QUIC Initial/Short, DNS, SIP, TLS mimicry |
 | `app/managers/awg_tc.py` | 901 | `internal/manager/awg/tc` | Traffic shaping: qdisc/IFB setup, speed limits, class IDs via SSH |
 | `app/managers/awg_health.py` | 611 | `internal/manager/awg/health` | Pure-Go Noise IK handshake over raw UDP — reachability testing and auto-trial probes (uses `amneziawg-go` internals for handshake construction) |
-| `app/managers/xray_manager.py` | 472 | `internal/manager/xray` | Xray: install, client CRUD, config, traffic, protocol management |
 | `app/managers/mtproxyl_manager.py` | 538 | `internal/manager/mtproxyl` | MTProxyL: install, client CRUD, quota, overquota enforcement |
 | `app/services/background_orchestrator.py` | 588 | `internal/service/orchestrator` | Periodic tasks: traffic sync, expiry, reachability, auto-trial, remnawave sync (`errgroup`) |
 | `app/services/background_supervisor.py` | 151 | `internal/service/supervisor` | Crash recovery, restart limiting (3 per 300s), health visibility |
@@ -211,19 +210,18 @@
 ### 1.5 External Integrations
 
 1. **SSH** (`golang.org/x/crypto/ssh` + `github.com/pkg/sftp`): Connect to remote VPN servers, command execution, sudo execution, file upload/download via SFTP (matching paramiko behavior), host key verification against `known_hosts` table with SHA256 fingerprints.
-2. **Docker CLI** (on remote servers via SSH): Install, run, inspect, and destroy VPN protocol containers (`amnezia-awg`, `amnezia-xray`, `amnezia-telemt`, `amnezia-dns`).
+2. **Docker CLI** (on remote servers via SSH): Install, run, inspect, and destroy VPN protocol containers (`amnezia-awg`, `amnezia-telemt`, `amnezia-dns`).
 3. **AmneziaWG (AWG)** — two distinct usages:
    - **Remote Docker container** (`amneziavpn/amneziawg-go:latest`): Deployed on remote VPN servers as the actual VPN server. Managed via SSH + Docker commands. This is the existing behavior — unchanged.
    - **In-process library** (`github.com/amnezia-vpn/amneziawg-go` as Go import): Used in the portal itself for (a) accepting user AWG connections as a VPN endpoint, (b) establishing backend tunnels to remote VPN servers, (c) health probing via Noise IK handshake. Replaces the pure-Python `awg_health.py` implementation with the real AWG protocol stack.
-4. **Xray**: VLESS / Reality / Trojan proxy. Remote Docker container and JSON configuration management.
-5. **MTProxyL**: Telegram MTProto proxy. Python CLI wrapper replacement with direct remote execution and quota management.
-6. **DNS (Unbound)**: AmneziaDNS caching/forwarding service via Docker on remote servers.
-7. **RemnaWave**: External API sync (`net/http` client with Bearer auth), user reconciliation and connection binding.
-8. **BunkerWeb WAF**: Docker labels and environment variables. Compose integration preserved with additions for new VPN port mappings.
-9. **Fernet Encryption**: Standard library Go implementation of Fernet (HKDF-SHA256 key derivation from `SECRET_KEY`, AES-128-CBC + HMAC-SHA256, `gAAAAA...` token format). Must decrypt existing Python-encrypted credentials.
-10. **bcrypt**: Password hashing using `golang.org/x/crypto/bcrypt` (cost 12, safe handling of 72-byte limit). Must verify existing Python-generated bcrypt hashes.
-11. **i18n**: 5 languages (`en`, `fa`, `fr`, `ru`, `zh`), embedded JSON files, cookie-based language selection.
-12. **CAPTCHA**: Pure-Go CAPTCHA generator (`github.com/mojocnv/base64Captcha`), math/character challenges with visual noise. Must produce visually similar output to Python `multicolorcaptcha` — verify E2E auth tests can be adapted.
+4. **MTProxyL**: Telegram MTProto proxy. Python CLI wrapper replacement with direct remote execution and quota management.
+5. **DNS (Unbound)**: AmneziaDNS caching/forwarding service via Docker on remote servers.
+6. **RemnaWave**: External API sync (`net/http` client with Bearer auth), user reconciliation and connection binding.
+7. **BunkerWeb WAF**: Docker labels and environment variables. Compose integration preserved with additions for new VPN port mappings.
+8. **Fernet Encryption**: Standard library Go implementation of Fernet (HKDF-SHA256 key derivation from `SECRET_KEY`, AES-128-CBC + HMAC-SHA256, `gAAAAA...` token format). Must decrypt existing Python-encrypted credentials.
+9. **bcrypt**: Password hashing using `golang.org/x/crypto/bcrypt` (cost 12, safe handling of 72-byte limit). Must verify existing Python-generated bcrypt hashes.
+10. **i18n**: 5 languages (`en`, `fa`, `fr`, `ru`, `zh`), embedded JSON files, cookie-based language selection.
+11. **CAPTCHA**: Pure-Go CAPTCHA generator (`github.com/mojocnv/base64Captcha`), math/character challenges with visual noise. Must produce visually similar output to Python `multicolorcaptcha` — verify E2E auth tests can be adapted.
 
 ### 1.6 Background Tasks (Orchestrator: 60s initial delay, 600s interval)
 
@@ -261,8 +259,7 @@
 │   │   │   └── tc/                 # Traffic control (tc, qdisc, ifb speed limits)
 │   │   ├── dns/                    # Unbound DNS manager
 │   │   ├── mtproxyl/               # MTProxyL manager & quota enforcement
-│   │   ├── ssh/                    # SSHClient interface, connection pooling, host key verification, SFTP
-│   │   └── xray/                   # Xray (VLESS/Reality/Trojan) manager & JSON configs
+│   │   └── ssh/                    # SSHClient interface, connection pooling, host key verification, SFTP
 │   ├── middleware/                 # CSRF, Session, RateLimit, SetupRedirect, PasswordChange, Logging
 │   ├── models/                     # Data models, request/response DTOs, validation logic
 │   ├── router/                     # HTTP route handlers (auth, servers, connections, users, settings, share, pages, vpn)
@@ -432,7 +429,7 @@ graph TD
     P0[Phase 0: Scaffold & Build System] --> P1[Phase 1: Core Crypto, DB & Auth]
     P1 --> P2[Phase 2: HTTP Server & Middleware]
     P1 --> P3[Phase 3: SSH Manager & Remote Exec]
-    P2 --> P4[Phase 4: Protocol Managers AWG/Xray/MTProxyL/DNS]
+    P2 --> P4[Phase 4: Protocol Managers AWG/MTProxyL/DNS]
     P3 --> P4
     P4 --> P4E[Phase 4E: VPN Endpoint & Load Balancing]
     P4E --> P5[Phase 5: API Routers & Handlers]
@@ -500,11 +497,11 @@ graph TD
 
 *Verification Gate 3:* Hermetic tests against mock SSH server (`gliderlabs/ssh`) and live integration tests on remote test VPS per `docs/specs/04-external-services.md`.
 
-### Phase 4: Protocol Managers (7-10 days)
+### Phase 4: Protocol Managers (6-8 days)
 **Lead:** `dev_bot` (Parallelizable sub-tasks) | **Auditor:** `qa_bot`  
 **Primary Specifications:** [`docs/specs/01-domain-model.md`](../specs/01-domain-model.md), [`docs/specs/04-external-services.md`](../specs/04-external-services.md)
 
-> **Parallelization note:** Max 3 concurrent `dev_bot` instances. Recommended sequence: 4A (AWG, 4-5 days) + 4B (Xray, 2 days) + 4C (MTProxyL, 2 days) start together. 4D (DNS, 1 day) starts after 4B completes. This stays within the 3-instance limit.
+> **Parallelization note:** Max 3 concurrent `dev_bot` instances. Recommended sequence: 4A (AWG, 4-5 days) + 4B (MTProxyL, 2 days) start together. 4C (DNS, 1 day) starts after MTProxyL completes. This stays within the 3-instance limit.
 
 - **4A. AmneziaWG (AWG) Manager (4-5 days):**
   - Remote container lifecycle: Docker build/run of `amneziavpn/amneziawg-go:latest` on remote servers, `wg0.conf` rendering, `clients.json` synchronization per `docs/specs/04-external-services.md`.
@@ -515,21 +512,16 @@ graph TD
   - Noise protocol health probes (`awg_health`): Port the pure-Python Noise IK handshake to Go using `amneziawg-go` protocol internals per `docs/specs/04-external-services.md`. Craft AWG handshake initiation packets, verify response packets, measure round-trip latency. Must produce byte-for-byte identical handshake packets to the Python implementation.
   - Speed limit configuration: Global and per-connection speed limits, bulk apply.
 
-- **4B. Xray Manager (2 days):**
-  - Remote container lifecycle: Docker install, run, status verification per `docs/specs/04-external-services.md`.
-  - Config generation: Multi-inbound `config.json` (VLESS / Reality / Trojan / Shadowsocks), client UUID generation.
-  - Client CRUD & stats: Add, remove, edit, toggle, query rx/tx bytes via Xray API / log parsing.
-
-- **4C. MTProxyL Manager (2 days):**
+- **4B. MTProxyL Manager (2 days):**
   - Remote container lifecycle & CLI integration per `docs/specs/04-external-services.md`.
   - Client secret generation (dd-secrets), add/edit/remove/toggle clients.
   - Quota enforcement & overquota disabling.
 
-- **4D. DNS Manager (1 day):**
+- **4C. DNS Manager (1 day):**
   - Unbound DNS Docker container installation, `forward-records.conf` generation, health check per `docs/specs/04-external-services.md`.
 
 *Verification Gate 4:*
-- Golden file diff testing for all generated protocol configs (AWG, Xray, MTProxyL, DNS) against Python baselines.
+- Golden file diff testing for all generated protocol configs (AWG, MTProxyL, DNS) against Python baselines.
 - **Noise protocol byte-for-byte verification:** Go-crafted AWG handshake initiation packets must match Python output byte-for-byte. Any deviation produces invalid handshakes and false-negative health checks. Test with captured Python packet vectors.
 - Full port of ~400 protocol manager test cases matching `docs/specs/04-external-services.md`.
 
@@ -684,7 +676,7 @@ graph TD
 | Remote SSH Differences | Med | Med | Abstract SSH behind `SSHClient` interface; test against mock SSH server locally and real VPS early in Phase 3. Use SFTP (not SCP) to match paramiko. |
 | Template Rendering Differences | Med | Low | Implement Jinja2-compatible `FuncMap` helpers; validate with Playwright E2E suite across all 11 pages. |
 | CAPTCHA Visual Mismatch | Low | Medium | `base64Captcha` may produce visually different output than `multicolorcaptcha`. Verify E2E auth tests can be adapted or use a different Go CAPTCHA library. |
-| Dynamic Protocol Incompatibilities | High | Low | Golden config diff testing for AWG, Xray, MTProxyL, and DNS config outputs against Python baselines. |
+| Dynamic Protocol Incompatibilities | High | Low | Golden config diff testing for AWG, MTProxyL, and DNS config outputs against Python baselines. |
 | Test Port Effort Scope | Med | Med | Adopt TDD per phase; use automated Go table-driven test generators for boilerplate conversion. |
 | Docker Security Model Change | High | Medium | Container now requires `CAP_NET_ADMIN` + TUN access. Mitigate: no `CAP_SYS_ADMIN`, no privileged mode, BunkerWeb WAF on HTTP, AWG protocol-level auth on UDP. Document in deployment guide. |
 | `amneziawg-go` Library Stability | Med | Medium | `amneziawg-go` is designed as a standalone daemon, not an embeddable library. Using it in-process may require careful API integration or forking. Mitigation: evaluate API surface early in Phase 4E, fork if necessary. |
@@ -773,16 +765,16 @@ The implementation will be orchestrated deterministically across Antigravity sub
 | **Phase 1** | Crypto, Database (67 methods), Auth & Migration | 3-4 | 6 |
 | **Phase 2** | HTTP Server & Middleware Stack | 2-3 | 9 |
 | **Phase 3** | SSH Manager & Remote Docker Utils | 2 | 11 |
-| **Phase 4** | Protocol Managers (AWG, Xray, MTProxyL, DNS) | 7-10 | 21 |
-| **Phase 4E** | VPN Endpoint & Load Balancing (NEW) | 5-7 | 28 |
-| **Phase 5** | API Routers (54 existing + 10 new endpoints) | 5-7 | 35 |
-| **Phase 6** | Background Services & Orchestrator (incl. VPN tasks) | 2-3 | 38 |
-| **Phase 7** | HTML Templates & Static Frontend (existing + new VPN views) | 2-3 | 41 |
-| **Phase 8** | Differential & E2E Test Porting (incl. VPN tests) | 3-4 | 45 |
-| **Phase 9** | Docker Packaging & Hardening (updated security model) | 1-2 | 47 |
-| **Phase 10** | Production Staging & Cutover (incl. VPN endpoint verification) | 1-2 | 49 |
+| **Phase 4** | Protocol Managers (AWG, MTProxyL, DNS) | 6-8 | 19 |
+| **Phase 4E** | VPN Endpoint & Load Balancing (NEW) | 5-7 | 26 |
+| **Phase 5** | API Routers (54 existing + 10 new endpoints) | 5-7 | 33 |
+| **Phase 6** | Background Services & Orchestrator (incl. VPN tasks) | 2-3 | 36 |
+| **Phase 7** | HTML Templates & Static Frontend (existing + new VPN views) | 2-3 | 39 |
+| **Phase 8** | Differential & E2E Test Porting (incl. VPN tests) | 3-4 | 43 |
+| **Phase 9** | Docker Packaging & Hardening (updated security model) | 1-2 | 45 |
+| **Phase 10** | Production Staging & Cutover (incl. VPN endpoint verification) | 1-2 | 47 |
 
-**Total Estimated Effort:** ~40-49 working days. Can be accelerated by running Phase 4 protocol managers and Phase 5 routers in parallel across independent `dev_bot` task instances (max 3 concurrent). Phase 4E is sequential after Phase 4A (depends on AWG manager + health probes).
+**Total Estimated Effort:** ~38-47 working days. Can be accelerated by running Phase 4 protocol managers and Phase 5 routers in parallel across independent `dev_bot` task instances (max 3 concurrent). Phase 4E is sequential after Phase 4A (depends on AWG manager + health probes).
 
 ---
 
@@ -795,7 +787,7 @@ The implementation will be orchestrated deterministically across Antigravity sub
 5. **VPN UI Functional:** New VPN admin pages render correctly and show live tunnel status, backend health, active sessions.
 6. **Database Compatibility:** Existing production `panel.db` (7 tables) operates seamlessly without data loss. New tables (3) added via additive schema migration per [`docs/specs/03-database.md`](../specs/03-database.md).
 7. **Crypto Compatibility:** Credentials encrypted by Python Fernet decrypt seamlessly in Go. Existing bcrypt hashes verify correctly per [`docs/specs/02-configuration.md`](../specs/02-configuration.md).
-8. **Protocol Output Compatibility:** Remote server configs generated by AWG, Xray, MTProxyL, and DNS managers match Python-generated configs per [`docs/specs/04-external-services.md`](../specs/04-external-services.md).
+8. **Protocol Output Compatibility:** Remote server configs generated by AWG, MTProxyL, and DNS managers match Python-generated configs per [`docs/specs/04-external-services.md`](../specs/04-external-services.md).
 9. **Noise Protocol Byte Compatibility:** Go-crafted AWG handshake packets match Python output byte-for-byte (verified with captured test vectors per [`docs/specs/04-external-services.md`](../specs/04-external-services.md)).
 10. **VPN Endpoint Operational:** Portal accepts AWG user connections, forwards traffic to backend servers via in-process tunnels, load balances across healthy backends, fails over on backend failure.
 11. **Background Concurrency:** Orchestrator syncs traffic, enforces quotas, checks reachability, monitors backend tunnel health, and rebalances VPN sessions reliably using `errgroup` per [`docs/specs/06-background-jobs.md`](../specs/06-background-jobs.md).

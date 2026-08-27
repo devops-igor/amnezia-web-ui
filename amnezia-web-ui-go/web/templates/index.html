@@ -95,8 +95,7 @@
                 {% if proto_val.get('installed') %}
                 <span class="badge badge-success">
                     <span class="badge-dot"></span>
-                    {{ 'AmneziaWG' if proto_key == 'awg' else ('Xray' if
-                    proto_key == 'xray' else proto_key | upper) }}
+                    {{ 'AmneziaWG' if proto_key == 'awg' else proto_key | upper }}
                 </span>
                 {% endif %}
                 {% endfor %}

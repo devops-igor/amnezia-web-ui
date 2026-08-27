@@ -532,7 +532,7 @@
             if (info.installed) {
                 const opt = document.createElement('option');
                 opt.value = key;
-                opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'xray' ? 'Xray' : key.toUpperCase());
+                opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'telemt' ? 'MTProxyL' : (key === 'dns' ? 'AmneziaDNS' : key.toUpperCase()));
                 select.appendChild(opt);
                 count++;
             }
@@ -789,7 +789,6 @@
                     : '';
                 const protoDisplay = {
                     awg: 'AmneziaWG',
-                    xray: 'Xray',
                     telemt: 'MTProxyL',
                     dns: 'AmneziaDNS',
                 };

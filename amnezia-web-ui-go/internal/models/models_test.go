@@ -11,7 +11,7 @@ func TestProtocolValidationAndNormalization(t *testing.T) {
 		wantValid bool
 	}{
 		{"awg", "awg", true},
-		{"xray", "xray", true},
+		{"xray", "xray", false},
 		{"telemt", "telemt", true},
 		{"dns", "dns", true},
 		{"awg2", "awg", true},
@@ -218,7 +218,7 @@ func TestInstallProtocolRequestValidation(t *testing.T) {
 	}
 
 	invalidDomainStr := "bad domain with spaces!"
-	invalidDomain := InstallProtocolRequest{Protocol: "xray", Port: "443", TLSDomain: &invalidDomainStr}
+	invalidDomain := InstallProtocolRequest{Protocol: "awg", Port: "443", TLSDomain: &invalidDomainStr}
 	if err := invalidDomain.Validate(); err == nil {
 		t.Errorf("expected error for invalid TLS domain")
 	}
