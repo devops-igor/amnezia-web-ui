@@ -64,9 +64,12 @@ DEV_HANDOVER.md
 TASK.md
 TASK_PROMPT*.md
 SUGGESTED_IMPROVEMENTS.md
+SESSION_SUMMARY*.md
+*SESSION_SUMMARY*.md
 .agents/
 AGENTS.md
 .gitignore
 workflow.md
 dev_ssh_key
 .env
+
