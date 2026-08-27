@@ -768,11 +768,6 @@ button:focus-visible,
     color: var(--info);
 }
 
-.protocol-xray .protocol-icon {
-    background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(245, 158, 11, 0.1));
-    color: var(--warning);
-}
-
 .protocol-telemt .protocol-icon {
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(16, 185, 129, 0.1));
     color: #38bdf8;

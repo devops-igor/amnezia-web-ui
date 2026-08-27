@@ -90,7 +90,7 @@ func TestServersCreateAndGet(t *testing.T) {
 				SSHPort:   2200,
 				SSHPass:   encP,
 				SSHKey:    encK,
-				Protocols: map[string]any{"xray": map[string]any{"port": 443, "reality_private_key": "HIDDEN"}},
+				Protocols: map[string]any{"telemt": map[string]any{"port": 443}},
 			},
 			wantID:    3,
 			checkPass: "PreEncryptedPass",

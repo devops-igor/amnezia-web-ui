@@ -254,7 +254,7 @@ func TestClient_SFTPAndUploadDownload(t *testing.T) {
 	}
 	defer nonRootClient.Close()
 
-	nonRootTargetFile := filepath.Join(nonRootServer.BaseDir(), "etc", "xray", "config.json")
+	nonRootTargetFile := filepath.Join(nonRootServer.BaseDir(), "etc", "amnezia", "config.json")
 	if err := nonRootClient.UploadSudoFile(ctx, nonRootTargetFile, []byte(`{"inbounds":[]}`), 0644); err != nil {
 		t.Fatalf("UploadSudoFile non-root failed: %v", err)
 	}

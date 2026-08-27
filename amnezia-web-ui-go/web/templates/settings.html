@@ -221,8 +221,8 @@
                             <select class="form-select" name="remnawave_protocol" id="syncProtocolSelect">
                                 <option value="awg" {% if settings.sync.remnawave_protocol=='awg' %}selected{% endif %}>
                                     AmneziaWG</option>
-                                <option value="xray" {% if settings.sync.remnawave_protocol=='xray' %}selected{% endif %}>
-                                    Xray</option>
+                                <option value="telemt" {% if settings.sync.remnawave_protocol=='telemt' %}selected{% endif %}>
+                                    MTProxyL</option>
                             </select>
                         </div>
                     </div>
@@ -311,7 +311,7 @@
             if (info.installed) {
                 const opt = document.createElement('option');
                 opt.value = key;
-                opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'xray' ? 'Xray' : key.toUpperCase());
+                opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'telemt' ? 'MTProxyL' : (key === 'dns' ? 'AmneziaDNS' : key.toUpperCase()));
                 if (key === "{{ settings.sync.remnawave_protocol }}") opt.selected = true;
                 protoSelect.appendChild(opt);
                 count++;

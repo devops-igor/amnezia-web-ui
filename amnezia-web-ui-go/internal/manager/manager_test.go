@@ -11,10 +11,10 @@ func TestRegistry(t *testing.T) {
 	reg := NewRegistry()
 
 	awgMgr := NewMockProtocolManager("awg")
-	xrayMgr := NewMockProtocolManager("xray")
+	telemtMgr := NewMockProtocolManager("telemt")
 
 	reg.Register(awgMgr)
-	reg.Register(xrayMgr)
+	reg.Register(telemtMgr)
 
 	if mgr, ok := reg.Get("awg"); !ok || mgr == nil {
 		t.Fatalf("expected to find awg manager")

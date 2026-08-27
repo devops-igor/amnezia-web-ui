@@ -82,7 +82,7 @@
                     <div class="client-meta">
                         <span>🖥 {{ c.server_name }}</span>
                         <span class="badge badge-info" style="font-size:0.65rem;">
-                            {{ 'AmneziaWG' if c.protocol == 'awg' else ('Xray' if c.protocol == 'xray' else c.protocol | upper) }}
+                            {{ 'AmneziaWG' if c.protocol == 'awg' else c.protocol | upper }}
                         </span>
                         {% if c.protocol == 'awg' and c.awg_mimicry %}
                         <span class="badge badge-info" style="font-size:0.65rem;">🛡 {{ c.awg_mimicry | upper }}</span>
@@ -355,7 +355,6 @@
     function renderConnectionItem(conn, isTopConsumer) {
         const protoDisplay = {
             awg: 'AmneziaWG',
-            xray: 'Xray',
             telemt: 'MTProxyL',
             dns: 'AmneziaDNS'
         };
@@ -440,7 +439,6 @@
         const protocols = server.protocols;
         const protoNames = {
             awg: 'AmneziaWG',
-            xray: 'Xray (VLESS-Reality)',
             telemt: 'MTProxyL (Telegram Proxy)',
             dns: 'AmneziaDNS'
         };

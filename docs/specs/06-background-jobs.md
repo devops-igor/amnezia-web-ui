@@ -47,16 +47,15 @@ graph TD
     A[Start sync_traffic Cycle] --> B[Fetch All Active Servers]
     B --> C{Parallel errgroup: Query Protocol Managers}
     C --> D[AWG: parse wg show dump]
-    C --> E[Xray: query API stats]
-    C --> F[TeleMT: parse stats CLI]
-    D & E & F --> G[Compute Rx/Tx Deltas with Reset Detection]
-    G --> H[Update user_connections Table]
-    H --> I[Aggregate Totals to users Table]
-    I --> J{Check 1st-of-Month Rollover?}
-    J -- Yes --> K[Snapshot Leaderboard & Reset Monthly Counters]
-    J -- No --> L[Enforce Traffic Limits & Disable Over-Quota Users]
-    K --> L
-    L --> M[Done Cycle]
+    C --> E[TeleMT: parse stats CLI]
+    D & E --> F[Compute Rx/Tx Deltas with Reset Detection]
+    F --> G[Update user_connections Table]
+    G --> H[Aggregate Totals to users Table]
+    H --> I{Check 1st-of-Month Rollover?}
+    I -- Yes --> J[Snapshot Leaderboard & Reset Monthly Counters]
+    I -- No --> K[Enforce Traffic Limits & Disable Over-Quota Users]
+    J --> K
+    K --> L[Done Cycle]
 ```
 
 #### Step-by-Step Algorithm:

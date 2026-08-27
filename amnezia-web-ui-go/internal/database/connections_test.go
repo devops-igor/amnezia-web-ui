@@ -71,7 +71,7 @@ func TestConnectionsCreateAndGet(t *testing.T) {
 	c2 := &models.UserConnection{
 		UserID:     uID,
 		ServerID:   sID,
-		Protocol:   "xray",
+		Protocol:   "telemt",
 		ClientID:   "client-pubkey-2",
 		AWGMimicry: "",
 	}
@@ -104,7 +104,7 @@ func TestConnectionsQueryByFilters(t *testing.T) {
 	uID, _ := db.CreateUser(ctx, &models.User{Username: "filter_user", ShareToken: &shareToken, ShareEnabled: true})
 
 	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: s1ID, Protocol: "awg", ClientID: "c1"})
-	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: s2ID, Protocol: "xray", ClientID: "c2"})
+	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: s2ID, Protocol: "telemt", ClientID: "c2"})
 
 	uConns, err := db.GetConnectionsByUserID(ctx, uID)
 	if err != nil || len(uConns) != 2 {
@@ -237,13 +237,13 @@ func TestConnectionsDeleteVariants(t *testing.T) {
 		t.Errorf("DeleteConnectionsByServerAndProtocol expected 1, got %d, err=%v", delProtoCount, err)
 	}
 
-	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: sID, Protocol: "xray", ClientID: "c4"})
+	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: sID, Protocol: "telemt", ClientID: "c4"})
 	delUserCount, err := db.DeleteConnectionsByUser(ctx, uID)
 	if err != nil || delUserCount != 1 {
 		t.Errorf("DeleteConnectionsByUser expected 1, got %d, err=%v", delUserCount, err)
 	}
 
-	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: sID, Protocol: "xray", ClientID: "c5"})
+	_, _ = db.CreateConnection(ctx, &models.UserConnection{UserID: uID, ServerID: sID, Protocol: "telemt", ClientID: "c5"})
 	delServerCount, err := db.DeleteConnectionsByServer(ctx, sID)
 	if err != nil || delServerCount != 1 {
 		t.Errorf("DeleteConnectionsByServer expected 1, got %d, err=%v", delServerCount, err)

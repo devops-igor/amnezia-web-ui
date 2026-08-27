@@ -167,7 +167,7 @@ func TestSettingsRemnaWaveAndFlags(t *testing.T) {
 		RemnawaveSyncUsers:   true,
 		RemnawaveCreateConns: true,
 		RemnawaveServerID:    1,
-		RemnawaveProtocol:    "xray",
+		RemnawaveProtocol:    "telemt",
 	}
 	_ = db.SetSetting(ctx, "sync", syncConfig)
 	updatedRemna, _ := db.GetRemnaWaveSettings(ctx)
