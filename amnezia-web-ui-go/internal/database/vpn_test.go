@@ -235,3 +235,94 @@ func TestVPNDeletionAndNullScanning(t *testing.T) {
 		t.Errorf("expected valid timestamps in sessNullTS, got: %+v", sessNullTS)
 	}
 }
+
+func TestVPNConfig(t *testing.T) {
+	db, _ := setupTestDB(t)
+	ctx := context.Background()
+
+	// Default config
+	cfg, err := db.GetVPNConfig(ctx)
+	if err != nil {
+		t.Fatalf("GetVPNConfig failed: %v", err)
+	}
+	if cfg.Algorithm != models.LBLeastConnections || cfg.ListenPort != 51820 || cfg.SubnetCIDR != "10.100.0.0/16" {
+		t.Errorf("unexpected default cfg: %+v", cfg)
+	}
+
+	// Update config
+	cfg.Algorithm = models.LBWeighted
+	cfg.ListenPort = 51822
+	cfg.Weights = map[int64]int{1: 50, 2: 50}
+	if err := db.SaveVPNConfig(ctx, cfg); err != nil {
+		t.Fatalf("SaveVPNConfig failed: %v", err)
+	}
+	if err := db.SaveVPNConfig(ctx, nil); err == nil {
+		t.Errorf("expected error saving nil cfg")
+	}
+
+	loadedCfg, err := db.GetVPNConfig(ctx)
+	if err != nil || loadedCfg.Algorithm != models.LBWeighted || loadedCfg.ListenPort != 51822 || loadedCfg.Weights[1] != 50 {
+		t.Errorf("loaded cfg mismatch: %+v, err: %v", loadedCfg, err)
+	}
+}
+
+func TestVPNQueries(t *testing.T) {
+	db, _ := setupTestDB(t)
+	ctx := context.Background()
+
+	// Backend tunnel by server ID
+	sID, _ := db.CreateServer(ctx, &models.Server{Name: "Server 1", Host: "1.2.3.4"})
+	tID, err := db.CreateBackendTunnel(ctx, &models.BackendTunnel{
+		ServerID:      sID,
+		InterfaceName: "awg-be-1",
+		PublicKey:     "pubkey1",
+		PrivateKey:    "privkey1",
+		Endpoint:      "1.2.3.4:51820",
+	})
+	if err != nil {
+		t.Fatalf("CreateBackendTunnel failed: %v", err)
+	}
+
+	byServerID, err := db.GetBackendTunnelByServerID(ctx, sID)
+	if err != nil || byServerID == nil || byServerID.ID != tID {
+		t.Errorf("GetBackendTunnelByServerID mismatch: %+v, err: %v", byServerID, err)
+	}
+
+	nonExistent, err := db.GetBackendTunnelByServerID(ctx, 99999)
+	if err != nil || nonExistent != nil {
+		t.Errorf("expected nil for non-existent server ID, got: %+v, err: %v", nonExistent, err)
+	}
+
+	// VPNSessionByID and VPNSessionsByUserID
+	uID, _ := db.CreateUser(ctx, &models.User{Username: "sess_user"})
+	sessID := "session-uuid-123"
+	if err := db.CreateVPNSession(ctx, &models.VPNSession{
+		ID:              sessID,
+		UserID:          uID,
+		BackendTunnelID: tID,
+		PeerPublicKey:   "peer123",
+		AssignedIP:      "10.100.0.15",
+	}); err != nil {
+		t.Fatalf("CreateVPNSession failed: %v", err)
+	}
+
+	byID, err := db.GetVPNSessionByID(ctx, sessID)
+	if err != nil || byID == nil || byID.ID != sessID {
+		t.Errorf("GetVPNSessionByID mismatch: %+v, err: %v", byID, err)
+	}
+
+	nonExistentSess, err := db.GetVPNSessionByID(ctx, "non-existent")
+	if err != nil || nonExistentSess != nil {
+		t.Errorf("expected nil for non-existent session ID, got: %+v, err: %v", nonExistentSess, err)
+	}
+
+	userSessions, err := db.GetVPNSessionsByUserID(ctx, uID)
+	if err != nil || len(userSessions) != 1 || userSessions[0].ID != sessID {
+		t.Errorf("GetVPNSessionsByUserID mismatch: len=%d, err=%v", len(userSessions), err)
+	}
+
+	emptyUserSessions, err := db.GetVPNSessionsByUserID(ctx, "non-existent-user")
+	if err != nil || len(emptyUserSessions) != 0 {
+		t.Errorf("expected empty user sessions, got: %d, err: %v", len(emptyUserSessions), err)
+	}
+}

@@ -202,6 +202,26 @@ func (d *DB) DeleteBackendTunnel(ctx context.Context, id int64) error {
 	return nil
 }
 
+// GetBackendTunnelByServerID retrieves a backend tunnel by its server_id. Returns nil, nil if not found.
+func (d *DB) GetBackendTunnelByServerID(ctx context.Context, serverID int64) (*models.BackendTunnel, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, server_id, interface_name, public_key, private_key, endpoint,
+		status, last_health_check, latency_ms, active_connections, created_at
+		FROM backend_tunnels WHERE server_id = ?`
+
+	row := d.sqlDB.QueryRowContext(ctx, query, serverID)
+	t, err := d.scanBackendTunnelRow(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get backend tunnel for server %d: %w", serverID, err)
+	}
+	return &t, nil
+}
+
 // GetVPNSessionByPeerKey retrieves an active VPN session by peer public key.
 func (d *DB) GetVPNSessionByPeerKey(ctx context.Context, key string) (*models.VPNSession, error) {
 	d.mu.RLock()
@@ -220,6 +240,91 @@ func (d *DB) GetVPNSessionByPeerKey(ctx context.Context, key string) (*models.VP
 		return nil, fmt.Errorf("failed to get vpn session by peer key: %w", err)
 	}
 	return &s, nil
+}
+
+// GetVPNSessionByID retrieves a VPN session by its UUID. Returns nil, nil if not found.
+func (d *DB) GetVPNSessionByID(ctx context.Context, id string) (*models.VPNSession, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, user_id, backend_tunnel_id, peer_public_key, assigned_ip,
+		connected_at, last_seen, rx_bytes, tx_bytes, status
+		FROM vpn_sessions WHERE id = ?`
+
+	row := d.sqlDB.QueryRowContext(ctx, query, id)
+	s, err := d.scanVPNSessionRow(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get vpn session %s: %w", id, err)
+	}
+	return &s, nil
+}
+
+// GetVPNSessionsByUserID retrieves all VPN sessions for a specific user.
+func (d *DB) GetVPNSessionsByUserID(ctx context.Context, userID string) ([]models.VPNSession, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	query := `SELECT id, user_id, backend_tunnel_id, peer_public_key, assigned_ip,
+		connected_at, last_seen, rx_bytes, tx_bytes, status
+		FROM vpn_sessions WHERE user_id = ? ORDER BY connected_at DESC`
+
+	rows, err := d.sqlDB.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user vpn sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []models.VPNSession
+	for rows.Next() {
+		s, err := d.scanVPNSession(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+
+	return sessions, rows.Err()
+}
+
+// GetVPNConfig retrieves the load balancing and VPN configuration from settings.
+func (d *DB) GetVPNConfig(ctx context.Context) (*models.VPNConfig, error) {
+	var cfg models.VPNConfig
+	if err := d.GetSetting(ctx, "vpn_config", &cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Algorithm == "" {
+		cfg.Algorithm = models.LBLeastConnections
+	}
+	if cfg.ListenPort == 0 {
+		cfg.ListenPort = 51820
+	}
+	if cfg.SubnetCIDR == "" {
+		cfg.SubnetCIDR = "10.100.0.0/16"
+	}
+	if cfg.HealthThresholdMS == 0 {
+		cfg.HealthThresholdMS = 500
+	}
+	if cfg.MaxTotalPeers == 0 {
+		cfg.MaxTotalPeers = 1000
+	}
+	if cfg.MaxPeersPerBackend == 0 {
+		cfg.MaxPeersPerBackend = 250
+	}
+	if cfg.Weights == nil {
+		cfg.Weights = make(map[int64]int)
+	}
+	return &cfg, nil
+}
+
+// SaveVPNConfig persists the VPN configuration to the settings table.
+func (d *DB) SaveVPNConfig(ctx context.Context, cfg *models.VPNConfig) error {
+	if cfg == nil {
+		return errors.New("vpn config is nil")
+	}
+	return d.SetSetting(ctx, "vpn_config", cfg)
 }
 
 // CreateVPNSession records an active VPN session.
