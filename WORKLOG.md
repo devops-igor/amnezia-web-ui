@@ -87,5 +87,4 @@
 [2026-08-28T14:45:15+03:00] | pm_bot | QA_START | Submitting Phase 4 Protocol Managers to qa_bot for independent audit and verification
 [2026-08-28T14:48:30+03:00] | qa_bot | REVIEW_APPROVED | Phase 4 Protocol Managers verified: AmneziaWG (Curve25519/PSK, non-overlapping quadrants, CPS packet crafting, Linux TC HTB/IFB shaping, pure-Go Noise IK handshake probe), MTProxyL (secrets.conf parsing/serialization, Russian units traffic parser, quota enforcer, tg:// link generation), and AmneziaDNS (Unbound DoT container lifecycle, pure-Go UDP query probe) audited and approved; statement coverage >= 85.0% across all packages (85.2% - 88.6%), 0 data races, all Go compilation gates passed (go fmt, vet, build, test -race, golangci-lint, gosec 0 issues), all 1130 root Python tests passed without regression; audit report emitted to tasks/issue-375-protocol-managers/QA_REVIEW.md
 [2026-08-28T14:48:40+03:00] | pm_bot | COMMIT_START | Instructing git_bot to commit and create PR for Phase 4 (Issue #375)
-
-
+[2026-08-28T14:52:00+03:00] | git_bot | COMMIT_COMPLETE | Created branch feat/task-375-protocol-managers, committed Phase 4 remote protocol managers (AWG, MTProxyL, AmneziaDNS; commit 4d4339b, closes #375), pushed to origin, opened PR #376 targeting main, and verified all 7 CI/CD workflows passed (Go CI, Lint, Security Audit, Docker Scan, amd64/arm64 build, Test).
