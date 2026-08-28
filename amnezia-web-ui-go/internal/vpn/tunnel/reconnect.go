@@ -4,8 +4,6 @@ import (
 	"context"
 	"sync"
 	"time"
-
-	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
 
 // ReconnectConfig defines exponential backoff reconnection parameters.
@@ -37,6 +35,7 @@ type ReconnectManager struct {
 	backoffs    map[int64]time.Duration
 	retries     map[int64]int
 	nextAttempt map[int64]time.Time
+	nowFn       func() time.Time
 	stopCh      chan struct{}
 	wg          sync.WaitGroup
 	running     bool
@@ -64,8 +63,41 @@ func NewReconnectManager(pool *Pool, prober *HealthProber, cfg ReconnectConfig) 
 		backoffs:    make(map[int64]time.Duration),
 		retries:     make(map[int64]int),
 		nextAttempt: make(map[int64]time.Time),
+		nowFn:       func() time.Time { return time.Now().UTC() },
 		stopCh:      make(chan struct{}),
 	}
+}
+
+// SetNowFunc injects a custom time function for deterministic, race-free time advancement in tests.
+func (rm *ReconnectManager) SetNowFunc(fn func() time.Time) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	if fn != nil {
+		rm.nowFn = fn
+	}
+}
+
+func (rm *ReconnectManager) now() time.Time {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	if rm.nowFn != nil {
+		return rm.nowFn()
+	}
+	return time.Now().UTC()
+}
+
+// SetConfig updates the reconnection configuration safely under lock.
+func (rm *ReconnectManager) SetConfig(cfg ReconnectConfig) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+	rm.cfg = cfg
+}
+
+// Config returns a copy of the reconnection configuration safely under lock.
+func (rm *ReconnectManager) Config() ReconnectConfig {
+	rm.mu.RLock()
+	defer rm.mu.RUnlock()
+	return rm.cfg
 }
 
 // Start launches the background reconnection manager.
@@ -111,8 +143,9 @@ func (rm *ReconnectManager) CheckAndReconnect(ctx context.Context) int {
 	}
 
 	tunnels := rm.pool.ListTunnels()
-	now := time.Now().UTC()
+	now := rm.now()
 	reconnectedCount := 0
+	cfg := rm.Config()
 
 	for _, t := range tunnels {
 		if t.Status == "active" {
@@ -130,7 +163,7 @@ func (rm *ReconnectManager) CheckAndReconnect(ctx context.Context) int {
 		nextTime, exists := rm.nextAttempt[t.ServerID]
 		retries := rm.retries[t.ServerID]
 
-		if rm.cfg.MaxRetries > 0 && retries >= rm.cfg.MaxRetries {
+		if cfg.MaxRetries > 0 && retries >= cfg.MaxRetries {
 			rm.mu.Unlock()
 			continue
 		}
@@ -143,13 +176,13 @@ func (rm *ReconnectManager) CheckAndReconnect(ctx context.Context) int {
 		// Ready to attempt reconnection probe
 		backoff, hasBackoff := rm.backoffs[t.ServerID]
 		if !hasBackoff {
-			backoff = rm.cfg.InitialBackoff
+			backoff = cfg.InitialBackoff
 		}
 		rm.mu.Unlock()
 
 		latency, err := rm.prober.ProbeTunnel(ctx, t)
 		rm.mu.Lock()
-		if err == nil && latency <= rm.prober.cfg.LatencyThresholdMS {
+		if err == nil && latency <= rm.prober.Config().LatencyThresholdMS {
 			// Successful reconnection!
 			delete(rm.backoffs, t.ServerID)
 			delete(rm.retries, t.ServerID)
@@ -158,9 +191,9 @@ func (rm *ReconnectManager) CheckAndReconnect(ctx context.Context) int {
 			reconnectedCount++
 		} else {
 			// Failed, increase backoff
-			nextBackoff := time.Duration(float64(backoff) * rm.cfg.Multiplier)
-			if nextBackoff > rm.cfg.MaxBackoff {
-				nextBackoff = rm.cfg.MaxBackoff
+			nextBackoff := time.Duration(float64(backoff) * cfg.Multiplier)
+			if nextBackoff > cfg.MaxBackoff {
+				nextBackoff = cfg.MaxBackoff
 			}
 			rm.backoffs[t.ServerID] = nextBackoff
 			rm.retries[t.ServerID] = retries + 1
@@ -184,7 +217,7 @@ func (rm *ReconnectManager) GetTunnelRetryState(serverID int64) (retries int, ne
 
 func (rm *ReconnectManager) loop(ctx context.Context) {
 	defer rm.wg.Done()
-	ticker := time.NewTicker(rm.cfg.CheckInterval)
+	ticker := time.NewTicker(rm.Config().CheckInterval)
 	defer ticker.Stop()
 
 	for {
@@ -196,6 +229,3 @@ func (rm *ReconnectManager) loop(ctx context.Context) {
 		}
 	}
 }
-
-// Helper model conversion if needed
-var _ = models.BackendTunnel{}

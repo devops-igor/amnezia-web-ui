@@ -179,4 +179,9 @@ func TestTunnelPoolStatusAndConnections(t *testing.T) {
 	if err := pool.Close(); err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
+
+	// AddTunnel on closed pool returns ErrPoolClosed
+	if _, err := pool.AddTunnel(ctx, s1ID, "1.1.1.1:51820", ""); err != ErrPoolClosed {
+		t.Errorf("expected ErrPoolClosed on closed pool, got %v", err)
+	}
 }

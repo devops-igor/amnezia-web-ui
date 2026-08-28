@@ -41,6 +41,9 @@ func TestReconnectManager(t *testing.T) {
 
 	reconnectMgr := NewReconnectManager(pool, prober, rCfg)
 
+	simTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	reconnectMgr.SetNowFunc(func() time.Time { return simTime })
+
 	// 1. Initial state: tunnel is active, so CheckAndReconnect does nothing
 	reconnected := reconnectMgr.CheckAndReconnect(ctx)
 	if reconnected != 0 {
@@ -64,6 +67,7 @@ func TestReconnectManager(t *testing.T) {
 	}
 
 	// 4. Immediate second pass before backoff elapsed -> should skip
+	simTime = simTime.Add(40 * time.Millisecond) // only 40ms passed, need 100ms
 	reconnected = reconnectMgr.CheckAndReconnect(ctx)
 	if reconnected != 0 {
 		t.Errorf("expected 0 reconnected when skipping, got %d", reconnected)
@@ -73,24 +77,24 @@ func TestReconnectManager(t *testing.T) {
 		t.Errorf("expected retries to remain 1 before backoff expires, got %d", retries)
 	}
 
-	// 5. Wait for backoff, second attempt fails
-	time.Sleep(150 * time.Millisecond)
+	// 5. Advance time past backoff (100ms), second attempt fails
+	simTime = simTime.Add(70 * time.Millisecond) // total 110ms > 100ms
 	reconnectMgr.CheckAndReconnect(ctx)
 	retries, _, backoff = reconnectMgr.GetTunnelRetryState(s1ID)
 	if retries != 2 || backoff != 200*time.Millisecond { // 100 * 2.0 = 200 (capped at MaxBackoff 200ms)
 		t.Errorf("retry state mismatch after 2nd attempt: retries=%d, backoff=%v", retries, backoff)
 	}
 
-	// 6. Third attempt fails -> reaches MaxRetries
-	time.Sleep(250 * time.Millisecond)
+	// 6. Third attempt fails -> reaches MaxRetries (3)
+	simTime = simTime.Add(210 * time.Millisecond) // total elapsed > nextAttempt
 	reconnectMgr.CheckAndReconnect(ctx)
 	retries, _, _ = reconnectMgr.GetTunnelRetryState(s1ID)
 	if retries != 3 {
 		t.Errorf("expected retries 3, got %d", retries)
 	}
 
-	// 7. MaxRetries reached -> subsequent pass skips even after sleep
-	time.Sleep(250 * time.Millisecond)
+	// 7. MaxRetries reached -> subsequent pass skips even after time advances
+	simTime = simTime.Add(500 * time.Millisecond)
 	reconnectMgr.CheckAndReconnect(ctx)
 	retries, _, _ = reconnectMgr.GetTunnelRetryState(s1ID)
 	if retries != 3 {
@@ -100,11 +104,11 @@ func TestReconnectManager(t *testing.T) {
 	// 8. Reconnect with success
 	mockErr = nil
 	mockLatency = 20 * time.Millisecond
-	// Reset retries by allowing retry
+	// Reset retries by allowing unlimited retries safely
 	rCfgUnlimited := rCfg
 	rCfgUnlimited.MaxRetries = 0
-	reconnectMgr.cfg = rCfgUnlimited
-	time.Sleep(250 * time.Millisecond)
+	reconnectMgr.SetConfig(rCfgUnlimited)
+	simTime = simTime.Add(300 * time.Millisecond)
 
 	reconnected = reconnectMgr.CheckAndReconnect(ctx)
 	if reconnected != 1 {
@@ -121,6 +125,7 @@ func TestReconnectManager(t *testing.T) {
 	}
 
 	// 9. Lifecycle Start and Stop
+	reconnectMgr.SetNowFunc(nil) // restore real clock
 	reconnectMgr.Start(ctx)
 	if !reconnectMgr.IsRunning() {
 		t.Errorf("expected running")

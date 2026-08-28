@@ -2,6 +2,7 @@ package vpn
 
 import (
 	"context"
+	"net"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/vpn/endpoint"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/vpn/loadbalancer"
 )
 
@@ -110,9 +112,16 @@ func setupTestVPNService(t *testing.T, db *database.DB) (*Service, int64, int64,
 		Name:     "alice-phone",
 	})
 
+	tempConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	testPort := 51820
+	if err == nil {
+		testPort = tempConn.LocalAddr().(*net.UDPAddr).Port
+		_ = tempConn.Close()
+	}
+
 	cfg := &models.VPNConfig{
 		Algorithm:          models.LBLeastConnections,
-		ListenPort:         51820,
+		ListenPort:         testPort,
 		SubnetCIDR:         "10.100.0.0/16",
 		HealthThresholdMS:  500,
 		MaxTotalPeers:      500,
@@ -271,8 +280,24 @@ func TestVPNServiceConfigAndBackends(t *testing.T) {
 	if !strings.Contains(cfgStr, "[Interface]") || !strings.Contains(cfgStr, "[Peer]") {
 		t.Errorf("invalid config generated: %s", cfgStr)
 	}
+	if !strings.Contains(cfgStr, "Jc =") || !strings.Contains(cfgStr, "S1 =") || !strings.Contains(cfgStr, "H1 =") {
+		t.Errorf("expected AWG obfuscation parameters in config: %s", cfgStr)
+	}
+	if !strings.Contains(cfgStr, "Endpoint = 198.51.100.1:") {
+		t.Errorf("expected real server endpoint host in config: %s", cfgStr)
+	}
 	if filename != "amnezia-portal-alice.conf" {
 		t.Errorf("unexpected filename: %s", filename)
+	}
+
+	// Verify the client public key was persisted to user_connections and can be authenticated
+	conns, err := db.GetConnectionsByUserID(ctx, uID)
+	if err != nil || len(conns) == 0 || conns[0].ClientID == "" {
+		t.Fatalf("expected registered connection for alice: %+v", conns)
+	}
+	newClientPub := conns[0].ClientID
+	if sess, _, err := vpnSvc.HandleIncomingPeer(ctx, newClientPub); err != nil || sess == nil {
+		t.Fatalf("peer authentication with generated client key failed: %v", err)
 	}
 
 	if _, _, err := vpnSvc.GenerateClientConfig(ctx, "ghost-user"); err == nil {
@@ -392,5 +417,24 @@ func TestVPNServiceEdgeCases2(t *testing.T) {
 	// 15. SelectTunnel uninitialized
 	if _, err := emptySvc.SelectTunnel(ctx, nil); err == nil {
 		t.Errorf("expected error SelectTunnel uninitialized")
+	}
+
+	// 16. Start error propagation on invalid listener port
+	invalidListenerSvc, _ := NewVPNService(db, nil)
+	// Bind to an occupied port to force listener error
+	occConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err == nil {
+		defer occConn.Close()
+		occPort := occConn.LocalAddr().(*net.UDPAddr).Port
+		// Create a listener with the already occupied port
+		listenerCfg := endpoint.ListenerConfig{ListenPort: occPort}
+		occListener, _ := endpoint.NewListener(listenerCfg, db, nil, nil, nil)
+		invalidListenerSvc.endpoint = occListener
+		if err := invalidListenerSvc.Start(ctx); err == nil {
+			t.Errorf("expected error from Start when port is occupied")
+		}
+		if invalidListenerSvc.IsRunning() {
+			t.Errorf("expected IsRunning to be false after Start failure")
+		}
 	}
 }

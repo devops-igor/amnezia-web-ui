@@ -16,6 +16,7 @@ import (
 
 var (
 	ErrTunnelNotFound = errors.New("backend tunnel not found")
+	ErrPoolClosed     = errors.New("tunnel pool is closed")
 )
 
 // Pool manages the in-process AWG tunnels connected to backend VPN servers.
@@ -90,6 +91,10 @@ func (p *Pool) AddTunnel(ctx context.Context, serverID int64, endpoint, serverPu
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
+	if p.closed {
+		return nil, ErrPoolClosed
+	}
 
 	if existing, ok := p.tunnelsByServerID[serverID]; ok {
 		existing.Endpoint = endpoint

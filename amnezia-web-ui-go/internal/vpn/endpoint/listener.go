@@ -213,6 +213,11 @@ func (el *Listener) Start(ctx context.Context) error {
 	}
 
 	el.udpConn = conn
+	if el.tunDev == nil {
+		el.tunDev = NewChannelPacketDevice("awg0", el.config.MTU, 512)
+	} else if chDev, ok := el.tunDev.(*ChannelPacketDevice); ok && chDev.closed.Load() {
+		el.tunDev = NewChannelPacketDevice(chDev.Name(), chDev.MTU(), 512)
+	}
 	el.running = true
 	el.draining = false
 	el.stopCh = make(chan struct{})

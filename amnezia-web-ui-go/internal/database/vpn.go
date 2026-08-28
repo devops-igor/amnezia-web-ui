@@ -358,6 +358,7 @@ func (d *DB) CreateVPNSession(ctx context.Context, s *models.VPNSession) error {
 		connected_at, last_seen, rx_bytes, tx_bytes, status
 	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(peer_public_key) DO UPDATE SET
+		id = excluded.id,
 		user_id = excluded.user_id,
 		backend_tunnel_id = excluded.backend_tunnel_id,
 		assigned_ip = excluded.assigned_ip,

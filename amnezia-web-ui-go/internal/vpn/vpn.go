@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/awg"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/vpn/endpoint"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/vpn/forwarder"
@@ -225,7 +226,12 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// 1. Sync tunnels from DB
 	if s.pool != nil {
-		_ = s.pool.SyncFromDB(ctx)
+		if err := s.pool.SyncFromDB(ctx); err != nil {
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+			return fmt.Errorf("failed to sync tunnels from DB: %w", err)
+		}
 	}
 
 	// 2. Sync sessions from DB
@@ -248,7 +254,12 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// 5. Start endpoint listener
 	if s.endpoint != nil {
-		_ = s.endpoint.Start(ctx)
+		if err := s.endpoint.Start(ctx); err != nil {
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+			return fmt.Errorf("failed to start endpoint listener: %w", err)
+		}
 	}
 
 	return nil
@@ -584,10 +595,42 @@ func (s *Service) GenerateClientConfig(ctx context.Context, userID string) (stri
 		return "", "", fmt.Errorf("user not found: %w", err)
 	}
 
-	// Generate client keypair if not present
+	// Generate client keypair
 	clientPub, clientPriv, err := tunnel.GenerateCurve25519KeyPair()
 	if err != nil {
 		return "", "", err
+	}
+
+	// Persist / update client connection in database so peer authentication succeeds
+	conns, err := db.GetConnectionsByUserID(ctx, userID)
+	var awgConn *models.UserConnection
+	if err == nil {
+		for i := range conns {
+			if models.NormalizeProtocol(conns[i].Protocol) == "awg" {
+				awgConn = &conns[i]
+				break
+			}
+		}
+	}
+
+	if awgConn != nil {
+		_, _ = db.UpdateConnection(ctx, awgConn.ID, map[string]any{
+			"client_id": clientPub,
+		})
+	} else {
+		var srvID int64
+		if servers, err := db.GetAllServers(ctx); err == nil && len(servers) > 0 {
+			srvID = servers[0].ID
+		}
+		newConn := &models.UserConnection{
+			UserID:     user.ID,
+			ServerID:   srvID,
+			Protocol:   "awg",
+			ClientID:   clientPub,
+			Name:       fmt.Sprintf("%s-awg", user.Username),
+			AWGMimicry: models.AWGMimicryAuto,
+		}
+		_, _ = db.CreateConnection(ctx, newConn)
 	}
 
 	assignedIP := "10.100.0.2"
@@ -602,26 +645,35 @@ func (s *Service) GenerateClientConfig(ctx context.Context, userID string) (stri
 		listenPort = cfg.ListenPort
 	}
 
-	configStr := fmt.Sprintf(`[Interface]
-Address = %s/32
-DNS = 1.1.1.1, 1.0.0.1
-PrivateKey = %s
-Jc = 4
-Jmin = 50
-Jmax = 1000
-S1 = 15
-S2 = 18
-H1 = 1020325451
-H2 = 3288052141
-H3 = 1020325452
-H4 = 3288052142
+	endpointHost := "127.0.0.1"
+	if servers, err := db.GetAllServers(ctx); err == nil && len(servers) > 0 {
+		for _, srv := range servers {
+			if srv.Host != "" {
+				endpointHost = srv.Host
+				break
+			}
+		}
+	}
 
-[Peer]
-PublicKey = %s
-Endpoint = 127.0.0.1:%d
-AllowedIPs = 0.0.0.0/0, ::/0
-PersistentKeepalive = 25
-`, assignedIP, clientPriv, portalPub, listenPort)
+	endpointStr := fmt.Sprintf("%s:%d", endpointHost, listenPort)
+
+	// Use real AWG obfuscation parameters with quadrant headers & CPS signatures
+	awgParams, err := awg.GenerateAWGParams("standard")
+	if err != nil {
+		awgParams = awg.AWGParamsFromMap(nil)
+	}
+
+	configStr := awg.RenderClientConfig(
+		clientPriv,
+		assignedIP,
+		portalPub,
+		"", // psk
+		endpointStr,
+		"1.1.1.1",
+		"1.0.0.1",
+		"1420",
+		awgParams,
+	)
 
 	filename := fmt.Sprintf("amnezia-portal-%s.conf", user.Username)
 	return configStr, filename, nil

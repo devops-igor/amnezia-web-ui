@@ -214,3 +214,65 @@ func TestSessionManagerSyncFromDB(t *testing.T) {
 		t.Errorf("SyncFromDB nil db failed: %v", err)
 	}
 }
+
+func TestSessionManagerPeerReconnectDBSync(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	ipam, _ := NewIPAM("10.100.0.0/24")
+	sm := NewSessionManager(db, ipam)
+
+	sID, _ := db.CreateServer(ctx, &models.Server{Name: "VPN Host", Host: "10.0.0.1"})
+	tID, _ := db.CreateBackendTunnel(ctx, &models.BackendTunnel{
+		ServerID:      sID,
+		InterfaceName: "awg-be-1",
+		PublicKey:     "tunnel-pubkey",
+		PrivateKey:    "tunnel-privkey",
+		Endpoint:      "10.0.0.1:51820",
+	})
+	uID, _ := db.CreateUser(ctx, &models.User{Username: "reconnect_user"})
+
+	peerKey := "reconnect-peer-pubkey-1"
+
+	// 1. Initial connection
+	sess1, err := sm.CreateSession(ctx, uID, peerKey, "10.100.0.15", tID)
+	if err != nil {
+		t.Fatalf("CreateSession 1 failed: %v", err)
+	}
+
+	dbSess1, err := db.GetVPNSessionByPeerKey(ctx, peerKey)
+	if err != nil || dbSess1 == nil || dbSess1.ID != sess1.ID {
+		t.Fatalf("expected DB row id to match sess1.ID (%s), got: %+v", sess1.ID, dbSess1)
+	}
+
+	// 2. Peer Reconnect (creates new session with new UUID for same peer key)
+	sess2, err := sm.CreateSession(ctx, uID, peerKey, "10.100.0.16", tID)
+	if err != nil {
+		t.Fatalf("CreateSession 2 failed: %v", err)
+	}
+	if sess2.ID == sess1.ID {
+		t.Fatalf("expected new UUID for reconnected session")
+	}
+
+	// 3. Verify DB row ID was synchronized to new session ID
+	dbSess2, err := db.GetVPNSessionByPeerKey(ctx, peerKey)
+	if err != nil || dbSess2 == nil {
+		t.Fatalf("failed to query DB session after reconnect: %v", err)
+	}
+	if dbSess2.ID != sess2.ID {
+		t.Errorf("DB session ID not synchronized on reconnect: db=%s, sess2=%s", dbSess2.ID, sess2.ID)
+	}
+
+	// 4. Update traffic with new session ID and verify DB row is updated
+	if err := db.UpdateVPNSessionTraffic(ctx, sess2.ID, 4096, 8192); err != nil {
+		t.Fatalf("UpdateVPNSessionTraffic failed: %v", err)
+	}
+
+	updatedDBSess, err := db.GetVPNSessionByID(ctx, sess2.ID)
+	if err != nil || updatedDBSess == nil {
+		t.Fatalf("GetVPNSessionByID failed: %v", err)
+	}
+	if updatedDBSess.RxBytes != 4096 || updatedDBSess.TxBytes != 8192 {
+		t.Errorf("traffic mismatch: rx=%d, tx=%d", updatedDBSess.RxBytes, updatedDBSess.TxBytes)
+	}
+}
