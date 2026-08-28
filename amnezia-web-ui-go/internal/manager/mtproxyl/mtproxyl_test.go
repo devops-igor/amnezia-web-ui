@@ -89,6 +89,75 @@ func TestParseTraffic(t *testing.T) {
 	}
 }
 
+func TestParseTraffic_AdversarialUnits(t *testing.T) {
+	// Adversarial tests to prevent Cyrillic unit substring collisions (Б, КБ, МБ, ГБ, ТБ)
+	output := `
+● user_collision1: ↓ 100.00 МБ  ↑ 50.00 КБ  соед: 3
+● user_collision2: ↓ 10.00 Б  ↑ 20.00 Б  соед: 0
+● user_collision3: ↓ 5.00 ТБ  ↑ 2.00 ГБ  соед: 1
+● user_collision4: ↓ 1.23 КБ  ↑ 4.56 МБ  соед: 0
+● invalid_line_no_prefix: ↓ 10.00 МБ ↑ 10.00 МБ
+● : no label
+● bad_units: ↓ 100 XYZ  ↑ 200 ABC
+`
+
+	stats, err := ParseTraffic(output)
+	if err != nil {
+		t.Fatalf("ParseTraffic failed: %v", err)
+	}
+
+	// 1. user_collision1: 100 MB + 50 KB
+	c1, ok := stats["user_collision1"]
+	if !ok {
+		t.Fatalf("user_collision1 missing from stats")
+	}
+	if c1.Connections != 3 {
+		t.Errorf("user_collision1 conns expected 3, got %d", c1.Connections)
+	}
+	expectedC1 := int64(100*1024*1024 + 50*1024)
+	if c1.TotalBytes != expectedC1 {
+		t.Errorf("user_collision1 total bytes expected %d, got %d (substring collision!)", expectedC1, c1.TotalBytes)
+	}
+
+	// 2. user_collision2: 10 B + 20 B
+	c2, ok := stats["user_collision2"]
+	if !ok {
+		t.Fatalf("user_collision2 missing from stats")
+	}
+	if c2.TotalBytes != 30 {
+		t.Errorf("user_collision2 total bytes expected 30, got %d", c2.TotalBytes)
+	}
+
+	// 3. user_collision3: 5 TB + 2 GB
+	c3, ok := stats["user_collision3"]
+	if !ok {
+		t.Fatalf("user_collision3 missing from stats")
+	}
+	expectedC3 := int64(5*1024*1024*1024*1024 + 2*1024*1024*1024)
+	if c3.TotalBytes != expectedC3 {
+		t.Errorf("user_collision3 total bytes expected %d, got %d", expectedC3, c3.TotalBytes)
+	}
+
+	// 4. user_collision4: 1.23 KB + 4.56 MB
+	c4, ok := stats["user_collision4"]
+	if !ok {
+		t.Fatalf("user_collision4 missing from stats")
+	}
+	v4Down := 1.23
+	v4Up := 4.56
+	expectedC4 := int64(v4Down*1024.0) + int64(v4Up*1048576.0)
+	if c4.TotalBytes != expectedC4 {
+		t.Errorf("user_collision4 total bytes expected %d, got %d", expectedC4, c4.TotalBytes)
+	}
+
+	// 5. bad_units should produce 0 bytes
+	if bu, ok := stats["bad_units"]; ok {
+		if bu.TotalBytes != 0 {
+			t.Errorf("bad_units expected 0 total bytes, got %d", bu.TotalBytes)
+		}
+	}
+}
+
 func TestParseConnections(t *testing.T) {
 	output := `ПОЛЬЗОВАТЕЛЬ   СОЕД.   СКАЧАНО   ОТПРАВЛЕНО
 ─────────────────────────────────────────────

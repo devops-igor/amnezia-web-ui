@@ -1,11 +1,13 @@
 package health
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"hash"
 	"math/big"
 	"time"
 
@@ -39,14 +41,14 @@ type NoiseClientState struct {
 	MAC1Key     []byte
 }
 
-// HMACBlake2s computes keyed BLAKE2s-256 MAC for Noise KDF functions.
+// HMACBlake2s computes standard HMAC-BLAKE2s-256 for Noise KDF functions.
 func HMACBlake2s(key, data []byte) []byte {
-	h, err := blake2s.New256(key)
-	if err != nil {
-		return nil
-	}
-	h.Write(data)
-	return h.Sum(nil)
+	mac := hmac.New(func() hash.Hash {
+		h, _ := blake2s.New256(nil)
+		return h
+	}, key)
+	mac.Write(data)
+	return mac.Sum(nil)
 }
 
 // KDF1 derives a new chaining key from key and input data.

@@ -44,6 +44,12 @@ type AWGClientUserData struct {
 	MainClientID      *string `json:"main_client_id,omitempty"`
 	TrialCreatedAt    string  `json:"trial_created_at,omitempty"`
 	ExpiresAt         string  `json:"expires_at,omitempty"`
+	RotatedAt         string  `json:"rotated_at,omitempty"`
+	I1                string  `json:"i1,omitempty"`
+	I2                string  `json:"i2,omitempty"`
+	I3                string  `json:"i3,omitempty"`
+	I4                string  `json:"i4,omitempty"`
+	I5                string  `json:"i5,omitempty"`
 }
 
 // AWGClient represents a client entry in the clients table.

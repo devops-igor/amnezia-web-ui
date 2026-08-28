@@ -26,7 +26,8 @@ type TrafficStats struct {
 }
 
 var (
-	connRegex = regexp.MustCompile(`соед[.:]\s*(\d+)`)
+	connRegex        = regexp.MustCompile(`соед[.:]\s*(\d+)`)
+	trafficLineRegex = regexp.MustCompile(`↓\s*([\d.]+)\s*(ТБ|ГБ|МБ|КБ|Б)\s*↑\s*([\d.]+)\s*(ТБ|ГБ|МБ|КБ|Б)`)
 )
 
 // ParseTraffic parses `mtproxyl traffic` output with Russian unit multipliers.
@@ -55,17 +56,15 @@ func ParseTraffic(output string) (map[string]TrafficStats, error) {
 			conns, _ = strconv.Atoi(match[1])
 		}
 
-		// Calculate total bytes across all unit matches in the line
 		var totalBytes int64
-		for unit, mult := range SizeMultipliers {
-			re := regexp.MustCompile(`([\d.]+)\s*` + regexp.QuoteMeta(unit))
-			matches := re.FindAllStringSubmatch(trimmed, -1)
-			for _, m := range matches {
-				if len(m) > 1 {
-					if val, err := strconv.ParseFloat(m[1], 64); err == nil {
-						totalBytes += int64(val * float64(mult))
-					}
-				}
+		if match := trafficLineRegex.FindStringSubmatch(trimmed); len(match) >= 5 {
+			if downVal, err := strconv.ParseFloat(match[1], 64); err == nil {
+				downMult := SizeMultipliers[match[2]]
+				totalBytes += int64(downVal * float64(downMult))
+			}
+			if upVal, err := strconv.ParseFloat(match[3], 64); err == nil {
+				upMult := SizeMultipliers[match[4]]
+				totalBytes += int64(upVal * float64(upMult))
 			}
 		}
 

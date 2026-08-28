@@ -1,10 +1,12 @@
 package health
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"net"
 	"testing"
 	"time"
@@ -360,5 +362,231 @@ func TestMockUDPEndpointProbe(t *testing.T) {
 
 	if rtt <= 0 {
 		t.Errorf("expected positive RTT, got: %v", rtt)
+	}
+}
+
+func TestNoiseIKPythonGoldenVectors(t *testing.T) {
+	// Golden test vectors captured from Python reference implementation
+	// (app/managers/awg_health.py with fixed keys, PSK, and timestamp)
+	sPrivHex := "0101010101010101010101010101010101010101010101010101010101010101"
+	sPubHex := "a4e09292b651c278b9772c569f5fa9bb13d906b46ab68c9df9dc2b4409f8a209"
+	cPrivHex := "0202020202020202020202020202020202020202020202020202020202020202"
+	cPubHex := "ce8d3ad1ccb633ec7b70c17814a5c76ecd029685050d344745ba05870e587d59"
+	cEPrivHex := "0303030303030303030303030303030303030303030303030303030303030303"
+	cEPubHex := "5dfedd3b6bd47f6fa28ee15d969d5bb0ea53774d488bdaf9df1c6e0124b3ef22"
+	sEPubHex := "ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10b"
+	pskHex := "0505050505050505050505050505050505050505050505050505050505050505"
+
+	goldenInitHex := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa4beed03c4e61bc005dfedd3b6bd47f6fa28ee15d969d5bb0ea53774d488bdaf9df1c6e0124b3ef221f1f5b7b3fdae8d1855d0c746a81d11e1b6bf4e46a142c120afa1bb28112d1a2053183af575274f778f3250872f547f306e9ee1ed0d58854344a16a4fffd3520f045865b5093a8c092b33cfe919e8dac3e1630faf20fbb4b406eb1a000000000000000000000000000000000"
+	goldenRespHex := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbadb1fbc3b17f39054e61bc00ac01b2209e86354fb853237b5de0f4fab13c7fcbf433a61c019369617fecf10bdc0bbda656ef152174c75dd5f737f8b47a44068ca4776e6bc60bc59d0c49ea1900000000000000000000000000000000"
+
+	goldenInitH := "e10412408eaa413229b675b8ae6d6ae4bfe825c5e72eaae416bfde4dc89f0565"
+	goldenInitCK := "6737aec9e9513fe7b32f464ee0626d0301a88b13abc57ec8a39ed822fe8fcfae"
+	goldenRespH := "cd46e07a37f3ef55f83b1fd3bae906f47ef708e76e16f86b2b70b3e56af09d32"
+	goldenRespCK := "1f0f8f0d6a3b73f8740d5537021c8ea1b034a72b0b608adfdae43fd7925ffb22"
+	goldenKey3 := "4af4e0b2aaffb2f71942ecc23083dc5e00eb835879f4fae18fce2d36a358c710"
+	goldenEncEmpty := "dc0bbda656ef152174c75dd5f737f8b4"
+
+	sPriv, _ := hex.DecodeString(sPrivHex)
+	sPub, _ := hex.DecodeString(sPubHex)
+	cPriv, _ := hex.DecodeString(cPrivHex)
+	cPub, _ := hex.DecodeString(cPubHex)
+	cEPriv, _ := hex.DecodeString(cEPrivHex)
+	cEPub, _ := hex.DecodeString(cEPubHex)
+	sEPub, _ := hex.DecodeString(sEPubHex)
+	psk, _ := hex.DecodeString(pskHex)
+
+	goldenInitPacket, _ := hex.DecodeString(goldenInitHex)
+	goldenRespPacket, _ := hex.DecodeString(goldenRespHex)
+
+	h1 := uint32(1020325451)
+	h2 := uint32(3288052141)
+	s1 := 15
+	s2 := 18
+	senderIdx := uint32(12345678)
+
+	// 1. Verify Public Keys derived from Private Keys match expected vectors
+	computedSPub, err := curve25519.X25519(sPriv, curve25519.Basepoint)
+	if err != nil || !bytes.Equal(computedSPub, sPub) {
+		t.Fatalf("Server public key mismatch: got %x, want %x", computedSPub, sPub)
+	}
+	computedCPub, err := curve25519.X25519(cPriv, curve25519.Basepoint)
+	if err != nil || !bytes.Equal(computedCPub, cPub) {
+		t.Fatalf("Client public key mismatch: got %x, want %x", computedCPub, cPub)
+	}
+	computedCEPub, err := curve25519.X25519(cEPriv, curve25519.Basepoint)
+	if err != nil || !bytes.Equal(computedCEPub, cEPub) {
+		t.Fatalf("Client ephemeral public key mismatch: got %x, want %x", computedCEPub, cEPub)
+	}
+
+	// 2. Client-side initiation state reconstruction
+	hSum := blake2s.Sum256(append(InitialHash[:], sPub...))
+	h := hSum[:]
+	ck := InitialChainKey[:]
+
+	hSum = blake2s.Sum256(append(h, cEPub...))
+	h = hSum[:]
+	ck = KDF1(ck, cEPub)
+
+	ss1, _ := curve25519.X25519(cEPriv, sPub)
+	var key1 []byte
+	ck, key1 = KDF2(ck, ss1)
+
+	nonce0 := make([]byte, 12)
+	aead1, _ := chacha20poly1305.New(key1)
+	encryptedStatic := aead1.Seal(nil, nonce0, cPub, h)
+	hSum = blake2s.Sum256(append(h, encryptedStatic...))
+	h = hSum[:]
+
+	ss2, _ := curve25519.X25519(cPriv, sPub)
+	var key2 []byte
+	ck, key2 = KDF2(ck, ss2)
+
+	tai64n := make([]byte, 12)
+	binary.BigEndian.PutUint64(tai64n[0:8], 0x400000006000000A)
+	binary.BigEndian.PutUint32(tai64n[8:12], 0x12340000)
+
+	aead2, _ := chacha20poly1305.New(key2)
+	encryptedTimestamp := aead2.Seal(nil, nonce0, tai64n, h)
+	hSum = blake2s.Sum256(append(h, encryptedTimestamp...))
+	h = hSum[:]
+
+	// Verify Hash and Chaining Key after initiation match Python golden values
+	if hex.EncodeToString(h) != goldenInitH {
+		t.Errorf("Initiation H mismatch: got %s, want %s", hex.EncodeToString(h), goldenInitH)
+	}
+	if hex.EncodeToString(ck) != goldenInitCK {
+		t.Errorf("Initiation CK mismatch: got %s, want %s", hex.EncodeToString(ck), goldenInitCK)
+	}
+
+	// 3. Assemble and compare initiation packet
+	msgTypeBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(msgTypeBytes, h1)
+	senderIdxBytes := make([]byte, 4)
+	binary.LittleEndian.PutUint32(senderIdxBytes, senderIdx)
+
+	var msgBody []byte
+	msgBody = append(msgBody, msgTypeBytes...)
+	msgBody = append(msgBody, senderIdxBytes...)
+	msgBody = append(msgBody, cEPub...)
+	msgBody = append(msgBody, encryptedStatic...)
+	msgBody = append(msgBody, encryptedTimestamp...)
+
+	mac1KeySum := blake2s.Sum256(append(LabelMAC1, sPub...))
+	mac1Hasher, _ := blake2s.New128(mac1KeySum[:])
+	mac1Hasher.Write(msgBody)
+	mac1 := mac1Hasher.Sum(nil)
+	mac2 := make([]byte, 16)
+
+	s1Padding := bytes.Repeat([]byte{0xAA}, s1)
+	var assembledInitPacket []byte
+	assembledInitPacket = append(assembledInitPacket, s1Padding...)
+	assembledInitPacket = append(assembledInitPacket, msgBody...)
+	assembledInitPacket = append(assembledInitPacket, mac1...)
+	assembledInitPacket = append(assembledInitPacket, mac2...)
+
+	if !bytes.Equal(assembledInitPacket, goldenInitPacket) {
+		t.Fatalf("Assembled initiation packet does not match Python golden vector:\ngot:  %x\nwant: %x", assembledInitPacket, goldenInitPacket)
+	}
+
+	// 4. Server-side processing of the golden initiation packet
+	srvMsgBody := goldenInitPacket[s1 : s1+116]
+	srvMsgType := binary.LittleEndian.Uint32(srvMsgBody[0:4])
+	if srvMsgType != h1 {
+		t.Fatalf("Server msgType mismatch: %d != %d", srvMsgType, h1)
+	}
+	srvSenderIdx := binary.LittleEndian.Uint32(srvMsgBody[4:8])
+	if srvSenderIdx != senderIdx {
+		t.Fatalf("Server senderIdx mismatch: %d != %d", srvSenderIdx, senderIdx)
+	}
+	srvCEPub := srvMsgBody[8:40]
+	srvEncStatic := srvMsgBody[40:88]
+	srvEncTs := srvMsgBody[88:116]
+
+	srvHSum := blake2s.Sum256(append(InitialHash[:], sPub...))
+	srvH := srvHSum[:]
+	srvCK := InitialChainKey[:]
+
+	srvHSum = blake2s.Sum256(append(srvH, srvCEPub...))
+	srvH = srvHSum[:]
+	srvCK = KDF1(srvCK, srvCEPub)
+
+	srvSS1, _ := curve25519.X25519(sPriv, srvCEPub)
+	var srvKey1 []byte
+	srvCK, srvKey1 = KDF2(srvCK, srvSS1)
+
+	srvAead1, _ := chacha20poly1305.New(srvKey1)
+	decStaticPub, err := srvAead1.Open(nil, nonce0, srvEncStatic, srvH)
+	if err != nil || !bytes.Equal(decStaticPub, cPub) {
+		t.Fatalf("Server failed to decrypt client static public key: %v, got %x, want %x", err, decStaticPub, cPub)
+	}
+	srvHSum = blake2s.Sum256(append(srvH, srvEncStatic...))
+	srvH = srvHSum[:]
+
+	srvSS2, _ := curve25519.X25519(sPriv, decStaticPub)
+	var srvKey2 []byte
+	_, srvKey2 = KDF2(srvCK, srvSS2)
+
+	srvAead2, _ := chacha20poly1305.New(srvKey2)
+	decTs, err := srvAead2.Open(nil, nonce0, srvEncTs, srvH)
+	if err != nil || !bytes.Equal(decTs, tai64n) {
+		t.Fatalf("Server failed to decrypt TAI64N timestamp: %v, got %x, want %x", err, decTs, tai64n)
+	}
+
+	// 5. Response packet intermediate key verification
+	respHSum := blake2s.Sum256(append(h, sEPub...))
+	respH := respHSum[:]
+	respCK := KDF1(ck, sEPub)
+
+	clientSS3, _ := curve25519.X25519(cEPriv, sEPub)
+	respCK = KDF1(respCK, clientSS3)
+
+	clientSS4, _ := curve25519.X25519(cPriv, sEPub)
+	respCK = KDF1(respCK, clientSS4)
+
+	var tau, key3 []byte
+	respCK, tau, key3 = KDF3(respCK, psk)
+	respHSum = blake2s.Sum256(append(respH, tau...))
+	respH = respHSum[:]
+
+	if hex.EncodeToString(respH) != goldenRespH {
+		t.Errorf("Response H mismatch: got %s, want %s", hex.EncodeToString(respH), goldenRespH)
+	}
+	if hex.EncodeToString(respCK) != goldenRespCK {
+		t.Errorf("Response CK mismatch: got %s, want %s", hex.EncodeToString(respCK), goldenRespCK)
+	}
+	if hex.EncodeToString(key3) != goldenKey3 {
+		t.Errorf("Response Key3 mismatch: got %s, want %s", hex.EncodeToString(key3), goldenKey3)
+	}
+
+	aead3, _ := chacha20poly1305.New(key3)
+	computedEncEmpty := aead3.Seal(nil, nonce0, []byte{}, respH)
+	if hex.EncodeToString(computedEncEmpty) != goldenEncEmpty {
+		t.Errorf("Encrypted empty payload mismatch: got %s, want %s", hex.EncodeToString(computedEncEmpty), goldenEncEmpty)
+	}
+
+	// 6. Verify full response packet with VerifyAWGResponsePacket
+	clientState := &NoiseClientState{
+		H:           h,
+		CK:          ck,
+		ClientEPriv: cEPriv,
+		ClientPriv:  cPriv,
+		ServerPub:   sPub,
+		PSK:         psk,
+		SenderIndex: senderIdx,
+		MAC1Key:     mac1KeySum[:],
+	}
+
+	valid := VerifyAWGResponsePacket(goldenRespPacket, clientState, h2, s2)
+	if !valid {
+		t.Fatalf("VerifyAWGResponsePacket failed on Python golden response packet")
+	}
+
+	// Negative test: verify failure on corrupted golden packet
+	corruptedResp := make([]byte, len(goldenRespPacket))
+	copy(corruptedResp, goldenRespPacket)
+	corruptedResp[s2+44] ^= 0x01
+	if VerifyAWGResponsePacket(corruptedResp, clientState, h2, s2) {
+		t.Errorf("VerifyAWGResponsePacket should fail on corrupted golden packet")
 	}
 }

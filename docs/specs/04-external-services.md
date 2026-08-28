@@ -215,25 +215,24 @@ Binary packet signatures generate client-side `I1-I5` packets formatted as `<b 0
 
 ### 5.2 QUIC Initial Packet Layout (`gen_quic_initial`)
 
-* **Target Length:** Random between 1200 and 1280 bytes.
+* **Target Length:** Fixed compact 216 bytes.
 * **Byte Layout:**
-  1. Header Byte: `0xC0 | (rand(0..3) << 4) | (rand(0..3) << 2)` (Long header, Initial Type).
+  1. Header Byte: `0xC0 | (rand(0..3) << 4) | (rand(0..3) << 2)` or fixed pool `[0xC0, 0xC0, 0xC0, 0xC3]` (Long header, Initial Type).
   2. Version: 4 bytes `0x00000001` (QUIC v1).
   3. DCID: 1 byte len (`0x08`) + 8 random bytes.
   4. SCID: 1 byte len (`0x08`) + 8 random bytes.
   5. Token: `0x00` (zero length).
-  6. Length: 2 bytes big-endian length of remaining payload.
+  6. Length: 2 bytes big-endian varint `0x4000 | (pn_len + enc_size)` where `enc_size = target_len - 26 - pn_len`.
   7. Packet Number: 1-4 random bytes.
-  8. Payload: Synthetic TLS 1.3 ClientHello (SNI from `QUIC_DOMAINS`).
-  9. Padding: `0x00` bytes to target length.
+  8. Payload & Random Padding: Random bytes filling to the 216-byte target length.
 
 ---
 
-### 5.3 DNS Query Layout (`gen_dns`) & SIP INVITE Layout (`gen_sip`)
+### 5.3 DNS Query Layout (`gen_dns`) & SIP REGISTER Layout (`gen_sip`)
 
-- **DNS:** 2-byte Transaction ID + `0x0100` (Standard Query) + `0x0001` Question + QNAME labels (e.g. `\x06google\x03com\x00`) + Type A (`0x0001`) + Class IN (`0x0001`).
-- **SIP:** Text ASCII `INVITE sip:user@<domain> SIP/2.0\r\nVia: ...\r\n...Content-Length: 0\r\n\r\n`.
-- **Formatting:** Formatted as `<b 0x%x>` using hex encoding.
+- **DNS:** 2-byte Transaction ID (or `<r 2>` random wrapper) + `0x0100` (Standard Query) + `0x0001` Question + QNAME labels (e.g. `\x06google\x03com\x00`) + Type A (`0x0001`) + Class IN (`0x0001`) + EDNS0 OPT-RR.
+- **SIP:** Text ASCII SIP `REGISTER sip:<host> SIP/2.0\r\nVia: SIP/2.0/<transport> <ip>:<port>;branch=<branch>;rport\r\n...Content-Length: 0\r\n\r\n`.
+- **Formatting:** Formatted as `<b 0x%x>` (or `<r N><b 0x%x>`) using hex encoding.
 
 ---
 
@@ -253,9 +252,12 @@ LABEL_MAC1        = "mac1----"                                             [8 by
 
 ```go
 func HMACBlake2s(key, data []byte) []byte {
-	h, _ := blake2s.New256(key)
-	h.Write(data)
-	return h.Sum(nil)
+	mac := hmac.New(func() hash.Hash {
+		h, _ := blake2s.New256(nil)
+		return h
+	}, key)
+	mac.Write(data)
+	return mac.Sum(nil)
 }
 
 func KDF1(key, data []byte) []byte {
@@ -345,14 +347,15 @@ func KDF3(key, data []byte) (t1, t2, t3 []byte) {
 2. Verify Header & Index:
    msg_type = le_to_uint32(payload[0:4])
    Verify msg_type == H2 or msg_type == 2
-   receiver_idx = le_to_uint32(payload[4:8])
+   sender_idx_server = le_to_uint32(payload[4:8])
+   receiver_idx = le_to_uint32(payload[8:12])
    Verify receiver_idx == sender_idx
 
 3. Extract Fields:
-   server_e_pub    = payload[8:40]   [32 bytes]
-   encrypted_empty = payload[40:56]  [16 bytes]
-   MAC1            = payload[56:72]  [16 bytes]
-   MAC2            = payload[72:88]  [16 bytes]
+   server_e_pub    = payload[12:44]  [32 bytes]
+   encrypted_empty = payload[44:60]  [16 bytes]
+   MAC1            = payload[60:76]  [16 bytes]
+   MAC2            = payload[76:92]  [16 bytes]
 
 4. DH Exchanges & Final Key Derivation:
    h   = BLAKE2s-256(h || server_e_pub)

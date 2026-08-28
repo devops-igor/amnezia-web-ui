@@ -331,3 +331,139 @@ AllowedIPs = 10.8.1.99/32
 		t.Errorf("external peer not found in GetClients result")
 	}
 }
+
+func TestAWGManager_EditClient(t *testing.T) {
+	ctx := context.Background()
+	client := newMockAWGSSHClient()
+	provider := &mockAWGSSHProvider{client: client}
+	mgr := NewAWGManager(provider)
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+
+	// 1. Edit client name and speed limits
+	editParams := map[string]any{
+		"name":             "RenamedUser",
+		"speed_limit_down": 50,
+		"speed_limit_up":   25,
+	}
+	if err := mgr.EditClient(ctx, server, "pubkey1", editParams); err != nil {
+		t.Fatalf("EditClient failed: %v", err)
+	}
+
+	clients, err := mgr.getClientsTable(ctx, client)
+	if err != nil {
+		t.Fatalf("getClientsTable failed: %v", err)
+	}
+	if len(clients) != 1 {
+		t.Fatalf("expected 1 client, got %d", len(clients))
+	}
+	if clients[0].UserData.ClientName != "RenamedUser" {
+		t.Errorf("expected client name RenamedUser, got %s", clients[0].UserData.ClientName)
+	}
+	if clients[0].UserData.SpeedLimitDown == nil || *clients[0].UserData.SpeedLimitDown != 50 {
+		t.Errorf("expected speed_limit_down 50, got %v", clients[0].UserData.SpeedLimitDown)
+	}
+	if clients[0].UserData.SpeedLimitUp == nil || *clients[0].UserData.SpeedLimitUp != 25 {
+		t.Errorf("expected speed_limit_up 25, got %v", clients[0].UserData.SpeedLimitUp)
+	}
+
+	// 2. Remove speed limits (set to 0)
+	clearLimits := map[string]any{
+		"speed_limit_down": 0,
+		"speed_limit_up":   0,
+	}
+	if err := mgr.EditClient(ctx, server, "pubkey1", clearLimits); err != nil {
+		t.Fatalf("EditClient(clear limits) failed: %v", err)
+	}
+	clients, _ = mgr.getClientsTable(ctx, client)
+	if clients[0].UserData.SpeedLimitDown != nil {
+		t.Errorf("expected nil speed_limit_down, got %v", clients[0].UserData.SpeedLimitDown)
+	}
+
+	// 3. Edit enabled status (toggle disable, then enable)
+	if err := mgr.EditClient(ctx, server, "pubkey1", map[string]any{"enabled": false}); err != nil {
+		t.Fatalf("EditClient(enabled=false) failed: %v", err)
+	}
+	clients, _ = mgr.getClientsTable(ctx, client)
+	if clients[0].UserData.Enabled {
+		t.Errorf("expected client to be disabled")
+	}
+
+	if err := mgr.EditClient(ctx, server, "pubkey1", map[string]any{"enabled": true}); err != nil {
+		t.Fatalf("EditClient(enabled=true) failed: %v", err)
+	}
+	clients, _ = mgr.getClientsTable(ctx, client)
+	if !clients[0].UserData.Enabled {
+		t.Errorf("expected client to be enabled")
+	}
+
+	// 4. Edit mimicry
+	if err := mgr.EditClient(ctx, server, "pubkey1", map[string]any{"awg_mimicry": "quic"}); err != nil {
+		t.Fatalf("EditClient(mimicry) failed: %v", err)
+	}
+	clients, _ = mgr.getClientsTable(ctx, client)
+	if clients[0].UserData.AWGMimicry != "quic" {
+		t.Errorf("expected mimicry quic, got %s", clients[0].UserData.AWGMimicry)
+	}
+
+	// 5. Error cases
+	if err := mgr.EditClient(ctx, server, "nonexistent", editParams); err == nil {
+		t.Errorf("expected error for nonexistent client")
+	}
+	if err := mgr.EditClient(ctx, nil, "pubkey1", editParams); err == nil {
+		t.Errorf("expected error for nil server")
+	}
+}
+
+func TestAWGManager_RotateMimicry(t *testing.T) {
+	ctx := context.Background()
+	client := newMockAWGSSHClient()
+	provider := &mockAWGSSHProvider{client: client}
+	mgr := NewAWGManager(provider)
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+
+	// Initial client has awg_mimicry: "tls"
+	// Sequence: tls -> quic -> dns -> sip -> tls
+	proto1, err := mgr.RotateMimicry(ctx, server, "pubkey1")
+	if err != nil || proto1 != "quic" {
+		t.Fatalf("RotateMimicry 1 expected quic, got %s, err: %v", proto1, err)
+	}
+
+	proto2, err := mgr.RotateMimicry(ctx, server, "pubkey1")
+	if err != nil || proto2 != "dns" {
+		t.Fatalf("RotateMimicry 2 expected dns, got %s, err: %v", proto2, err)
+	}
+
+	proto3, err := mgr.RotateMimicry(ctx, server, "pubkey1")
+	if err != nil || proto3 != "sip" {
+		t.Fatalf("RotateMimicry 3 expected sip, got %s, err: %v", proto3, err)
+	}
+
+	proto4, err := mgr.RotateMimicry(ctx, server, "pubkey1")
+	if err != nil || proto4 != "tls" {
+		t.Fatalf("RotateMimicry 4 expected tls, got %s, err: %v", proto4, err)
+	}
+
+	clients, _ := mgr.getClientsTable(ctx, client)
+	if clients[0].UserData.AWGMimicry != "tls" {
+		t.Errorf("expected clientsTable mimicry tls, got %s", clients[0].UserData.AWGMimicry)
+	}
+	if clients[0].UserData.RotatedAt == "" {
+		t.Errorf("expected rotated_at timestamp to be set")
+	}
+
+	// Test auto -> tls
+	clients[0].UserData.AWGMimicry = "auto"
+	_ = mgr.saveClientsTable(ctx, client, clients)
+	protoAuto, err := mgr.RotateMimicry(ctx, server, "pubkey1")
+	if err != nil || protoAuto != "tls" {
+		t.Fatalf("RotateMimicry from auto expected tls, got %s, err: %v", protoAuto, err)
+	}
+
+	// Error cases
+	if _, err := mgr.RotateMimicry(ctx, server, "nonexistent"); err == nil {
+		t.Errorf("expected error for nonexistent client")
+	}
+	if _, err := mgr.RotateMimicry(ctx, nil, "pubkey1"); err == nil {
+		t.Errorf("expected error for nil server")
+	}
+}

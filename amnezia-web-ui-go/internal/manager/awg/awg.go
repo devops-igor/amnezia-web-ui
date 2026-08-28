@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/awg/cps"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/awg/tc"
@@ -379,6 +380,7 @@ func (m *AWGManager) GetClients(ctx context.Context, server *models.Server) ([]m
 			"dataSentBytes":     ud.DataSentBytes,
 			"allowedIps":        ud.AllowedIPs,
 			"externalClient":    ud.ExternalClient,
+			"rotated_at":        ud.RotatedAt,
 		}
 
 		result = append(result, map[string]any{
@@ -822,4 +824,206 @@ func (m *AWGManager) GetServerStatus(ctx context.Context, server *models.Server)
 	}
 
 	return status, nil
+}
+
+func parseParamString(params map[string]any, keys ...string) (string, bool) {
+	for _, k := range keys {
+		if v, ok := params[k]; ok && v != nil && fmt.Sprint(v) != "" {
+			return fmt.Sprint(v), true
+		}
+	}
+	return "", false
+}
+
+func parseBoolParam(val any) (bool, bool) {
+	if val == nil {
+		return false, false
+	}
+	switch v := val.(type) {
+	case bool:
+		return v, true
+	case string:
+		return strings.ToLower(v) == "true" || v == "1", true
+	case int:
+		return v != 0, true
+	case int64:
+		return v != 0, true
+	case float64:
+		return v != 0, true
+	default:
+		return false, false
+	}
+}
+
+func parseSpeedLimit(params map[string]any, keys ...string) (*int, bool) {
+	for _, k := range keys {
+		if v, ok := params[k]; ok {
+			if v == nil {
+				return nil, true
+			}
+			if val, err := strconv.Atoi(fmt.Sprint(v)); err == nil && val > 0 {
+				return &val, true
+			}
+			return nil, true
+		}
+	}
+	return nil, false
+}
+
+// EditClient modifies client metadata, enabling/disabling, and bandwidth limits with TC sync.
+func (m *AWGManager) EditClient(ctx context.Context, server *models.Server, clientID string, params map[string]any) error {
+	client, err := m.getSSHClient(ctx, server)
+	if err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	clients, err := m.getClientsTable(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	var target *AWGClient
+	for i := range clients {
+		if clients[i].ClientID == clientID {
+			target = &clients[i]
+			break
+		}
+	}
+	if target == nil {
+		return fmt.Errorf("client %s not found in clients table", clientID)
+	}
+
+	if name, ok := parseParamString(params, "name", "clientName", "client_name"); ok {
+		target.UserData.ClientName = name
+	}
+	if mimicry, ok := parseParamString(params, "awg_mimicry", "mimicry"); ok {
+		target.UserData.AWGMimicry = mimicry
+	}
+
+	if newEnabled, ok := parseBoolParam(params["enabled"]); ok && newEnabled != target.UserData.Enabled {
+		target.UserData.Enabled = newEnabled
+		_ = m.updateServerConfigPeer(ctx, client, clientID, target.UserData.ClientIP, target.UserData.PSK, newEnabled)
+	}
+
+	down, downOk := parseSpeedLimit(params, "speed_limit_down", "awg_speed_limit_down", "speedDown")
+	up, upOk := parseSpeedLimit(params, "speed_limit_up", "awg_speed_limit_up", "speedUp")
+	if downOk || upOk {
+		if downOk {
+			target.UserData.SpeedLimitDown = down
+		}
+		if upOk {
+			target.UserData.SpeedLimitUp = up
+		}
+		m.syncClientTC(ctx, client, target.UserData.ClientIP, target.UserData.SpeedLimitDown, target.UserData.SpeedLimitUp)
+	}
+
+	return m.saveClientsTable(ctx, client, clients)
+}
+
+func (m *AWGManager) updateServerConfigPeer(ctx context.Context, client ssh.SSHClient, clientID, clientIP, psk string, enable bool) error {
+	confText, err := m.getServerConfig(ctx, client)
+	if err != nil {
+		return err
+	}
+	var newConfig string
+	if enable {
+		peerSec := fmt.Sprintf("\n[Peer]\nPublicKey = %s\nPresharedKey = %s\nAllowedIPs = %s/32\n", clientID, psk, clientIP)
+		newConfig = strings.TrimRight(confText, "\n") + "\n" + peerSec
+	} else {
+		sections := strings.Split(confText, "[")
+		var newSections []string
+		for _, sec := range sections {
+			if strings.TrimSpace(sec) == "" || strings.Contains(sec, clientID) {
+				continue
+			}
+			newSections = append(newSections, sec)
+		}
+		newConfig = "[" + strings.Join(newSections, "[")
+	}
+	return m.saveServerConfig(ctx, client, newConfig)
+}
+
+func (m *AWGManager) syncClientTC(ctx context.Context, client ssh.SSHClient, clientIP string, curDown, curUp *int) {
+	if (curDown != nil && *curDown > 0) || (curUp != nil && *curUp > 0) {
+		dVal, uVal := 0, 0
+		if curDown != nil {
+			dVal = *curDown
+		}
+		if curUp != nil {
+			uVal = *curUp
+		}
+		_ = tc.ApplySpeedLimit(ctx, client, m.containerName(), m.interfaceName(), clientIP, dVal, uVal)
+	} else {
+		_ = tc.RemoveSpeedLimit(ctx, client, m.containerName(), m.interfaceName(), clientIP)
+	}
+}
+
+// RotateMimicry rotates a client's mimicry profile through the sequence:
+// auto -> tls -> quic -> dns -> sip -> tls, regenerates I1-I5 packet headers, and updates clientsTable.
+func (m *AWGManager) RotateMimicry(ctx context.Context, server *models.Server, clientID string) (string, error) {
+	client, err := m.getSSHClient(ctx, server)
+	if err != nil {
+		return "", err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	clients, err := m.getClientsTable(ctx, client)
+	if err != nil {
+		return "", err
+	}
+
+	var target *AWGClient
+	for i := range clients {
+		if clients[i].ClientID == clientID {
+			target = &clients[i]
+			break
+		}
+	}
+	if target == nil {
+		return "", fmt.Errorf("client %s not found in clients table", clientID)
+	}
+
+	curr := strings.ToLower(strings.TrimSpace(target.UserData.AWGMimicry))
+	if curr == "" {
+		curr = "auto"
+	}
+
+	var nextProfile string
+	switch curr {
+	case "auto":
+		nextProfile = "tls"
+	case "tls":
+		nextProfile = "quic"
+	case "quic":
+		nextProfile = "dns"
+	case "dns":
+		nextProfile = "sip"
+	case "sip":
+		nextProfile = "tls"
+	default:
+		nextProfile = "tls"
+	}
+
+	// Regenerate I1-I5 signature packets
+	if mp, err := cps.GenerateMimicryPackets(ctx, nextProfile, "", client); err == nil {
+		target.UserData.I1 = mp["i1"]
+		target.UserData.I2 = mp["i2"]
+		target.UserData.I3 = mp["i3"]
+		target.UserData.I4 = mp["i4"]
+		target.UserData.I5 = mp["i5"]
+	}
+
+	target.UserData.AWGMimicry = nextProfile
+	target.UserData.RotatedAt = time.Now().UTC().Format(time.RFC3339)
+
+	if err := m.saveClientsTable(ctx, client, clients); err != nil {
+		return "", fmt.Errorf("failed to save clients table after mimicry rotation: %w", err)
+	}
+
+	return nextProfile, nil
 }
