@@ -453,3 +453,29 @@ func TestAdditionalRequestModelsValidation(t *testing.T) {
 		t.Errorf("ConnectionActionRequest.Validate should fail for empty client_id")
 	}
 }
+
+func TestContainerAndConfigPathMapping(t *testing.T) {
+	for proto, wantContainer := range map[string]string{
+		"awg": "amnezia-awg", "awg2": "amnezia-awg", "telemt": "telemt", "dns": "amnezia-dns",
+	} {
+		got, ok := ContainerNameForProtocol(proto)
+		if !ok || got != wantContainer {
+			t.Errorf("ContainerNameForProtocol(%q) = (%q, %v), want (%q, true)", proto, got, ok, wantContainer)
+		}
+	}
+	if _, ok := ContainerNameForProtocol("awg; malicious-cmd"); ok {
+		t.Errorf("ContainerNameForProtocol should reject injection-style input")
+	}
+
+	for proto, wantPath := range map[string]string{
+		"awg": "/opt/amnezia/awg/awg0.conf", "dns": "/opt/amnezia/dns/unbound.conf", "telemt": "/opt/mtproxyl/settings.conf",
+	} {
+		got, ok := ConfigPathForProtocol(proto)
+		if !ok || got != wantPath {
+			t.Errorf("ConfigPathForProtocol(%q) = (%q, %v), want (%q, true)", proto, got, ok, wantPath)
+		}
+	}
+	if _, ok := ConfigPathForProtocol("../../etc/shadow"); ok {
+		t.Errorf("ConfigPathForProtocol should reject path-injection input")
+	}
+}

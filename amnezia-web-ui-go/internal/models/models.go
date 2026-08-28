@@ -37,6 +37,37 @@ func IsValidProtocol(proto string) bool {
 	return ValidProtocols[NormalizeProtocol(proto)]
 }
 
+// ContainerNameForProtocol maps a validated protocol to its Docker container name.
+// The second return value is false for unknown protocols, so callers must reject
+// unvalidated user input instead of interpolating it into shell commands.
+func ContainerNameForProtocol(proto string) (string, bool) {
+	switch NormalizeProtocol(proto) {
+	case "awg":
+		return "amnezia-awg", true
+	case "telemt":
+		return "telemt", true
+	case "dns":
+		return "amnezia-dns", true
+	default:
+		return "", false
+	}
+}
+
+// ConfigPathForProtocol maps a validated protocol to its remote config file path.
+// Rejecting unknown protocols here prevents path injection via user-supplied input.
+func ConfigPathForProtocol(proto string) (string, bool) {
+	switch NormalizeProtocol(proto) {
+	case "awg":
+		return "/opt/amnezia/awg/awg0.conf", true
+	case "dns":
+		return "/opt/amnezia/dns/unbound.conf", true
+	case "telemt":
+		return "/opt/mtproxyl/settings.conf", true
+	default:
+		return "", false
+	}
+}
+
 // AWGObfuscationProfile determines AWG junk packet ranges and overhead.
 type AWGObfuscationProfile string
 

@@ -449,3 +449,15 @@ func (c *Client) touch() {
 	defer c.mu.Unlock()
 	c.lastActive = time.Now()
 }
+
+// CapturedFingerprint returns the host key fingerprint captured during handshake.
+func (c *Client) CapturedFingerprint() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.capturedFingerprint
+}
+
+// Fingerprint is an alias for CapturedFingerprint.
+func (c *Client) Fingerprint() string {
+	return c.CapturedFingerprint()
+}
