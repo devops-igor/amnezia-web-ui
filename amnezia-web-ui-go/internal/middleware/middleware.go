@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"log/slog"
+	"net/http"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
@@ -61,4 +63,30 @@ func GetCSRFToken(ctx context.Context) string {
 		return val
 	}
 	return ""
+}
+
+// LogAuditEvent writes a structured audit log entry for state-changing actions.
+// It records the event type, actor (username or "system"), client IP, and request path.
+func LogAuditEvent(r *http.Request, event string, details ...map[string]any) {
+	actor := "system"
+	sess := GetSession(r.Context())
+	if sess != nil && sess.Username != "" {
+		actor = sess.Username
+	}
+
+	attrs := []any{
+		"event", event,
+		"actor", actor,
+		"ip", GetClientIP(r.Context()),
+		"path", r.URL.Path,
+		"method", r.Method,
+	}
+
+	for _, d := range details {
+		for k, v := range d {
+			attrs = append(attrs, k, v)
+		}
+	}
+
+	slog.Info("audit", attrs...)
 }

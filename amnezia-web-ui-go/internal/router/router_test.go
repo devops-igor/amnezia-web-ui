@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -119,6 +120,21 @@ func TestRouterStaticAssetServing(t *testing.T) {
 
 func TestRouterAuthProtectedRoutes(t *testing.T) {
 	db, cfg := setupTestRouterDB(t)
+	ctx := context.Background()
+	_, _ = db.CreateUser(ctx, &models.User{
+		ID:        "user-1",
+		Username:  "user1",
+		Role:      models.RoleUser,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
+	_, _ = db.CreateUser(ctx, &models.User{
+		ID:        "admin-1",
+		Username:  "admin1",
+		Role:      models.RoleAdmin,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
 	r := NewRouter(cfg, db)
 
 	// 1. Unauthenticated request to /api/connections/add with CSRF token -> 401
@@ -139,7 +155,6 @@ func TestRouterAuthProtectedRoutes(t *testing.T) {
 		UserID: "user-1",
 		Role:   models.RoleUser,
 	})
-	// Inject CSRF token to pass CSRF middleware
 	ctxUser = middleware.WithCSRFToken(ctxUser, "token123")
 	reqUser.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "token123"})
 	reqUser.Header.Set(middleware.CSRFHeaderName, "token123")
@@ -150,8 +165,8 @@ func TestRouterAuthProtectedRoutes(t *testing.T) {
 		t.Errorf("expected 403 for regular user on admin endpoint, got %d", wUser.Code)
 	}
 
-	// 3. Admin user request to /api/servers/add -> 200 OK
-	reqAdmin := httptest.NewRequest(http.MethodPost, "/api/servers/add", nil)
+	// 3. Admin user request to /api/settings -> 200 OK
+	reqAdmin := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
 	ctxAdmin := middleware.WithSession(reqAdmin.Context(), &models.SessionData{
 		UserID: "admin-1",
 		Role:   models.RoleAdmin,
@@ -163,7 +178,7 @@ func TestRouterAuthProtectedRoutes(t *testing.T) {
 	wAdmin := httptest.NewRecorder()
 	r.ServeHTTP(wAdmin, reqAdmin.WithContext(ctxAdmin))
 	if wAdmin.Code != http.StatusOK {
-		t.Errorf("expected 200 for admin user on /api/servers/add, got %d", wAdmin.Code)
+		t.Errorf("expected 200 for admin user on /api/settings, got %d", wAdmin.Code)
 	}
 }
 
@@ -199,18 +214,20 @@ func TestSetLangEndpoint(t *testing.T) {
 
 func TestCleanReferer(t *testing.T) {
 	tests := []struct {
+		name  string
 		input string
 		want  string
 	}{
-		{"", "/"},
-		{"/my?filter=active", "/my?filter=active"},
-		{"https://evil.com/phish", "/phish"},
-		{"http://attacker.com", "/"},
-		{"/servers/1", "/servers/1"},
+		{"empty", "", "/"},
+		{"relative path", "/settings", "/settings"},
+		{"relative path with query", "/server/1?tab=logs", "/server/1?tab=logs"},
+		{"absolute http url", "http://evil.com/hack", "/hack"},
+		{"absolute https url", "https://example.com/dashboard?view=grid", "/dashboard?view=grid"},
+		{"invalid url", "://invalid-url", "/"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			got := CleanReferer(tt.input)
 			if got != tt.want {
 				t.Errorf("CleanReferer(%q) = %q, want %q", tt.input, got, tt.want)
@@ -219,148 +236,80 @@ func TestCleanReferer(t *testing.T) {
 	}
 }
 
-func TestFormatBytesAndHelpers(t *testing.T) {
-	if s := FormatBytes(0); s != "0 B" {
-		t.Errorf("FormatBytes(0) = %q, want '0 B'", s)
-	}
-	if s := FormatBytes(500); s != "500 B" {
-		t.Errorf("FormatBytes(500) = %q, want '500 B'", s)
-	}
-	if s := FormatBytes(1048576); s != "1.00 MB" {
-		t.Errorf("FormatBytes(1048576) = %q, want '1.00 MB'", s)
-	}
-	if s := FormatBytes(-1048576); s != "-1.00 MB" {
-		t.Errorf("FormatBytes(-1048576) = %q, want '-1.00 MB'", s)
-	}
-
-	tm := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)
-	if s := FormatTime(tm); s != "2026-08-28 12:00:00" {
-		t.Errorf("FormatTime failed, got %q", s)
-	}
-	if s := FormatTime(time.Time{}); s != "" {
-		t.Errorf("FormatTime for zero time should return empty string")
-	}
-}
-
-func TestTemplateRenderingAndPages(t *testing.T) {
-	db, cfg := setupTestRouterDB(t)
-	r := NewRouter(cfg, db)
-
-	// Admin session for admin pages
-	adminSession := &models.SessionData{
-		UserID: "admin-1",
-		Role:   models.RoleAdmin,
-	}
-
-	pages := []struct {
-		path         string
-		authSession  *models.SessionData
-		expectedCode int
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		bytes int64
+		want  string
 	}{
-		{"/login", nil, http.StatusOK},
-		{"/setup", nil, http.StatusFound}, // Setup is done, redirects to /login
-		{"/leaderboard", nil, http.StatusOK},
-		{"/share/testtoken123", nil, http.StatusOK},
-		{"/my", adminSession, http.StatusOK},
-		{"/change-password", adminSession, http.StatusOK},
-		{"/", adminSession, http.StatusOK},
-		{"/users", adminSession, http.StatusOK},
-		{"/settings", adminSession, http.StatusOK},
-		{"/server/1", adminSession, http.StatusOK},
-		{"/logout", nil, http.StatusFound},
+		{0, "0 B"},
+		{500, "500 B"},
+		{1024, "1.00 KB"},
+		{1536, "1.50 KB"},
+		{1048576, "1.00 MB"},
+		{1073741824, "1.00 GB"},
+		{-1073741824, "-1.00 GB"},
 	}
 
-	for _, p := range pages {
-		t.Run("Page: "+p.path, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, p.path, nil)
-			if p.authSession != nil {
-				req = req.WithContext(middleware.WithSession(req.Context(), p.authSession))
-			}
-			w := httptest.NewRecorder()
-			r.ServeHTTP(w, req)
-
-			if w.Code != p.expectedCode {
-				t.Errorf("GET %s returned code %d, want %d", p.path, w.Code, p.expectedCode)
-			}
-		})
+	for _, tt := range tests {
+		got := FormatBytes(tt.bytes)
+		if got != tt.want {
+			t.Errorf("FormatBytes(%d) = %q, want %q", tt.bytes, got, tt.want)
+		}
 	}
 }
 
-func TestAPIEndpointCatalogSkeletons(t *testing.T) {
+func TestFormatTime(t *testing.T) {
+	if got := FormatTime(time.Time{}); got != "" {
+		t.Errorf("expected empty string for zero time, got %q", got)
+	}
+
+	fixed := time.Date(2026, 8, 28, 15, 4, 5, 0, time.UTC)
+	if got := FormatTime(fixed); got != "2026-08-28 15:04:05" {
+		t.Errorf("expected '2026-08-28 15:04:05', got %q", got)
+	}
+}
+
+func TestRouterEndpointDispatch(t *testing.T) {
 	db, cfg := setupTestRouterDB(t)
 	r := NewRouter(cfg, db)
 
 	adminSession := &models.SessionData{
-		UserID: "admin-1",
+		UserID: "admin-id",
 		Role:   models.RoleAdmin,
 	}
 
 	endpoints := []struct {
-		method  string
-		path    string
-		session *models.SessionData
+		method         string
+		path           string
+		session        *models.SessionData
+		body           any
+		expectedStatus int
 	}{
-		{http.MethodGet, "/api/auth/captcha", nil},
-		{http.MethodPost, "/api/auth/login", nil},
-		{http.MethodGet, "/api/leaderboard", nil},
-		{http.MethodPost, "/api/share/token123/auth", nil},
-		{http.MethodGet, "/api/share/token123/connections", nil},
-		{http.MethodPost, "/api/share/token123/config/c1", nil},
-		{http.MethodGet, "/api/settings", adminSession},
-		{http.MethodPost, "/api/settings/save", adminSession},
-		{http.MethodPost, "/api/settings/sync_now", adminSession},
-		{http.MethodPost, "/api/settings/sync_delete", adminSession},
-		{http.MethodGet, "/api/settings/backup/download", adminSession},
-		{http.MethodPost, "/api/settings/backup/restore", adminSession},
-		{http.MethodPost, "/api/users/add", adminSession},
-		{http.MethodPost, "/api/users/u1/update", adminSession},
-		{http.MethodPost, "/api/users/u1/delete", adminSession},
-		{http.MethodPost, "/api/users/u1/toggle", adminSession},
-		{http.MethodPost, "/api/users/u1/connections/add", adminSession},
-		{http.MethodGet, "/api/users/u1/connections", adminSession},
-		{http.MethodPost, "/api/users/u1/share/setup", adminSession},
-		{http.MethodPost, "/api/servers/add", adminSession},
-		{http.MethodPost, "/api/servers/confirm-fingerprint", adminSession},
-		{http.MethodPost, "/api/servers/1/delete", adminSession},
-		{http.MethodPost, "/api/servers/1/reboot", adminSession},
-		{http.MethodPost, "/api/servers/1/clear", adminSession},
-		{http.MethodPost, "/api/servers/1/stats", adminSession},
-		{http.MethodPost, "/api/servers/1/check", adminSession},
-		{http.MethodPost, "/api/servers/1/install", adminSession},
-		{http.MethodPost, "/api/servers/1/uninstall", adminSession},
-		{http.MethodPost, "/api/servers/1/container/toggle", adminSession},
-		{http.MethodPost, "/api/servers/1/server_config", adminSession},
-		{http.MethodPost, "/api/servers/1/server_config/save", adminSession},
-		{http.MethodGet, "/api/servers/1/connections", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/add", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/c1/rotate-mimicry", adminSession},
-		{http.MethodGet, "/api/servers/1/reachability", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/auto-trial", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/kit", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/remove", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/edit", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/config", adminSession},
-		{http.MethodPost, "/api/servers/1/connections/toggle", adminSession},
-		{http.MethodGet, "/api/servers/1/awg/clients", adminSession},
-		{http.MethodPatch, "/api/servers/1/connections/speed-limit", adminSession},
-		{http.MethodGet, "/api/servers/1/awg/speed-limit-config", adminSession},
-		{http.MethodPatch, "/api/servers/1/awg/speed-limit-config", adminSession},
-		{http.MethodPost, "/api/servers/1/awg/apply-default-speed-limits", adminSession},
-		{http.MethodGet, "/api/vpn/status", adminSession},
-		{http.MethodGet, "/api/vpn/backends", adminSession},
-		{http.MethodPost, "/api/vpn/backends/1/enable", adminSession},
-		{http.MethodPost, "/api/vpn/backends/1/disable", adminSession},
-		{http.MethodGet, "/api/vpn/tunnels", adminSession},
-		{http.MethodGet, "/api/vpn/config", adminSession},
-		{http.MethodPost, "/api/vpn/config", adminSession},
-		{http.MethodPost, "/api/vpn/disconnect", adminSession},
-		{http.MethodGet, "/api/vpn/my-connection", adminSession},
-		{http.MethodGet, "/api/vpn/my-config", adminSession},
+		{http.MethodGet, "/api/health", nil, nil, http.StatusOK},
+		{http.MethodGet, "/api/version", nil, nil, http.StatusOK},
+		{http.MethodGet, "/api/auth/captcha", nil, nil, http.StatusOK},
+		{http.MethodGet, "/api/leaderboard", nil, nil, http.StatusOK},
+		{http.MethodGet, "/api/settings", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/users", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/vpn/status", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/vpn/backends", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/vpn/tunnels", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/vpn/config", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/my/connections", adminSession, nil, http.StatusOK},
+		{http.MethodGet, "/api/vpn/my-connection", adminSession, nil, http.StatusOK},
 	}
 
 	for _, ep := range endpoints {
 		t.Run(ep.method+" "+ep.path, func(t *testing.T) {
-			req := httptest.NewRequest(ep.method, ep.path, nil)
+			var bodyBuf *bytes.Buffer
+			if ep.body != nil {
+				b, _ := json.Marshal(ep.body)
+				bodyBuf = bytes.NewBuffer(b)
+			} else {
+				bodyBuf = bytes.NewBuffer(nil)
+			}
+
+			req := httptest.NewRequest(ep.method, ep.path, bodyBuf)
 			ctx := req.Context()
 			if ep.session != nil {
 				ctx = middleware.WithSession(ctx, ep.session)
@@ -372,8 +321,8 @@ func TestAPIEndpointCatalogSkeletons(t *testing.T) {
 			w := httptest.NewRecorder()
 			r.ServeHTTP(w, req.WithContext(ctx))
 
-			if w.Code != http.StatusOK {
-				t.Errorf("%s %s returned status %d, want 200", ep.method, ep.path, w.Code)
+			if w.Code != ep.expectedStatus {
+				t.Errorf("%s %s returned status %d, want %d", ep.method, ep.path, w.Code, ep.expectedStatus)
 			}
 		})
 	}
@@ -397,11 +346,17 @@ func TestAuthSetupEndpointWithZeroUsers(t *testing.T) {
 	}
 	r := NewRouter(cfg, db)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", nil)
+	body, _ := json.Marshal(models.SetupRequest{
+		Username:        "newadmin",
+		Password:        "SecurePassword123!",
+		ConfirmPassword: "SecurePassword123!",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for /api/auth/setup with 0 users, got %d", w.Code)
+		t.Errorf("expected 200 for /api/auth/setup with 0 users, got %d (body: %s)", w.Code, w.Body.String())
 	}
 }

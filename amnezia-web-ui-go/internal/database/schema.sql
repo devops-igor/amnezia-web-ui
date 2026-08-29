@@ -147,7 +147,7 @@ CREATE INDEX IF NOT EXISTS idx_user_connections_user_id ON user_connections(user
 CREATE INDEX IF NOT EXISTS idx_user_connections_server_id ON user_connections(server_id);
 CREATE INDEX IF NOT EXISTS idx_user_connections_client_id ON user_connections(client_id);
 CREATE INDEX IF NOT EXISTS idx_creation_log_user_time ON connection_creation_log(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
 CREATE INDEX IF NOT EXISTS idx_users_share_token ON users(share_token);
 CREATE INDEX IF NOT EXISTS idx_users_remnawave_uuid ON users(remnawave_uuid);
 CREATE INDEX IF NOT EXISTS idx_backend_tunnels_server_id ON backend_tunnels(server_id);

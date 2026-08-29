@@ -73,3 +73,6 @@ workflow.md
 dev_ssh_key
 .env
 
+WORKLOG.md
+tasks/SESSION_SUMMARY.md
+amnezia-web-ui-go/coverage.out

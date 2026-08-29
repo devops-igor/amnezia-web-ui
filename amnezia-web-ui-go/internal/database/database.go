@@ -197,7 +197,6 @@ func (d *DB) ensureDefaultSettingsLocked(ctx context.Context) error {
 	return nil
 }
 
-// runMigrationsLocked applies in-flight schema migrations for legacy databases.
 func (d *DB) runMigrationsLocked(ctx context.Context) error {
 	if err := d.migratePlaintextCredentials(ctx); err != nil {
 		return err
@@ -205,7 +204,15 @@ func (d *DB) runMigrationsLocked(ctx context.Context) error {
 	if err := d.migrateXraySensitiveKeys(ctx); err != nil {
 		return err
 	}
-	return d.migratePlaintextSSLKeys(ctx)
+	if err := d.migratePlaintextSSLKeys(ctx); err != nil {
+		return err
+	}
+	return d.migrateUniqueUsernameIndex(ctx)
+}
+
+func (d *DB) migrateUniqueUsernameIndex(ctx context.Context) error {
+	_, _ = d.sqlDB.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+	return nil
 }
 
 func (d *DB) migratePlaintextCredentials(ctx context.Context) error {

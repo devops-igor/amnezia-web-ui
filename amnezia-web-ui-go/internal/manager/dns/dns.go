@@ -113,7 +113,7 @@ func (m *DNSManager) Install(ctx context.Context, server *models.Server, params 
 	}
 
 	// 8. Connect existing VPN containers to DNS network
-	vpnContainers := []string{"amnezia-awg", "amnezia-xray", "telemt"}
+	vpnContainers := []string{"amnezia-awg", "telemt"}
 	for _, c := range vpnContainers {
 		connectCmd := fmt.Sprintf("docker ps | grep -q %s && docker network connect %s %s || true", c, DNSNetworkName, c)
 		_, _, _, _ = client.RunSudoCommand(ctx, connectCmd)

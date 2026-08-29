@@ -42,3 +42,5 @@ issues:
       linters:
         - gosec
         - errcheck
+        - gocyclo
+        - misspell
