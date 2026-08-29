@@ -153,10 +153,16 @@ func (h *Handlers) DeleteServerHandler(w http.ResponseWriter, r *http.Request) {
 		h.sshPool.Remove(serverID)
 	}
 
-	_, _ = h.db.DeleteConnectionsByServer(ctx, serverID)
-	_, _ = h.db.DeleteKnownHost(ctx, serverID)
+	if _, err := h.db.DeleteConnectionsByServer(ctx, serverID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete server connections")
+		return
+	}
+	if _, err := h.db.DeleteKnownHost(ctx, serverID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete server known host")
+		return
+	}
 	if _, err := h.db.DeleteServer(ctx, serverID); err != nil {
-		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to delete server")
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete server")
 		return
 	}
 
@@ -185,7 +191,10 @@ func (h *Handlers) RebootServerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _, _, _ = client.RunSudoCommand(ctx, "nohup reboot > /dev/null 2>&1 &")
+	if _, _, _, err := client.RunSudoCommand(ctx, "nohup reboot > /dev/null 2>&1 &"); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to execute reboot command: "+err.Error())
+		return
+	}
 
 	if h.sshPool != nil {
 		h.sshPool.Remove(serverID)
@@ -229,10 +238,19 @@ func (h *Handlers) ClearServerHandler(w http.ResponseWriter, r *http.Request) {
 		_, _, _, _ = client.RunSudoCommand(ctx, fmt.Sprintf("docker rm %s || true", c))
 	}
 	_, _, _, _ = client.RunSudoCommand(ctx, "docker network rm amnezia-dns-net || true")
-	_, _, _, _ = client.RunSudoCommand(ctx, "rm -rf /opt/amnezia")
+	if _, _, _, err := client.RunSudoCommand(ctx, "rm -rf /opt/amnezia"); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to clear server directory: "+err.Error())
+		return
+	}
 
-	_, _ = h.db.DeleteConnectionsByServer(ctx, serverID)
-	_ = h.db.UpdateServerProtocols(ctx, serverID, make(map[string]any))
+	if _, err := h.db.DeleteConnectionsByServer(ctx, serverID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete server connections")
+		return
+	}
+	if err := h.db.UpdateServerProtocols(ctx, serverID, make(map[string]any)); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to clear server protocols")
+		return
+	}
 
 	h.audit(r, "server.clear", map[string]any{"server_id": serverID, "name": server.Name})
 	h.JSONOK(w)
@@ -502,14 +520,18 @@ func (h *Handlers) ToggleContainerHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	var runErr error
 	switch req.Action {
 	case "start":
-		_, _, _, _ = client.RunSudoCommand(ctx, fmt.Sprintf("docker start %s", containerName))
+		_, _, _, runErr = client.RunSudoCommand(ctx, fmt.Sprintf("docker start %s", containerName))
 	case "stop":
-		_, _, _, _ = client.RunSudoCommand(ctx, fmt.Sprintf("docker stop %s", containerName))
+		_, _, _, runErr = client.RunSudoCommand(ctx, fmt.Sprintf("docker stop %s", containerName))
 	default:
-		_, _, _, _ = client.RunSudoCommand(ctx, fmt.Sprintf("docker restart %s", containerName))
-		req.Action = "running"
+		_, _, _, runErr = client.RunSudoCommand(ctx, fmt.Sprintf("docker restart %s", containerName))
+	}
+	if runErr != nil {
+		h.JSONError(w, http.StatusInternalServerError, "operation_failed", fmt.Sprintf("Failed to %s container %s: %v", req.Action, containerName, runErr))
+		return
 	}
 
 	h.audit(r, "server.container_toggle", map[string]any{"server_id": serverID, "protocol": req.Protocol, "action": req.Action})
@@ -687,10 +709,13 @@ func (h *Handlers) SetClientSpeedLimitHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if h.awgMgr != nil {
-		_ = h.awgMgr.EditClient(ctx, server, req.ClientID, map[string]any{
+		if err := h.awgMgr.EditClient(ctx, server, req.ClientID, map[string]any{
 			"speed_limit_down": req.SpeedLimitDown,
 			"speed_limit_up":   req.SpeedLimitUp,
-		})
+		}); err != nil {
+			h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to set client speed limit: "+err.Error())
+			return
+		}
 	}
 
 	h.audit(r, "server.speed_limit_set", map[string]any{"server_id": serverID, "client_id": req.ClientID, "down": req.SpeedLimitDown, "up": req.SpeedLimitUp})
@@ -718,68 +743,36 @@ func (h *Handlers) GetAWGSpeedLimitConfigHandler(w http.ResponseWriter, r *http.
 	}
 
 	var globalDown, globalUp, defaultDown, defaultUp *int
-	if server.Protocols != nil {
-		if awgData, ok := server.Protocols["awg"].(map[string]any); ok {
-			if cfg, ok := awgData["awg_speed_limit_config"].(map[string]any); ok {
-				if d, ok := cfg["global_speed_limit_down"].(float64); ok {
-					v := int(d)
-					globalDown = &v
-				}
-				if u, ok := cfg["global_speed_limit_up"].(float64); ok {
-					v := int(u)
-					globalUp = &v
-				}
-				if d, ok := cfg["default_speed_limit_down"].(float64); ok {
-					v := int(d)
-					defaultDown = &v
-				}
-				if u, ok := cfg["default_speed_limit_up"].(float64); ok {
-					v := int(u)
-					defaultUp = &v
-				}
+	if awgData, ok := server.Protocols["awg"].(map[string]any); ok {
+		if cfgMap, ok := awgData["awg_speed_limit_config"].(map[string]any); ok {
+			if v, ok := cfgMap["global_speed_limit_down"].(float64); ok && v > 0 {
+				val := int(v)
+				globalDown = &val
 			}
-			if globalDown == nil {
-				if d, ok := awgData["global_speed_limit_down"].(float64); ok {
-					v := int(d)
-					globalDown = &v
-				}
+			if v, ok := cfgMap["global_speed_limit_up"].(float64); ok && v > 0 {
+				val := int(v)
+				globalUp = &val
 			}
-			if globalUp == nil {
-				if u, ok := awgData["global_speed_limit_up"].(float64); ok {
-					v := int(u)
-					globalUp = &v
-				}
+			if v, ok := cfgMap["default_speed_limit_down"].(float64); ok && v > 0 {
+				val := int(v)
+				defaultDown = &val
 			}
-			if defaultDown == nil {
-				if d, ok := awgData["default_speed_limit_down"].(float64); ok {
-					v := int(d)
-					defaultDown = &v
-				} else if d, ok := awgData["speed_limit_down"].(float64); ok {
-					v := int(d)
-					defaultDown = &v
-				}
-			}
-			if defaultUp == nil {
-				if u, ok := awgData["default_speed_limit_up"].(float64); ok {
-					v := int(u)
-					defaultUp = &v
-				} else if u, ok := awgData["speed_limit_up"].(float64); ok {
-					v := int(u)
-					defaultUp = &v
-				}
+			if v, ok := cfgMap["default_speed_limit_up"].(float64); ok && v > 0 {
+				val := int(v)
+				defaultUp = &val
 			}
 		}
 	}
 
-	h.JSON(w, http.StatusOK, models.AwgSpeedLimitConfigRequest{
-		GlobalSpeedLimitDown:  globalDown,
-		GlobalSpeedLimitUp:    globalUp,
-		DefaultSpeedLimitDown: defaultDown,
-		DefaultSpeedLimitUp:   defaultUp,
+	h.JSON(w, http.StatusOK, map[string]any{
+		"global_speed_limit_down":  globalDown,
+		"global_speed_limit_up":    globalUp,
+		"default_speed_limit_down": defaultDown,
+		"default_speed_limit_up":   defaultUp,
 	})
 }
 
-// SetAWGSpeedLimitConfigHandler updates and applies AWG global traffic control caps.
+// SetAWGSpeedLimitConfigHandler modifies global or default bandwidth caps for AWG.
 func (h *Handlers) SetAWGSpeedLimitConfigHandler(w http.ResponseWriter, r *http.Request) {
 	serverID, err := parseServerID(r)
 	if err != nil {
@@ -805,17 +798,15 @@ func (h *Handlers) SetAWGSpeedLimitConfigHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if server.Protocols == nil {
-		server.Protocols = make(map[string]any)
-	}
 	awgData, ok := server.Protocols["awg"].(map[string]any)
-	if !ok || awgData == nil {
+	if !ok {
 		awgData = make(map[string]any)
 	}
 	cfgMap, ok := awgData["awg_speed_limit_config"].(map[string]any)
-	if !ok || cfgMap == nil {
+	if !ok {
 		cfgMap = make(map[string]any)
 	}
+
 	if req.GlobalSpeedLimitDown != nil {
 		cfgMap["global_speed_limit_down"] = float64(*req.GlobalSpeedLimitDown)
 	}
@@ -830,11 +821,17 @@ func (h *Handlers) SetAWGSpeedLimitConfigHandler(w http.ResponseWriter, r *http.
 	}
 	awgData["awg_speed_limit_config"] = cfgMap
 	server.Protocols["awg"] = awgData
-	_ = h.db.UpdateServerProtocols(ctx, serverID, server.Protocols)
+	if err := h.db.UpdateServerProtocols(ctx, serverID, server.Protocols); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to update speed limit config: "+err.Error())
+		return
+	}
 
 	client, err := h.GetSSHClient(ctx, server)
 	if err == nil && client != nil {
-		_ = tc.SetGlobalLimit(ctx, client, "amnezia-awg", req.GlobalSpeedLimitDown, req.GlobalSpeedLimitUp)
+		if err := tc.SetGlobalLimit(ctx, client, "amnezia-awg", req.GlobalSpeedLimitDown, req.GlobalSpeedLimitUp); err != nil {
+			h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to apply global speed limit on server: "+err.Error())
+			return
+		}
 	}
 
 	h.audit(r, "server.awg_speed_limit_config", map[string]any{"server_id": serverID})

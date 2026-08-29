@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/devops-igor/amnezia-web-ui-go/internal/config"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/security"
@@ -414,4 +419,215 @@ func TestAuthHandlers(t *testing.T) {
 	})
 
 	_ = cfg
+}
+
+func TestSetupRace_UniqueAdminConstraint(t *testing.T) {
+	h, db, _ := setupTestHandlers(t)
+	ctx := context.Background()
+
+	// Clear any seeded users for fresh setup race
+	users, _ := db.GetAllUsers(ctx)
+	for _, u := range users {
+		_, _ = db.DeleteUser(ctx, u.ID)
+	}
+
+	concurrentRequests := 10
+	var successCount atomic.Int32
+	var conflictCount atomic.Int32
+	var wg sync.WaitGroup
+
+	for i := 0; i < concurrentRequests; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			body, _ := json.Marshal(models.SetupRequest{
+				Username:        fmt.Sprintf("admin_%d", idx),
+				Password:        "AdminSecretPass123!",
+				ConfirmPassword: "AdminSecretPass123!",
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/setup", bytes.NewReader(body))
+			w := httptest.NewRecorder()
+			h.APISetupHandler(w, req)
+
+			if w.Code == http.StatusOK {
+				successCount.Add(1)
+			} else if w.Code == http.StatusConflict {
+				conflictCount.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if successCount.Load() != 1 {
+		t.Fatalf("expected exactly 1 successful setup, got %d (conflicts: %d)", successCount.Load(), conflictCount.Load())
+	}
+	if conflictCount.Load() != int32(concurrentRequests-1) {
+		t.Errorf("expected %d conflict responses, got %d", concurrentRequests-1, conflictCount.Load())
+	}
+
+	userCount, err := db.CountUsers(ctx)
+	if err != nil || userCount != 1 {
+		t.Fatalf("expected exactly 1 admin user in DB, got count=%d, err=%v", userCount, err)
+	}
+}
+
+func TestDisabledUser_SessionRejected(t *testing.T) {
+	_, db, cfg := setupTestHandlers(t)
+	ctx := context.Background()
+
+	middleware.SetUserLookup(func(ctx context.Context, userID string) (*models.User, error) {
+		return db.GetUser(ctx, userID)
+	})
+	t.Cleanup(func() {
+		middleware.SetUserLookup(nil)
+	})
+
+	userPassHash, _ := security.HashPassword("TestPass123!")
+	testUser := &models.User{
+		ID:           "test-revoke-user-1",
+		Username:     "revokeuser",
+		PasswordHash: userPassHash,
+		Role:         models.RoleUser,
+		Enabled:      true,
+		CreatedAt:    time.Now(),
+	}
+	_, err := db.CreateUser(ctx, testUser)
+	if err != nil {
+		t.Fatalf("failed to create test user: %v", err)
+	}
+
+	sessionData := &models.SessionData{
+		UserID:   testUser.ID,
+		Username: testUser.Username,
+		Role:     testUser.Role,
+	}
+	encodedCookie, err := security.EncodeSession(sessionData.ToMap(), cfg.SecretKey)
+	if err != nil {
+		t.Fatalf("failed to encode session: %v", err)
+	}
+
+	okHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("OK"))
+	})
+	handler := middleware.Session(cfg.SecretKey)(middleware.RequireAuth(okHandler))
+
+	// 1. Valid active user request -> 200 OK
+	req1 := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+	req1.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: encodedCookie})
+	w1 := httptest.NewRecorder()
+	handler.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200 for active user, got %d", w1.Code)
+	}
+
+	// 2. Disable user in DB -> 401 Unauthorized
+	_, err = db.UpdateUser(ctx, testUser.ID, map[string]any{"enabled": false})
+	if err != nil {
+		t.Fatalf("failed to disable user: %v", err)
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+	req2.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: encodedCookie})
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for disabled user session, got %d", w2.Code)
+	}
+
+	// 3. Delete user from DB -> 401 Unauthorized
+	_, _ = db.DeleteUser(ctx, testUser.ID)
+	req3 := httptest.NewRequest(http.MethodGet, "/api/connections", nil)
+	req3.AddCookie(&http.Cookie{Name: middleware.SessionCookieName, Value: encodedCookie})
+	w3 := httptest.NewRecorder()
+	handler.ServeHTTP(w3, req3)
+	if w3.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 for deleted user session, got %d", w3.Code)
+	}
+}
+
+func TestSetLang_Validation(t *testing.T) {
+	h, _, _ := setupTestHandlers(t)
+
+	tests := []struct {
+		name         string
+		langParam    string
+		expectedLang string
+	}{
+		{"Valid RU", "ru", "ru"},
+		{"Valid EN", "en", "en"},
+		{"Path Traversal Attack", "../../../etc/passwd", "en"},
+		{"Arbitrary Malicious String", "<script>alert(1)</script>", "en"},
+		{"Overlong String", strings.Repeat("x", 2000), "en"},
+		{"Empty Param", "", "en"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("lang", tc.langParam)
+			req := httptest.NewRequest(http.MethodGet, "/set_lang", nil)
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+			req.Header.Set("Referer", "/my")
+			w := httptest.NewRecorder()
+			h.SetLangHandler(w, req)
+
+			if w.Code != http.StatusFound {
+				t.Fatalf("expected 302 redirect, got %d", w.Code)
+			}
+
+			cookies := w.Result().Cookies()
+			var foundLang, foundPanelLang string
+			for _, c := range cookies {
+				if c.Name == "lang" {
+					foundLang = c.Value
+				}
+				if c.Name == "panel_lang" {
+					foundPanelLang = c.Value
+				}
+			}
+
+			if foundLang != tc.expectedLang {
+				t.Errorf("expected lang cookie %q, got %q", tc.expectedLang, foundLang)
+			}
+			if foundPanelLang != tc.expectedLang {
+				t.Errorf("expected panel_lang cookie %q, got %q", tc.expectedLang, foundPanelLang)
+			}
+		})
+	}
+}
+
+func TestEmptySecretKey_ReturnsError(t *testing.T) {
+	h, _, _ := setupTestHandlers(t)
+	h.cfg = &config.Config{
+		SecretKey: "",
+	}
+
+	// 1. CaptchaHandler fast-fails with 500 when SecretKey is empty
+	reqCaptcha := httptest.NewRequest(http.MethodGet, "/api/auth/captcha", nil)
+	wCaptcha := httptest.NewRecorder()
+	h.CaptchaHandler(wCaptcha, reqCaptcha)
+
+	if wCaptcha.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for Captcha with empty SecretKey, got %d", wCaptcha.Code)
+	}
+	if !strings.Contains(wCaptcha.Body.String(), "Session signing key not configured") {
+		t.Errorf("expected detail 'Session signing key not configured', got %s", wCaptcha.Body.String())
+	}
+
+	// 2. APILoginHandler fast-fails with 500 when SecretKey is empty
+	bodyLogin, _ := json.Marshal(models.LoginRequest{
+		Username: "admin",
+		Password: "AdminPassword123!",
+	})
+	reqLogin := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewReader(bodyLogin))
+	wLogin := httptest.NewRecorder()
+	h.APILoginHandler(wLogin, reqLogin)
+
+	if wLogin.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500 for APILogin with empty SecretKey, got %d", wLogin.Code)
+	}
+	if !strings.Contains(wLogin.Body.String(), "Session signing key not configured") {
+		t.Errorf("expected detail 'Session signing key not configured', got %s", wLogin.Body.String())
+	}
 }

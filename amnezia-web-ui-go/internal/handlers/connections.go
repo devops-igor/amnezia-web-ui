@@ -128,6 +128,9 @@ func (h *Handlers) UserAddConnectionHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	unlock := h.lockUser(sess.UserID)
+	defer unlock()
+
 	var req models.MyAddConnectionRequest
 	if err := h.DecodeJSON(r, &req); err != nil {
 		h.JSONError(w, http.StatusBadRequest, "validation_failed", "Invalid request body")

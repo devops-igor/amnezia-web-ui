@@ -120,6 +120,21 @@ func TestRouterStaticAssetServing(t *testing.T) {
 
 func TestRouterAuthProtectedRoutes(t *testing.T) {
 	db, cfg := setupTestRouterDB(t)
+	ctx := context.Background()
+	_, _ = db.CreateUser(ctx, &models.User{
+		ID:        "user-1",
+		Username:  "user1",
+		Role:      models.RoleUser,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
+	_, _ = db.CreateUser(ctx, &models.User{
+		ID:        "admin-1",
+		Username:  "admin1",
+		Role:      models.RoleAdmin,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
 	r := NewRouter(cfg, db)
 
 	// 1. Unauthenticated request to /api/connections/add with CSRF token -> 401

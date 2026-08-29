@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -632,4 +634,94 @@ func TestConnectionsHandlers(t *testing.T) {
 			t.Fatalf("expected 404, got %d", w404.Code)
 		}
 	})
+}
+
+func TestConnectionLimit_ConcurrentAdds(t *testing.T) {
+	mockSSH := &testMockSSHClient{}
+	h, db, _ := setupTestHandlersWithMockSSH(t, mockSSH)
+	ctx := context.Background()
+
+	// 1. Create a user with max_connections_per_user = 3 and disabled creation rate limiting
+	limit := 3
+	u := &models.User{
+		ID:           "u-limit-test",
+		Username:     "limituser",
+		PasswordHash: "hash",
+		Role:         models.RoleUser,
+		Enabled:      true,
+		Limits: map[string]any{
+			"max_connections_per_user":     float64(limit),
+			"connection_rate_limit_count":  float64(1000),
+			"connection_rate_limit_window": float64(1),
+		},
+		CreatedAt: time.Now(),
+	}
+	_, err := db.CreateUser(ctx, u)
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	// 2. Create server
+	srv := &models.Server{
+		Name:      "VPN-Limit-Node",
+		Host:      "192.168.1.55",
+		SSHPort:   22,
+		SSHUser:   "root",
+		Protocols: map[string]any{"awg": map[string]any{"port": 55424, "installed": true}},
+		CreatedAt: time.Now(),
+	}
+	sID, _ := db.CreateServer(ctx, srv)
+	mockSSH.serverID = &sID
+
+	sess := &models.SessionData{
+		UserID: u.ID,
+		Role:   models.RoleUser,
+	}
+
+	r := setupFullConnectionsRouter(h)
+
+	// 3. Fire 10 concurrent requests to /api/connections/add
+	concurrentAdds := 10
+	var successCount atomic.Int32
+	var limitHitCount atomic.Int32
+	var wg sync.WaitGroup
+
+	for i := 0; i < concurrentAdds; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			body, _ := json.Marshal(models.MyAddConnectionRequest{
+				ServerID: sID,
+				Protocol: "awg",
+				Name:     fmt.Sprintf("Concurrent Conn %d", idx),
+			})
+			req := httptest.NewRequest(http.MethodPost, "/api/connections/add", bytes.NewReader(body))
+			reqCtx := middleware.WithSession(req.Context(), sess)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req.WithContext(reqCtx))
+
+			if w.Code == http.StatusOK {
+				successCount.Add(1)
+			} else if w.Code == http.StatusTooManyRequests || w.Code == http.StatusBadRequest {
+				limitHitCount.Add(1)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	// 4. Assert that exactly 3 connections were created in DB (never exceeding limit)
+	conns, err := db.GetConnectionsByUserID(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("failed to get user connections: %v", err)
+	}
+
+	if len(conns) > limit {
+		t.Fatalf("TOCTOU race detected! Connection count %d exceeded max limit %d", len(conns), limit)
+	}
+	if len(conns) != limit {
+		t.Fatalf("expected exactly %d connections created, got %d", limit, len(conns))
+	}
+	if successCount.Load() != int32(limit) {
+		t.Errorf("expected %d successful adds, got %d (rejected: %d)", limit, successCount.Load(), limitHitCount.Load())
+	}
 }

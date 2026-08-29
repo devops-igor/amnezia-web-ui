@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/security"
@@ -44,8 +46,11 @@ func (h *Handlers) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 
 // SetLangHandler sets preferred UI language cookie and redirects back safely.
 func (h *Handlers) SetLangHandler(w http.ResponseWriter, r *http.Request) {
-	lang := chi.URLParam(r, "lang")
-	if lang == "" {
+	lang := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "lang")))
+	switch lang {
+	case "en", "ru":
+		// valid
+	default:
 		lang = "en"
 	}
 	ref := CleanReferer(r.Header.Get("Referer"))
@@ -73,6 +78,11 @@ func (h *Handlers) SetLangHandler(w http.ResponseWriter, r *http.Request) {
 
 // CaptchaHandler generates a new visual CAPTCHA challenge.
 func (h *Handlers) CaptchaHandler(w http.ResponseWriter, r *http.Request) {
+	if h.cfg == nil || h.cfg.SecretKey == "" {
+		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Session signing key not configured")
+		return
+	}
+
 	captchaAnswer := generateCaptchaDigits(4)
 
 	// Store answer in session
@@ -81,9 +91,7 @@ func (h *Handlers) CaptchaHandler(w http.ResponseWriter, r *http.Request) {
 		sess = &models.SessionData{}
 	}
 	sess.CaptchaAnswer = captchaAnswer
-	if h.cfg != nil && h.cfg.SecretKey != "" {
-		_ = middleware.SetSessionCookie(w, sess, h.cfg.SecretKey, false, 3600)
-	}
+	_ = middleware.SetSessionCookie(w, sess, h.cfg.SecretKey, false, 3600)
 
 	// Generate image
 	imgBytes := generateCaptchaImage(captchaAnswer)
@@ -105,6 +113,11 @@ func (h *Handlers) CaptchaHandler(w http.ResponseWriter, r *http.Request) {
 
 // APILoginHandler handles user authentication requests.
 func (h *Handlers) APILoginHandler(w http.ResponseWriter, r *http.Request) {
+	if h.cfg == nil || h.cfg.SecretKey == "" {
+		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Session signing key not configured")
+		return
+	}
+
 	var req models.LoginRequest
 	if err := h.DecodeJSON(r, &req); err != nil {
 		h.JSONError(w, http.StatusBadRequest, "validation_failed", "Invalid request body")
@@ -133,7 +146,7 @@ func (h *Handlers) APILoginHandler(w http.ResponseWriter, r *http.Request) {
 
 		if expected == "" || req.Captcha == nil || !strings.EqualFold(strings.TrimSpace(*req.Captcha), expected) {
 			// Clear captcha answer to prevent replay
-			if sess != nil && h.cfg != nil && h.cfg.SecretKey != "" {
+			if sess != nil {
 				sess.CaptchaAnswer = ""
 				_ = middleware.SetSessionCookie(w, sess, h.cfg.SecretKey, false, 3600)
 			}
@@ -142,7 +155,7 @@ func (h *Handlers) APILoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Clear captcha answer after successful verification
-		if sess != nil && h.cfg != nil && h.cfg.SecretKey != "" {
+		if sess != nil {
 			sess.CaptchaAnswer = ""
 			_ = middleware.SetSessionCookie(w, sess, h.cfg.SecretKey, false, 3600)
 		}
@@ -178,16 +191,9 @@ func (h *Handlers) APILoginHandler(w http.ResponseWriter, r *http.Request) {
 		ShareAuthenticated:     make(map[string]bool),
 	}
 
-	secretKey := ""
-	if h.cfg != nil {
-		secretKey = h.cfg.SecretKey
-	}
-
-	if secretKey != "" {
-		if err := middleware.SetSessionCookie(w, sessionData, secretKey, false, middleware.DefaultSessionMaxAge); err != nil {
-			h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to create session")
-			return
-		}
+	if err := middleware.SetSessionCookie(w, sessionData, h.cfg.SecretKey, false, middleware.DefaultSessionMaxAge); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to create session")
+		return
 	}
 
 	redirectURL := "/"
@@ -207,6 +213,9 @@ func (h *Handlers) APILoginHandler(w http.ResponseWriter, r *http.Request) {
 
 // APISetupHandler creates the initial administrator user on first run.
 func (h *Handlers) APISetupHandler(w http.ResponseWriter, r *http.Request) {
+	h.setupMu.Lock()
+	defer h.setupMu.Unlock()
+
 	var req models.SetupRequest
 	if err := h.DecodeJSON(r, &req); err != nil {
 		h.JSONError(w, http.StatusBadRequest, "validation_failed", "Invalid request body")
@@ -252,6 +261,10 @@ func (h *Handlers) APISetupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := h.db.CreateUser(ctx, adminUser); err != nil {
+		if errors.Is(err, database.ErrUserAlreadyExists) || strings.Contains(err.Error(), "user already exists") || strings.Contains(err.Error(), "UNIQUE constraint") {
+			h.JSONError(w, http.StatusConflict, "setup_already_done", h.Translate(r, "setup_already_done"))
+			return
+		}
 		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to create administrator account")
 		return
 	}

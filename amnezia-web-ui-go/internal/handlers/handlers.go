@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/config"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
@@ -44,14 +45,35 @@ type Dependencies struct {
 
 // Handlers encapsulates all HTTP route handlers and business logic.
 type Handlers struct {
-	cfg         *config.Config
-	db          *database.DB
-	registry    *manager.Registry
-	sshPool     SSHPoolProvider
-	awgMgr      *awg.AWGManager
-	mtproxylMgr *mtproxyl.MTProxyLManager
-	dnsMgr      *dns.DNSManager
-	vpnSvc      *vpn.Service
+	cfg           *config.Config
+	db            *database.DB
+	registry      *manager.Registry
+	sshPool       SSHPoolProvider
+	awgMgr        *awg.AWGManager
+	mtproxylMgr   *mtproxyl.MTProxyLManager
+	dnsMgr        *dns.DNSManager
+	vpnSvc        *vpn.Service
+	setupMu       sync.Mutex
+	userConnMu    sync.Mutex
+	userConnLocks map[string]*sync.Mutex
+}
+
+func (h *Handlers) lockUser(userID string) func() {
+	h.userConnMu.Lock()
+	if h.userConnLocks == nil {
+		h.userConnLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := h.userConnLocks[userID]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.userConnLocks[userID] = mu
+	}
+	h.userConnMu.Unlock()
+
+	mu.Lock()
+	return func() {
+		mu.Unlock()
+	}
 }
 
 // NewHandlers creates a new Handlers instance with provided dependencies.

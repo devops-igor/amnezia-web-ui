@@ -34,6 +34,19 @@ func (h *Handlers) GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	sslCfg.KeyText = ""
 	sslCfg.CertText = ""
 
+	// Mask sync API key if configured
+	if syncCfg.RemnawaveAPIKey != "" {
+		syncCfg.RemnawaveAPIKey = "********"
+	}
+
+	// Mask telegram bot tokens if present
+	if bt, ok := telegramCfg["bot_token"].(string); ok && bt != "" {
+		telegramCfg["bot_token"] = "********"
+	}
+	if tok, ok := telegramCfg["token"].(string); ok && tok != "" {
+		telegramCfg["token"] = "********"
+	}
+
 	h.JSON(w, http.StatusOK, map[string]any{
 		"appearance": appearance,
 		"sync":       syncCfg,
@@ -42,6 +55,62 @@ func (h *Handlers) GetSettingsHandler(w http.ResponseWriter, r *http.Request) {
 		"ssl":        sslCfg,
 		"limits":     limitsCfg,
 	})
+}
+
+func (h *Handlers) preserveSecretsOnSave(ctx context.Context, req *models.SaveSettingsRequest) {
+	// 1. SSL: Preserve existing KeyText / CertText if incoming are empty or masked
+	var existingSSL models.SSLSettings
+	_ = h.db.GetSetting(ctx, "ssl", &existingSSL)
+	if req.SSL.KeyText == "" || req.SSL.KeyText == "********" {
+		req.SSL.KeyText = existingSSL.KeyText
+	}
+	if req.SSL.CertText == "" || req.SSL.CertText == "********" {
+		req.SSL.CertText = existingSSL.CertText
+	}
+
+	// 2. Sync: Preserve existing RemnawaveAPIKey if incoming is empty or masked
+	var existingSync models.SyncSettings
+	_ = h.db.GetSetting(ctx, "sync", &existingSync)
+	if req.Sync.RemnawaveAPIKey == "" || req.Sync.RemnawaveAPIKey == "********" {
+		req.Sync.RemnawaveAPIKey = existingSync.RemnawaveAPIKey
+	}
+
+	// 3. Telegram: Preserve existing bot_token / token if incoming is empty or masked
+	if req.Telegram != nil {
+		existingTelegram := make(map[string]any)
+		_ = h.db.GetSetting(ctx, "telegram", &existingTelegram)
+		if bt, ok := req.Telegram["bot_token"].(string); !ok || bt == "" || bt == "********" {
+			if oldBt, ok := existingTelegram["bot_token"].(string); ok && oldBt != "" {
+				req.Telegram["bot_token"] = oldBt
+			}
+		}
+		if tok, ok := req.Telegram["token"].(string); !ok || tok == "" || tok == "********" {
+			if oldTok, ok := existingTelegram["token"].(string); ok && oldTok != "" {
+				req.Telegram["token"] = oldTok
+			}
+		}
+	}
+}
+
+func (h *Handlers) persistSettings(ctx context.Context, req *models.SaveSettingsRequest) error {
+	if err := h.db.SetSetting(ctx, "appearance", req.Appearance); err != nil {
+		return err
+	}
+	if err := h.db.SetSetting(ctx, "sync", req.Sync); err != nil {
+		return err
+	}
+	if err := h.db.SetSetting(ctx, "captcha", req.Captcha); err != nil {
+		return err
+	}
+	if req.Telegram != nil {
+		if err := h.db.SetSetting(ctx, "telegram", req.Telegram); err != nil {
+			return err
+		}
+	}
+	if err := h.db.SetSetting(ctx, "ssl", req.SSL); err != nil {
+		return err
+	}
+	return h.db.SetSetting(ctx, "limits", req.Limits)
 }
 
 // SaveSettingsHandler updates persistent settings sections in the database.
@@ -53,14 +122,12 @@ func (h *Handlers) SaveSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	_ = h.db.SetSetting(ctx, "appearance", req.Appearance)
-	_ = h.db.SetSetting(ctx, "sync", req.Sync)
-	_ = h.db.SetSetting(ctx, "captcha", req.Captcha)
-	if req.Telegram != nil {
-		_ = h.db.SetSetting(ctx, "telegram", req.Telegram)
+	h.preserveSecretsOnSave(ctx, &req)
+
+	if err := h.persistSettings(ctx, &req); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to save settings: "+err.Error())
+		return
 	}
-	_ = h.db.SetSetting(ctx, "ssl", req.SSL)
-	_ = h.db.SetSetting(ctx, "limits", req.Limits)
 
 	h.audit(r, "settings.save", nil)
 	h.JSONOK(w)
@@ -102,8 +169,14 @@ func (h *Handlers) SyncDeleteHandler(w http.ResponseWriter, r *http.Request) {
 	deletedCount := 0
 	for _, u := range users {
 		if u.RemnaWaveUUID != nil && *u.RemnaWaveUUID != "" {
-			_, _ = h.db.DeleteConnectionsByUser(ctx, u.ID)
-			_, _ = h.db.DeleteUser(ctx, u.ID)
+			if _, err := h.db.DeleteConnectionsByUser(ctx, u.ID); err != nil {
+				h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete user connections")
+				return
+			}
+			if _, err := h.db.DeleteUser(ctx, u.ID); err != nil {
+				h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete user")
+				return
+			}
 			deletedCount++
 		}
 	}
@@ -303,11 +376,26 @@ func (h *Handlers) restoreBackupData(ctx context.Context, backup *models.BackupD
 	}
 }
 
+var allowedSettingsKeys = map[string]bool{
+	"appearance":     true,
+	"sync":           true,
+	"captcha":        true,
+	"telegram":       true,
+	"ssl":            true,
+	"limits":         true,
+	"vpn_config":     true,
+	"schema_version": true,
+}
+
 func (h *Handlers) restoreBackupSettings(ctx context.Context, settings map[string]any) int {
 	restored := 0
 	for k, v := range settings {
-		_ = h.db.SetSetting(ctx, k, v)
-		restored++
+		if !allowedSettingsKeys[k] {
+			continue
+		}
+		if err := h.db.SetSetting(ctx, k, v); err == nil {
+			restored++
+		}
 	}
 	return restored
 }

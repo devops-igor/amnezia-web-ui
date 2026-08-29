@@ -835,14 +835,24 @@ func TestServerHandlers(t *testing.T) {
 			t.Errorf("expected 500 for upload fail, got %d", wSave.Code)
 		}
 
-		// SetClientSpeedLimit with remove (0 limits)
+		// SetClientSpeedLimit with remove (0 limits) on failing SSH returns 500
 		zero := 0
 		bodyZero, _ := json.Marshal(models.SpeedLimitRequest{ClientID: "client-1", SpeedLimitDown: &zero, SpeedLimitUp: &zero})
 		reqZero := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/servers/%d/connections/speed-limit", sBrID), bytes.NewReader(bodyZero))
 		wZero := httptest.NewRecorder()
 		rUploadFail.ServeHTTP(wZero, reqZero)
-		if wZero.Code != http.StatusOK {
-			t.Errorf("expected 200 for speed limit removal, got %d", wZero.Code)
+		if wZero.Code != http.StatusInternalServerError {
+			t.Errorf("expected 500 for speed limit removal on failing SSH, got %d", wZero.Code)
+		}
+
+		// On working router r, speed limit removal succeeds (200)
+		sWork := &models.Server{Name: "Working-Server", Host: "1.1.1.3", SSHUser: "root", Protocols: map[string]any{"awg": map[string]any{"installed": true}}}
+		sWorkID, _ := db.CreateServer(ctx, sWork)
+		reqZeroWorking := httptest.NewRequest(http.MethodPatch, fmt.Sprintf("/api/servers/%d/connections/speed-limit", sWorkID), bytes.NewReader(bodyZero))
+		wZeroWorking := httptest.NewRecorder()
+		r.ServeHTTP(wZeroWorking, reqZeroWorking)
+		if wZeroWorking.Code != http.StatusOK {
+			t.Errorf("expected 200 for speed limit removal on working SSH, got %d", wZeroWorking.Code)
 		}
 	})
 }

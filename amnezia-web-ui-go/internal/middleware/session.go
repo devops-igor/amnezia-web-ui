@@ -1,7 +1,9 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
@@ -14,6 +16,35 @@ const (
 	// DefaultSessionMaxAge is 7 days in seconds.
 	DefaultSessionMaxAge = 86400 * 7
 )
+
+// UserLookupFunc defines a signature for verifying if a user exists and is active in the database.
+type UserLookupFunc func(ctx context.Context, userID string) (*models.User, error)
+
+var (
+	userLookupMu sync.RWMutex
+	userLookupFn UserLookupFunc
+)
+
+// SetUserLookup registers the user lookup callback used by auth middlewares to verify active status.
+func SetUserLookup(fn UserLookupFunc) {
+	userLookupMu.Lock()
+	userLookupFn = fn
+	userLookupMu.Unlock()
+}
+
+func checkUserActive(ctx context.Context, userID string) (*models.User, bool) {
+	userLookupMu.RLock()
+	fn := userLookupFn
+	userLookupMu.RUnlock()
+	if fn == nil {
+		return nil, true
+	}
+	u, err := fn(ctx, userID)
+	if err != nil || u == nil || !u.Enabled {
+		return nil, false
+	}
+	return u, true
+}
 
 // Session creates a middleware that decodes and validates signed session cookies.
 func Session(secretKey string) func(next http.Handler) http.Handler {
@@ -72,7 +103,7 @@ func ClearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// RequireAuth enforces that a valid user session is present.
+// RequireAuth enforces that a valid user session is present and active in DB.
 func RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session := GetSession(r.Context())
@@ -84,11 +115,26 @@ func RequireAuth(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
+
+		dbUser, active := checkUserActive(r.Context(), session.UserID)
+		if !active {
+			ClearSessionCookie(w)
+			if isAPIRequest(r) {
+				WriteJSONError(w, http.StatusUnauthorized, "unauthorized", "User account disabled or deleted")
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		if dbUser != nil {
+			session.Role = dbUser.Role
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
 
-// RequireAdmin enforces that the authenticated user has the Admin role.
+// RequireAdmin enforces that the authenticated user has the Admin role and is active in DB.
 func RequireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session := GetSession(r.Context())
@@ -100,6 +146,21 @@ func RequireAdmin(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
+
+		dbUser, active := checkUserActive(r.Context(), session.UserID)
+		if !active {
+			ClearSessionCookie(w)
+			if isAPIRequest(r) {
+				WriteJSONError(w, http.StatusUnauthorized, "unauthorized", "User account disabled or deleted")
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		if dbUser != nil {
+			session.Role = dbUser.Role
+		}
+
 		if !session.IsAdmin() {
 			WriteJSONError(w, http.StatusForbidden, "forbidden", "Admin privileges required")
 			return
@@ -108,7 +169,7 @@ func RequireAdmin(next http.Handler) http.Handler {
 	})
 }
 
-// RequireAdminOrSupport enforces that the authenticated user has either Admin or Support role.
+// RequireAdminOrSupport enforces that the authenticated user has either Admin or Support role and is active in DB.
 func RequireAdminOrSupport(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session := GetSession(r.Context())
@@ -120,6 +181,21 @@ func RequireAdminOrSupport(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
+
+		dbUser, active := checkUserActive(r.Context(), session.UserID)
+		if !active {
+			ClearSessionCookie(w)
+			if isAPIRequest(r) {
+				WriteJSONError(w, http.StatusUnauthorized, "unauthorized", "User account disabled or deleted")
+				return
+			}
+			http.Redirect(w, r, "/login", http.StatusFound)
+			return
+		}
+		if dbUser != nil {
+			session.Role = dbUser.Role
+		}
+
 		if !session.IsAdminOrSupport() {
 			WriteJSONError(w, http.StatusForbidden, "forbidden", "Admin or support privileges required")
 			return

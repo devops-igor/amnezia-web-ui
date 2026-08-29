@@ -13,6 +13,9 @@ import (
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
 
+// ErrUserAlreadyExists is returned when attempting to create a user with a duplicate username.
+var ErrUserAlreadyExists = errors.New("user already exists")
+
 // GetAllUsers returns all users ordered by creation date descending.
 func (d *DB) GetAllUsers(ctx context.Context) ([]models.User, error) {
 	d.mu.RLock()
@@ -249,10 +252,21 @@ func (d *DB) CreateUser(ctx context.Context, u *models.User) (string, error) {
 	)
 
 	if err != nil {
+		if isUniqueConstraintError(err) {
+			return "", ErrUserAlreadyExists
+		}
 		return "", fmt.Errorf("failed to insert user: %w", err)
 	}
 
 	return u.ID, nil
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique constraint") || strings.Contains(msg, "idx_users_username") || strings.Contains(msg, "constraint failed")
 }
 
 // UpdateUser dynamically updates fields on a user record. Returns true if user existed and was updated.

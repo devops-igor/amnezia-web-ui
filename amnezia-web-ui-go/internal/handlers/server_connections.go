@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -399,11 +400,78 @@ func (h *Handlers) RemoveServerConnectionHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	_ = protoMgr.RemoveClient(ctx, server, req.ClientID)
-	_, _ = h.db.DeleteConnectionByClientID(ctx, req.ClientID, serverID)
+	if err := protoMgr.RemoveClient(ctx, server, req.ClientID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to remove client on server: "+err.Error())
+		return
+	}
+	if _, err := h.db.DeleteConnectionByClientID(ctx, req.ClientID, serverID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete connection record: "+err.Error())
+		return
+	}
 
 	h.audit(r, "server_connection.remove", map[string]any{"server_id": serverID, "protocol": req.Protocol, "client_id": req.ClientID})
 	h.JSONOK(w)
+}
+
+func (h *Handlers) editAWGParams(ctx context.Context, server *models.Server, req *models.EditConnectionRequest) error {
+	if req.Protocol != "awg" || h.awgMgr == nil {
+		return nil
+	}
+	params := make(map[string]any)
+	if req.AWGSpeedLimitDown != nil {
+		params["speed_limit_down"] = *req.AWGSpeedLimitDown
+	}
+	if req.AWGSpeedLimitUp != nil {
+		params["speed_limit_up"] = *req.AWGSpeedLimitUp
+	}
+	if req.AWGMimicry != nil {
+		params["awg_mimicry"] = *req.AWGMimicry
+	}
+	if len(params) > 0 {
+		return h.awgMgr.EditClient(ctx, server, req.ClientID, params)
+	}
+	return nil
+}
+
+func (h *Handlers) editConnectionBinding(ctx context.Context, serverID int64, req *models.EditConnectionRequest, matchingConn *models.UserConnection) error {
+	if req.UserID != nil {
+		if *req.UserID != "" {
+			if matchingConn != nil {
+				updates := map[string]any{"user_id": *req.UserID}
+				if req.Name != nil && *req.Name != "" {
+					updates["name"] = *req.Name
+				}
+				_, err := h.db.UpdateConnection(ctx, matchingConn.ID, updates)
+				return err
+			}
+			connName := req.ClientID
+			if req.Name != nil && *req.Name != "" {
+				connName = *req.Name
+			}
+			newConn := &models.UserConnection{
+				ID:         uuid.NewString(),
+				UserID:     *req.UserID,
+				ServerID:   serverID,
+				Protocol:   req.Protocol,
+				ClientID:   req.ClientID,
+				Name:       connName,
+				AWGMimicry: models.AWGMimicryAuto,
+				CreatedAt:  time.Now(),
+			}
+			_, err := h.db.CreateConnection(ctx, newConn)
+			return err
+		}
+		if matchingConn != nil {
+			_, err := h.db.DeleteConnection(ctx, matchingConn.ID)
+			return err
+		}
+		return nil
+	}
+	if req.Name != nil && *req.Name != "" && matchingConn != nil {
+		_, err := h.db.UpdateConnection(ctx, matchingConn.ID, map[string]any{"name": *req.Name})
+		return err
+	}
+	return nil
 }
 
 // EditServerConnectionHandler updates connection parameters and user assignment.
@@ -434,24 +502,17 @@ func (h *Handlers) EditServerConnectionHandler(w http.ResponseWriter, r *http.Re
 	}
 
 	// Update AWG speed limits / parameters if applicable
-	if req.Protocol == "awg" && h.awgMgr != nil {
-		params := make(map[string]any)
-		if req.AWGSpeedLimitDown != nil {
-			params["speed_limit_down"] = *req.AWGSpeedLimitDown
-		}
-		if req.AWGSpeedLimitUp != nil {
-			params["speed_limit_up"] = *req.AWGSpeedLimitUp
-		}
-		if req.AWGMimicry != nil {
-			params["awg_mimicry"] = *req.AWGMimicry
-		}
-		if len(params) > 0 {
-			_ = h.awgMgr.EditClient(ctx, server, req.ClientID, params)
-		}
+	if err := h.editAWGParams(ctx, server, &req); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "operation_failed", "Failed to edit client on server: "+err.Error())
+		return
 	}
 
 	// Update DB user connection binding
-	userConns, _ := h.db.GetConnectionsByServerAndProtocol(ctx, serverID, req.Protocol)
+	userConns, err := h.db.GetConnectionsByServerAndProtocol(ctx, serverID, req.Protocol)
+	if err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to retrieve connections")
+		return
+	}
 	var matchingConn *models.UserConnection
 	for i := range userConns {
 		if userConns[i].ClientID == req.ClientID {
@@ -460,36 +521,9 @@ func (h *Handlers) EditServerConnectionHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
-	if req.UserID != nil {
-		if *req.UserID != "" {
-			if matchingConn != nil {
-				updates := map[string]any{"user_id": *req.UserID}
-				if req.Name != nil && *req.Name != "" {
-					updates["name"] = *req.Name
-				}
-				_, _ = h.db.UpdateConnection(ctx, matchingConn.ID, updates)
-			} else {
-				connName := req.ClientID
-				if req.Name != nil && *req.Name != "" {
-					connName = *req.Name
-				}
-				newConn := &models.UserConnection{
-					ID:         uuid.NewString(),
-					UserID:     *req.UserID,
-					ServerID:   serverID,
-					Protocol:   req.Protocol,
-					ClientID:   req.ClientID,
-					Name:       connName,
-					AWGMimicry: models.AWGMimicryAuto,
-					CreatedAt:  time.Now(),
-				}
-				_, _ = h.db.CreateConnection(ctx, newConn)
-			}
-		} else if matchingConn != nil {
-			_, _ = h.db.DeleteConnection(ctx, matchingConn.ID)
-		}
-	} else if req.Name != nil && *req.Name != "" && matchingConn != nil {
-		_, _ = h.db.UpdateConnection(ctx, matchingConn.ID, map[string]any{"name": *req.Name})
+	if err := h.editConnectionBinding(ctx, serverID, &req, matchingConn); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to update connection binding: "+err.Error())
+		return
 	}
 
 	h.audit(r, "server_connection.edit", map[string]any{"server_id": serverID, "protocol": req.Protocol, "client_id": req.ClientID, "user_id": req.UserID, "name": req.Name})

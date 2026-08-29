@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/mtproxyl"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/ssh"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/vpn"
 	"github.com/devops-igor/amnezia-web-ui-go/web"
 )
@@ -94,6 +96,9 @@ func NewRouterWithOptions(opts Options) *chi.Mux {
 		r.Use(middleware.Session(cfg.SecretKey))
 	}
 	if db != nil {
+		middleware.SetUserLookup(func(ctx context.Context, userID string) (*models.User, error) {
+			return db.GetUser(ctx, userID)
+		})
 		r.Use(middleware.SetupRedirect(db))
 	}
 	r.Use(middleware.PasswordChangeRequired())

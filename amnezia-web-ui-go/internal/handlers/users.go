@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/security"
 	"github.com/go-chi/chi/v5"
@@ -189,6 +191,10 @@ func (h *Handlers) AddUserHandler(w http.ResponseWriter, r *http.Request) {
 	h.applyUserExpiry(user, req)
 
 	if _, err := h.db.CreateUser(ctx, user); err != nil {
+		if errors.Is(err, database.ErrUserAlreadyExists) || strings.Contains(err.Error(), "user already exists") || strings.Contains(err.Error(), "UNIQUE constraint") {
+			h.JSONError(w, http.StatusBadRequest, "user_exists", h.Translate(r, "user_exists"))
+			return
+		}
 		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to create user")
 		return
 	}
@@ -379,8 +385,14 @@ func (h *Handlers) DeleteUserHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	_, _ = h.db.DeleteConnectionsByUser(ctx, userID)
-	_, _ = h.db.DeleteUser(ctx, userID)
+	if _, err := h.db.DeleteConnectionsByUser(ctx, userID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete user connections")
+		return
+	}
+	if _, err := h.db.DeleteUser(ctx, userID); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to delete user")
+		return
+	}
 
 	h.audit(r, "user.delete", map[string]any{"user_id": userID, "username": user.Username})
 	h.JSONOK(w)
@@ -407,9 +419,12 @@ func (h *Handlers) ToggleUserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = h.db.UpdateUser(ctx, userID, map[string]any{
+	if _, err := h.db.UpdateUser(ctx, userID, map[string]any{
 		"enabled": req.Enabled,
-	})
+	}); err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "database_error", "Failed to update user status")
+		return
+	}
 
 	// Toggle clients on servers
 	conns, _ := h.db.GetConnectionsByUserID(ctx, userID)

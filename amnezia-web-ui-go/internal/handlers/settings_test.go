@@ -303,3 +303,118 @@ func TestSettingsHandlers(t *testing.T) {
 		}
 	})
 }
+
+func TestSettingsSave_PreservesSSLCertAndSecrets(t *testing.T) {
+	h, db, _ := setupTestHandlers(t)
+	ctx := context.Background()
+	r := setupFullSettingsRouter(h)
+
+	origKey := "PRIVATE_KEY_PLAINTEXT_SECRET"
+	origCert := "CERTIFICATE_PLAINTEXT_DATA"
+	origAPIKey := "rw_live_secret_apikey_12345"
+	origBotToken := "123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
+
+	_ = db.SetSetting(ctx, "ssl", models.SSLSettings{
+		Enabled:  true,
+		Domain:   "panel.example.com",
+		KeyText:  origKey,
+		CertText: origCert,
+	})
+	_ = db.SetSetting(ctx, "sync", models.SyncSettings{
+		RemnawaveURL:    "https://remna.example.com",
+		RemnawaveAPIKey: origAPIKey,
+		RemnawaveSync:   true,
+	})
+	_ = db.SetSetting(ctx, "telegram", map[string]any{
+		"bot_token": origBotToken,
+		"chat_id":   "987654321",
+	})
+
+	// 1. GET /api/settings - verify masking
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	wGet := httptest.NewRecorder()
+	r.ServeHTTP(wGet, reqGet)
+
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("expected 200 from GET /api/settings, got %d", wGet.Code)
+	}
+
+	var getResp map[string]any
+	if err := json.Unmarshal(wGet.Body.Bytes(), &getResp); err != nil {
+		t.Fatalf("failed to decode GET settings response: %v", err)
+	}
+
+	sslMap, _ := getResp["ssl"].(map[string]any)
+	if sslMap["key_text"] != "" || sslMap["cert_text"] != "" {
+		t.Fatalf("expected SSL KeyText/CertText to be empty string in GET response, got %v, %v", sslMap["key_text"], sslMap["cert_text"])
+	}
+
+	syncMap, _ := getResp["sync"].(map[string]any)
+	if syncMap["remnawave_api_key"] != "********" {
+		t.Fatalf("expected RemnawaveAPIKey to be masked as ********, got %v", syncMap["remnawave_api_key"])
+	}
+
+	tgMap, _ := getResp["telegram"].(map[string]any)
+	if tgMap["bot_token"] != "********" {
+		t.Fatalf("expected telegram bot_token to be masked as ********, got %v", tgMap["bot_token"])
+	}
+
+	// 2. POST /api/settings/save with the masked payload (simulating frontend roundtrip)
+	saveReqBody := map[string]any{
+		"appearance": map[string]any{"title": "Updated Title"},
+		"sync":       syncMap,
+		"captcha":    map[string]any{"enabled": false},
+		"ssl":        sslMap,
+		"limits":     map[string]any{"max_connections_per_user": 20},
+		"telegram":   tgMap,
+	}
+	saveJSON, _ := json.Marshal(saveReqBody)
+
+	reqSave := httptest.NewRequest(http.MethodPost, "/api/settings/save", bytes.NewReader(saveJSON))
+	wSave := httptest.NewRecorder()
+	r.ServeHTTP(wSave, reqSave)
+
+	if wSave.Code != http.StatusOK {
+		t.Fatalf("expected 200 from POST /api/settings/save, got %d (body: %s)", wSave.Code, wSave.Body.String())
+	}
+
+	// 3. Verify in DB that original credentials were preserved and not overwritten with empty or ********
+	var savedSSL models.SSLSettings
+	_ = db.GetSetting(ctx, "ssl", &savedSSL)
+	if savedSSL.KeyText != origKey {
+		t.Errorf("expected SSL KeyText preserved %q, got %q", origKey, savedSSL.KeyText)
+	}
+	if savedSSL.CertText != origCert {
+		t.Errorf("expected SSL CertText preserved %q, got %q", origCert, savedSSL.CertText)
+	}
+
+	var savedSync models.SyncSettings
+	_ = db.GetSetting(ctx, "sync", &savedSync)
+	if savedSync.RemnawaveAPIKey != origAPIKey {
+		t.Errorf("expected RemnawaveAPIKey preserved %q, got %q", origAPIKey, savedSync.RemnawaveAPIKey)
+	}
+
+	var savedTG map[string]any
+	_ = db.GetSetting(ctx, "telegram", &savedTG)
+	if savedTG["bot_token"] != origBotToken {
+		t.Errorf("expected telegram bot_token preserved %q, got %v", origBotToken, savedTG["bot_token"])
+	}
+
+	// 4. Test backup restore settings allowlist: malicious keys must be ignored
+	backupData := &models.BackupData{
+		Settings: map[string]any{
+			"appearance":         map[string]any{"title": "Restored Title"},
+			"malicious_injected": "should_be_ignored",
+			"arbitrary_eval":     "evil_payload",
+		},
+	}
+	restoredCount := h.restoreBackupSettings(ctx, backupData.Settings)
+	if restoredCount != 1 {
+		t.Errorf("expected only 1 allowlisted setting restored, got %d", restoredCount)
+	}
+	var injected any
+	_ = db.GetSetting(ctx, "malicious_injected", &injected)
+	if injected != nil {
+		t.Errorf("expected malicious setting to not be stored, got %v", injected)
+	}
+}
