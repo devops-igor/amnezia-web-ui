@@ -2,96 +2,57 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"log/slog"
-	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/orchestrator"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/reconciliation"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/remnawave"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/supervisor"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/userops"
 )
 
 // BackgroundService defines the contract for periodic or persistent background workers.
-type BackgroundService interface {
-	Name() string
-	Start(ctx context.Context) error
-	Stop(ctx context.Context) error
-}
+type BackgroundService = supervisor.BackgroundService
 
 // Supervisor coordinates background service lifecycles and recovery.
-type Supervisor struct {
-	mu       sync.Mutex
-	services []BackgroundService
-	cancel   context.CancelFunc
-	running  bool
+type Supervisor = supervisor.Supervisor
+
+// NewSupervisor creates a new supervisor with default configuration.
+func NewSupervisor(opts ...supervisor.Option) *Supervisor {
+	return supervisor.New(opts...)
 }
 
-// NewSupervisor creates a new supervisor.
-func NewSupervisor() *Supervisor {
-	return &Supervisor{
-		services: make([]BackgroundService, 0),
-	}
+// Orchestrator coordinates scheduled periodic tasks.
+type Orchestrator = orchestrator.Orchestrator
+
+// NewOrchestrator creates a new BackgroundTaskOrchestrator.
+func NewOrchestrator(db *database.DB, registry orchestrator.ProtocolResolver, opts ...orchestrator.Option) *Orchestrator {
+	return orchestrator.New(db, registry, opts...)
 }
 
-// Register registers a background service with the supervisor.
-func (s *Supervisor) Register(svc BackgroundService) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.services = append(s.services, svc)
+// Reconciler coordinates startup protocol reconciliation.
+type Reconciler = reconciliation.Reconciler
+
+// NewReconciler creates a new startup Reconciler.
+func NewReconciler(db *database.DB, registry reconciliation.ProtocolResolver) *Reconciler {
+	return reconciliation.New(db, registry)
 }
 
-// Start launches all registered background services within a managed errgroup context.
-func (s *Supervisor) Start(ctx context.Context) error {
-	s.mu.Lock()
-	if s.running {
-		s.mu.Unlock()
-		return fmt.Errorf("supervisor is already running")
-	}
-	subCtx, cancel := context.WithCancel(ctx)
-	s.cancel = cancel
-	s.running = true
-	services := make([]BackgroundService, len(s.services))
-	copy(services, s.services)
-	s.mu.Unlock()
+// UserOpsService coordinates user mass operations.
+type UserOpsService = userops.Service
 
-	g, gCtx := errgroup.WithContext(subCtx)
-
-	for _, svc := range services {
-		service := svc
-		g.Go(func() error {
-			slog.Info("Starting background service", "name", service.Name())
-			if err := service.Start(gCtx); err != nil && gCtx.Err() == nil {
-				slog.Error("Background service stopped with error", "name", service.Name(), "err", err)
-				return err
-			}
-			slog.Info("Background service stopped cleanly", "name", service.Name())
-			return nil
-		})
-	}
-
-	return g.Wait()
+// NewUserOpsService creates a new UserOpsService.
+func NewUserOpsService(db *database.DB, registry userops.ProtocolResolver) *UserOpsService {
+	return userops.NewUserOpsService(db, registry)
 }
 
-// Stop signals all background services to shut down.
-func (s *Supervisor) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	if !s.running {
-		s.mu.Unlock()
-		return nil
-	}
-	if s.cancel != nil {
-		s.cancel()
-	}
-	s.running = false
-	services := make([]BackgroundService, len(s.services))
-	copy(services, s.services)
-	s.mu.Unlock()
+// RemnaWaveSyncer handles synchronization with RemnaWave.
+type RemnaWaveSyncer = remnawave.Syncer
 
-	for _, svc := range services {
-		if err := svc.Stop(ctx); err != nil {
-			slog.Warn("Error stopping background service", "name", svc.Name(), "err", err)
-		}
-	}
-	return nil
+// NewRemnaWaveSyncer creates a new RemnaWave user syncer.
+func NewRemnaWaveSyncer(db *database.DB, client remnawave.HTTPClient, ops remnawave.MassOperationExecutor) *RemnaWaveSyncer {
+	return remnawave.NewSyncer(db, client, ops)
 }
 
 // MockBackgroundService provides a stub service for testing supervisor orchestration.

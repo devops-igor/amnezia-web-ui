@@ -53,7 +53,7 @@ func run(ctx context.Context) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
 
-	slog.Info("Starting Amnezia Web Panel", "version", cfg.AppVersion, "port", cfg.Port)
+	slog.Info("Starting Amnezia Web Panel Server", "version", cfg.AppVersion, "port", cfg.Port)
 
 	// 3. Initialize SQLite database & translations
 	_ = config.LoadTranslations()
@@ -143,6 +143,6 @@ func run(ctx context.Context) error {
 		slog.Warn("Supervisor stop encountered error", "err", err)
 	}
 
-	slog.Info("Amnezia Web Panel stopped cleanly")
+	slog.Info("Amnezia Web Panel Server stopped cleanly")
 	return nil
 }

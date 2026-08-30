@@ -2,6 +2,7 @@ package awg
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -13,7 +14,8 @@ import (
 )
 
 type mockAWGSSHClient struct {
-	files map[string][]byte
+	files          map[string][]byte
+	sudoCmdHandler func(cmd string) (string, string, int, error)
 }
 
 func newMockAWGSSHClient() *mockAWGSSHClient {
@@ -61,6 +63,9 @@ func (m *mockAWGSSHClient) RunCommand(ctx context.Context, cmd string) (string, 
 }
 
 func (m *mockAWGSSHClient) RunSudoCommand(ctx context.Context, cmd string) (string, string, int, error) {
+	if m.sudoCmdHandler != nil {
+		return m.sudoCmdHandler(cmd)
+	}
 	if strings.Contains(cmd, "cat /opt/amnezia/awg/awg0.conf") {
 		return string(m.files["/opt/amnezia/awg/awg0.conf"]), "", 0, nil
 	}
@@ -85,11 +90,22 @@ func (m *mockAWGSSHClient) RunSudoCommand(ctx context.Context, cmd string) (stri
 		m.files["/opt/amnezia/awg/awg0.conf"] = m.files["/tmp/_amnz_awg0.conf"]
 		return "", "", 0, nil
 	}
-	if strings.Contains(cmd, "docker ps --filter name=^amnezia-awg$") {
+	if strings.Contains(cmd, "docker ps --filter name=^") {
 		return "Up 2 hours", "", 0, nil
 	}
-	if strings.Contains(cmd, "docker ps -a --filter name=^amnezia-awg$") {
+	if strings.Contains(cmd, "docker ps -a --filter name=^") {
+		for _, name := range AWGContainerNames {
+			if strings.Contains(cmd, name) {
+				return name, "", 0, nil
+			}
+		}
 		return "amnezia-awg", "", 0, nil
+	}
+	if strings.Contains(cmd, "wireguard_server_public_key.key") || strings.Contains(cmd, "public-key") {
+		return "serverPubKey123456789012345678901234567890=", "", 0, nil
+	}
+	if strings.Contains(cmd, "wireguard_psk.key") {
+		return "serverPSK1234567890123456789012345678901234=", "", 0, nil
 	}
 	if strings.Contains(cmd, "awg show all") {
 		return "peer: pubkey1\n  latest handshake: 1 minute ago\n  transfer: 1.50 MiB received, 3.20 MiB sent\n  allowed ips: 10.8.1.2/32\n", "", 0, nil
@@ -465,5 +481,102 @@ func TestAWGManager_RotateMimicry(t *testing.T) {
 	}
 	if _, err := mgr.RotateMimicry(ctx, nil, "pubkey1"); err == nil {
 		t.Errorf("expected error for nil server")
+	}
+}
+
+func TestAWGManager_GetServerStatus_LegacyContainersAndErrors(t *testing.T) {
+	ctx := context.Background()
+
+	// Test with amnezia-awg2 container
+	client2 := newMockAWGSSHClient()
+	client2.sudoCmdHandler = func(cmd string) (string, string, int, error) {
+		if strings.Contains(cmd, "docker ps -a --filter name=^amnezia-awg2$") {
+			return "amnezia-awg2\n", "", 0, nil
+		}
+		if strings.Contains(cmd, "docker ps -a --filter") {
+			return "", "", 0, nil
+		}
+		if strings.Contains(cmd, "docker ps --filter name=^amnezia-awg2$") {
+			return "Up 5 hours", "", 0, nil
+		}
+		return "OK", "", 0, nil
+	}
+	mgr2 := NewAWGManager(&mockAWGSSHProvider{client: client2})
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+	status2, err := mgr2.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("GetServerStatus failed for amnezia-awg2: %v", err)
+	}
+	if exists, ok := status2["container_exists"].(bool); !ok || !exists {
+		t.Errorf("expected amnezia-awg2 to exist")
+	}
+	if running, ok := status2["container_running"].(bool); !ok || !running {
+		t.Errorf("expected amnezia-awg2 to be running")
+	}
+
+	// Test with docker daemon error
+	clientErr := newMockAWGSSHClient()
+	clientErr.sudoCmdHandler = func(cmd string) (string, string, int, error) {
+		if strings.Contains(cmd, "docker ps") {
+			return "", "Cannot connect to the Docker daemon", 1, errors.New("exit code 1")
+		}
+		return "", "", 0, nil
+	}
+	mgrErr := NewAWGManager(&mockAWGSSHProvider{client: clientErr})
+	if _, err := mgrErr.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected GetServerStatus to fail when docker daemon fails")
+	}
+
+	// Test GetServerPublicKey and GetServerPSK
+	pubKey, err := mgr2.GetServerPublicKey(ctx, server)
+	if err != nil || pubKey == "" {
+		t.Errorf("GetServerPublicKey failed: %v", err)
+	}
+	psk, err := mgr2.GetServerPSK(ctx, server)
+	if err != nil || psk == "" {
+		t.Errorf("GetServerPSK failed: %v", err)
+	}
+}
+
+func TestAWGManager_AddClient_NameAndClientNameFallback(t *testing.T) {
+	ctx := context.Background()
+	client := newMockAWGSSHClient()
+	mgr := NewAWGManager(&mockAWGSSHProvider{client: client})
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+
+	// 1. Add client with "clientName" key (e.g. Health Probe)
+	res1, err := mgr.AddClient(ctx, server, map[string]any{"clientName": "Health Probe"})
+	if err != nil {
+		t.Fatalf("AddClient with clientName failed: %v", err)
+	}
+	if res1["client_name"] != "Health Probe" {
+		t.Errorf("expected client_name to be 'Health Probe', got %v", res1["client_name"])
+	}
+
+	// Verify clients table has "Health Probe"
+	clients, err := mgr.GetClients(ctx, server)
+	if err != nil {
+		t.Fatalf("GetClients failed: %v", err)
+	}
+	var foundHealthProbe bool
+	for _, c := range clients {
+		if ud, ok := c["userData"].(map[string]any); ok {
+			if ud["clientName"] == "Health Probe" {
+				foundHealthProbe = true
+				break
+			}
+		}
+	}
+	if !foundHealthProbe {
+		t.Errorf("expected 'Health Probe' client in GetClients, got %+v", clients)
+	}
+
+	// 2. Add client with "name" key
+	res2, err := mgr.AddClient(ctx, server, map[string]any{"name": "Regular User"})
+	if err != nil {
+		t.Fatalf("AddClient with name failed: %v", err)
+	}
+	if res2["client_name"] != "Regular User" {
+		t.Errorf("expected client_name to be 'Regular User', got %v", res2["client_name"])
 	}
 }

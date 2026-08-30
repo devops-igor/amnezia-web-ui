@@ -12,7 +12,10 @@ import (
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager/ssh"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/service/orchestrator"
 )
+
+var _ orchestrator.TelemtQuotaManager = (*MTProxyLManager)(nil)
 
 const (
 	DefaultCLIPath = "/usr/local/bin/mtproxyl"
@@ -79,7 +82,7 @@ func (m *MTProxyLManager) Install(ctx context.Context, server *models.Server, pa
 
 	// 1. Check if MTProxyL binary exists
 	out, _, _, _ := client.RunCommand(ctx, fmt.Sprintf("test -f %s && echo found || echo not_found", DefaultCLIPath))
-	if !strings.Contains(out, "found") {
+	if strings.Contains(out, "not_found") || !strings.Contains(out, "found") {
 		installScript := "wget -qO /tmp/mtproxyl-install.sh https://raw.githubusercontent.com/Liafanx/MTProxyL/main/install.sh && bash /tmp/mtproxyl-install.sh"
 		if _, errOut, code, err := client.RunSudoCommand(ctx, installScript); err != nil || code != 0 {
 			return fmt.Errorf("failed to install MTProxyL (code %d): %s, %w", code, errOut, err)
@@ -360,24 +363,40 @@ func (m *MTProxyLManager) GetServerStatus(ctx context.Context, server *models.Se
 		return nil, err
 	}
 
-	out, _, code, err := client.RunCommand(ctx, fmt.Sprintf("%s status --json 2>/dev/null", DefaultCLIPath))
-	if err != nil || code != 0 || strings.TrimSpace(out) == "" {
+	// 1. Check if MTProxyL binary exists
+	outBin, errOutBin, codeBin, errBin := client.RunCommand(ctx, fmt.Sprintf("test -f %s && echo found || echo not_found", DefaultCLIPath))
+	if errBin != nil || codeBin != 0 {
+		return nil, fmt.Errorf("failed to check mtproxyl binary (code %d): %s, %w", codeBin, errOutBin, errBin)
+	}
+
+	trimmedBin := strings.TrimSpace(outBin)
+	if strings.Contains(trimmedBin, "not_found") || !strings.Contains(trimmedBin, "found") {
 		return map[string]any{
+			"protocol":          "telemt",
 			"container_exists":  false,
 			"container_running": false,
 		}, nil
 	}
 
+	// 2. Query status JSON from CLI
+	out, errOut, code, err := client.RunCommand(ctx, fmt.Sprintf("%s status --json", DefaultCLIPath))
+	if err != nil || code != 0 {
+		return nil, fmt.Errorf("mtproxyl status failed (code %d): %s, %w", code, errOut, err)
+	}
+
+	trimmedOut := strings.TrimSpace(out)
+	if trimmedOut == "" {
+		return nil, errors.New("empty output from mtproxyl status")
+	}
+
 	var statusData map[string]any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &statusData); err != nil {
-		return map[string]any{
-			"container_exists":  false,
-			"container_running": false,
-		}, nil
+	if err := json.Unmarshal([]byte(trimmedOut), &statusData); err != nil {
+		return nil, fmt.Errorf("failed to parse mtproxyl status JSON (%s): %w", trimmedOut, err)
 	}
 
 	isRunning := statusData["status"] == "running"
 	result := map[string]any{
+		"protocol":          "telemt",
 		"container_exists":  true,
 		"container_running": isRunning,
 	}
@@ -399,4 +418,30 @@ func (m *MTProxyLManager) GetServerStatus(ctx context.Context, server *models.Se
 	}
 
 	return result, nil
+}
+
+// DisableOverquotaUsers checks active clients against their quotas and disables those exceeding limits on the server.
+func (m *MTProxyLManager) DisableOverquotaUsers(ctx context.Context, server *models.Server) ([]string, error) {
+	client, err := m.getSSHClient(ctx, server)
+	if err != nil {
+		return nil, err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	out, _, code, err := client.RunCommand(ctx, fmt.Sprintf("cat %s 2>/dev/null", DefaultSecretsPath))
+	if err != nil || code != 0 || strings.TrimSpace(out) == "" {
+		return nil, nil
+	}
+
+	secrets, err := m.secretsFile.Parse(out)
+	if err != nil {
+		return nil, err
+	}
+
+	trafficOut, _, _, _ := client.RunCommand(ctx, fmt.Sprintf("%s traffic 2>/dev/null", DefaultCLIPath))
+	traffic, _ := ParseTraffic(trafficOut)
+
+	return DisableOverquotaUsers(ctx, client, DefaultCLIPath, secrets, traffic)
 }
