@@ -167,11 +167,27 @@ func (m *DNSManager) GetServerStatus(ctx context.Context, server *models.Server)
 		return nil, err
 	}
 
-	out, _, code, _ := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps --filter name=^%s$ --format '{{.Status}}'", DNSContainerName))
-	running := code == 0 && strings.Contains(out, "Up")
+	outAll, errOutAll, codeAll, errAll := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps -a --filter name=^%s$ --format '{{.Names}}'", DNSContainerName))
+	if errAll != nil || codeAll != 0 {
+		return nil, fmt.Errorf("docker ps -a failed checking %s (code %d): %s, %w", DNSContainerName, codeAll, errOutAll, errAll)
+	}
 
-	outAll, _, codeAll, _ := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps -a --filter name=^%s$ --format '{{.Names}}'", DNSContainerName))
-	exists := codeAll == 0 && strings.Contains(outAll, DNSContainerName)
+	var exists bool
+	for _, line := range strings.Split(strings.TrimSpace(outAll), "\n") {
+		if strings.TrimSpace(line) == DNSContainerName {
+			exists = true
+			break
+		}
+	}
+
+	var running bool
+	if exists {
+		outRun, errOutRun, codeRun, errRun := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps --filter name=^%s$ --format '{{.Status}}'", DNSContainerName))
+		if errRun != nil || codeRun != 0 {
+			return nil, fmt.Errorf("docker ps failed checking %s (code %d): %s, %w", DNSContainerName, codeRun, errOutRun, errRun)
+		}
+		running = strings.Contains(outRun, "Up")
+	}
 
 	return map[string]any{
 		"protocol":          "dns",

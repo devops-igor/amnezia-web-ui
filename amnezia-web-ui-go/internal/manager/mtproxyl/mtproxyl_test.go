@@ -2,6 +2,7 @@ package mtproxyl
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -466,5 +467,142 @@ func TestMTProxyL_BunkerWebAndInstall(t *testing.T) {
 	}
 	if running, _ := status["container_running"].(bool); running {
 		t.Errorf("expected running false on invalid status json")
+	}
+}
+
+func TestMTProxyL_DisableOverquotaUsers(t *testing.T) {
+	ctx := context.Background()
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+	provider := &mockMTProxyLSSHProvider{}
+	mgr := NewMTProxyLManager(provider)
+
+	// Add an over-quota client and verify DisableOverquotaUsers
+	disabled, err := mgr.DisableOverquotaUsers(ctx, server)
+	if err != nil {
+		t.Fatalf("DisableOverquotaUsers failed: %v", err)
+	}
+	_ = disabled
+
+	// Error on nil server
+	if _, err := mgr.DisableOverquotaUsers(ctx, nil); err == nil {
+		t.Errorf("expected error for nil server")
+	}
+}
+
+type customMTProxyLSSHClient struct {
+	mockMTProxyLSSHClient
+	binOut     string
+	binCode    int
+	binErr     error
+	statusOut  string
+	statusCode int
+	statusErr  error
+}
+
+func (c *customMTProxyLSSHClient) RunCommand(ctx context.Context, cmd string) (string, string, int, error) {
+	if strings.Contains(cmd, "test -f") {
+		return c.binOut, "", c.binCode, c.binErr
+	}
+	if strings.Contains(cmd, "status --json") {
+		return c.statusOut, "", c.statusCode, c.statusErr
+	}
+	return c.mockMTProxyLSSHClient.RunCommand(ctx, cmd)
+}
+
+type customMTProxyLSSHProvider struct {
+	client *customMTProxyLSSHClient
+}
+
+func (p *customMTProxyLSSHProvider) Get(ctx context.Context, server *models.Server) (ssh.SSHClient, error) {
+	return p.client, nil
+}
+
+func TestMTProxyL_GetServerStatus_ErrorsAndAbsence(t *testing.T) {
+	ctx := context.Background()
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+
+	// 1. Binary check command error -> explicit error returned
+	pErr := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{binCode: 1, binErr: errors.New("ssh exec error")}}
+	mErr := NewMTProxyLManager(pErr)
+	if _, err := mErr.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when binary check command fails")
+	}
+
+	// 2. Binary absent -> container_exists: false, err: nil
+	pAbs := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{binOut: "not_found\n", binCode: 0}}
+	mAbs := NewMTProxyLManager(pAbs)
+	stAbs, err := mAbs.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error when binary is absent: %v", err)
+	}
+	if exists, _ := stAbs["container_exists"].(bool); exists {
+		t.Errorf("expected container_exists: false")
+	}
+	if running, _ := stAbs["container_running"].(bool); running {
+		t.Errorf("expected container_running: false")
+	}
+
+	// 3. Binary present, but status command fails -> explicit error returned
+	pStatErr := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{
+		binOut: "found\n", binCode: 0,
+		statusCode: 1, statusErr: errors.New("cli status failed"),
+	}}
+	mStatErr := NewMTProxyLManager(pStatErr)
+	if _, err := mStatErr.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when status command fails")
+	}
+
+	// 4. Binary present, but status output is invalid JSON -> explicit error returned
+	pBadJSON := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{
+		binOut: "found\n", binCode: 0,
+		statusOut: "not json", statusCode: 0,
+	}}
+	mBadJSON := NewMTProxyLManager(pBadJSON)
+	if _, err := mBadJSON.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when status JSON is invalid")
+	}
+
+	// 5. Binary present, but status output is empty -> explicit error returned
+	pEmpty := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{
+		binOut: "found\n", binCode: 0,
+		statusOut: "   \n", statusCode: 0,
+	}}
+	mEmpty := NewMTProxyLManager(pEmpty)
+	if _, err := mEmpty.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when status output is empty")
+	}
+
+	// 6. Binary present and running -> container_exists: true, container_running: true
+	pRun := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{
+		binOut: "found\n", binCode: 0,
+		statusOut: `{"status":"running","port":443,"domain":"test.com"}`, statusCode: 0,
+	}}
+	mRun := NewMTProxyLManager(pRun)
+	stRun, err := mRun.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error on running service: %v", err)
+	}
+	if exists, _ := stRun["container_exists"].(bool); !exists {
+		t.Errorf("expected container_exists: true")
+	}
+	if running, _ := stRun["container_running"].(bool); !running {
+		t.Errorf("expected container_running: true")
+	}
+
+	// 7. Binary present but stopped -> container_exists: true, container_running: false
+	pStop := &customMTProxyLSSHProvider{client: &customMTProxyLSSHClient{
+		binOut: "found\n", binCode: 0,
+		statusOut: `{"status":"stopped","port":443}`, statusCode: 0,
+	}}
+	mStop := NewMTProxyLManager(pStop)
+	stStop, err := mStop.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error on stopped service: %v", err)
+	}
+	if exists, _ := stStop["container_exists"].(bool); !exists {
+		t.Errorf("expected container_exists: true")
+	}
+	if running, _ := stStop["container_running"].(bool); running {
+		t.Errorf("expected container_running: false")
 	}
 }

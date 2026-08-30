@@ -490,6 +490,31 @@ func parseSizeHuman(s string) int64 {
 	return int64(val * float64(mult))
 }
 
+func resolveClientName(clientParams map[string]any) string {
+	if n, ok := clientParams["name"]; ok && fmt.Sprint(n) != "" {
+		return fmt.Sprint(n)
+	}
+	if n, ok := clientParams["clientName"]; ok && fmt.Sprint(n) != "" {
+		return fmt.Sprint(n)
+	}
+	return "client"
+}
+
+func parseSpeedLimits(clientParams map[string]any) (*int, *int) {
+	var speedDown, speedUp *int
+	if v, ok := clientParams["awg_speed_limit_down"]; ok && v != nil {
+		if val, err := strconv.Atoi(fmt.Sprint(v)); err == nil && val > 0 {
+			speedDown = &val
+		}
+	}
+	if v, ok := clientParams["awg_speed_limit_up"]; ok && v != nil {
+		if val, err := strconv.Atoi(fmt.Sprint(v)); err == nil && val > 0 {
+			speedUp = &val
+		}
+	}
+	return speedDown, speedUp
+}
+
 // AddClient provisions a new client/peer in the AWG configuration.
 func (m *AWGManager) AddClient(ctx context.Context, server *models.Server, clientParams map[string]any) (map[string]any, error) {
 	client, err := m.getSSHClient(ctx, server)
@@ -500,10 +525,7 @@ func (m *AWGManager) AddClient(ctx context.Context, server *models.Server, clien
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	clientName := "client"
-	if n, ok := clientParams["name"]; ok && fmt.Sprint(n) != "" {
-		clientName = fmt.Sprint(n)
-	}
+	clientName := resolveClientName(clientParams)
 
 	clientPrivKey, clientPubKey, err := GenerateWGKeypair()
 	if err != nil {
@@ -540,17 +562,7 @@ func (m *AWGManager) AddClient(ctx context.Context, server *models.Server, clien
 	}
 
 	// Parse speed limits if provided
-	var speedDown, speedUp *int
-	if v, ok := clientParams["awg_speed_limit_down"]; ok && v != nil {
-		if val, err := strconv.Atoi(fmt.Sprint(v)); err == nil && val > 0 {
-			speedDown = &val
-		}
-	}
-	if v, ok := clientParams["awg_speed_limit_up"]; ok && v != nil {
-		if val, err := strconv.Atoi(fmt.Sprint(v)); err == nil && val > 0 {
-			speedUp = &val
-		}
-	}
+	speedDown, speedUp := parseSpeedLimits(clientParams)
 
 	mimicry := "auto"
 	if v, ok := clientParams["awg_mimicry"]; ok && fmt.Sprint(v) != "" {
@@ -795,18 +807,41 @@ func (m *AWGManager) ToggleClient(ctx context.Context, server *models.Server, cl
 	return m.saveClientsTable(ctx, client, clients)
 }
 
-// GetServerStatus returns whether the container is running and configuration details.
+// GetServerStatus returns whether the container is running and configuration details across all valid container names.
 func (m *AWGManager) GetServerStatus(ctx context.Context, server *models.Server) (map[string]any, error) {
 	client, err := m.getSSHClient(ctx, server)
 	if err != nil {
 		return nil, err
 	}
 
-	out, _, code, _ := client.RunSudoCommand(ctx, "docker ps --filter name=^amnezia-awg$ --format '{{.Status}}'")
-	running := code == 0 && strings.Contains(out, "Up")
+	var foundName string
+	var exists bool
+	var running bool
 
-	outAll, _, codeAll, _ := client.RunSudoCommand(ctx, "docker ps -a --filter name=^amnezia-awg$ --format '{{.Names}}'")
-	exists := codeAll == 0 && strings.Contains(outAll, "amnezia-awg")
+	for _, name := range AWGContainerNames {
+		outAll, errOutAll, codeAll, errAll := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps -a --filter name=^%s$ --format '{{.Names}}'", name))
+		if errAll != nil || codeAll != 0 {
+			return nil, fmt.Errorf("docker ps -a failed checking %s (code %d): %s, %w", name, codeAll, errOutAll, errAll)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(outAll), "\n") {
+			if strings.TrimSpace(line) == name {
+				exists = true
+				foundName = name
+				break
+			}
+		}
+		if exists {
+			break
+		}
+	}
+
+	if exists && foundName != "" {
+		outRun, errOutRun, codeRun, errRun := client.RunSudoCommand(ctx, fmt.Sprintf("docker ps --filter name=^%s$ --format '{{.Status}}'", foundName))
+		if errRun != nil || codeRun != 0 {
+			return nil, fmt.Errorf("docker ps failed checking %s (code %d): %s, %w", foundName, codeRun, errOutRun, errRun)
+		}
+		running = strings.Contains(outRun, "Up")
+	}
 
 	status := map[string]any{
 		"protocol":          "awg",
@@ -821,9 +856,49 @@ func (m *AWGManager) GetServerStatus(ctx context.Context, server *models.Server)
 			status["awg_params"] = params
 			status["clients_count"] = len(peers)
 		}
+		if pubKey, err := m.GetServerPublicKey(ctx, server); err == nil && pubKey != "" {
+			status["public_key"] = pubKey
+		}
+		if psk, err := m.GetServerPSK(ctx, server); err == nil && psk != "" {
+			status["psk"] = psk
+		}
 	}
 
 	return status, nil
+}
+
+// GetServerPublicKey returns the public key for AmneziaWG server.
+func (m *AWGManager) GetServerPublicKey(ctx context.Context, server *models.Server) (string, error) {
+	client, err := m.getSSHClient(ctx, server)
+	if err != nil {
+		return "", err
+	}
+
+	for _, name := range AWGContainerNames {
+		cmd := fmt.Sprintf("docker exec -i %s cat /opt/amnezia/awg/wireguard_server_public_key.key 2>/dev/null || docker exec -i %s %s show awg0 public-key 2>/dev/null", name, name, m.wgBinary())
+		out, _, code, err := client.RunSudoCommand(ctx, cmd)
+		if err == nil && code == 0 && strings.TrimSpace(out) != "" {
+			return strings.TrimSpace(out), nil
+		}
+	}
+	return "", errors.New("failed to get AmneziaWG server public key")
+}
+
+// GetServerPSK returns the preshared key for AmneziaWG server.
+func (m *AWGManager) GetServerPSK(ctx context.Context, server *models.Server) (string, error) {
+	client, err := m.getSSHClient(ctx, server)
+	if err != nil {
+		return "", err
+	}
+
+	for _, name := range AWGContainerNames {
+		cmd := fmt.Sprintf("docker exec -i %s cat /opt/amnezia/awg/wireguard_psk.key 2>/dev/null", name)
+		out, _, code, err := client.RunSudoCommand(ctx, cmd)
+		if err == nil && code == 0 && strings.TrimSpace(out) != "" {
+			return strings.TrimSpace(out), nil
+		}
+	}
+	return "", nil
 }
 
 func parseParamString(params map[string]any, keys ...string) (string, bool) {

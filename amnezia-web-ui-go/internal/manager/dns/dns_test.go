@@ -336,3 +336,101 @@ func TestDNSManager_Errors(t *testing.T) {
 		t.Errorf("expected error when run fails")
 	}
 }
+
+type customDNSSSHClient struct {
+	mockDNSSSHClient
+	psaOut  string
+	psaCode int
+	psaErr  error
+	psOut   string
+	psCode  int
+	psErr   error
+}
+
+func (c *customDNSSSHClient) RunSudoCommand(ctx context.Context, cmd string) (string, string, int, error) {
+	if strings.Contains(cmd, "docker ps -a") {
+		return c.psaOut, "", c.psaCode, c.psaErr
+	}
+	if strings.Contains(cmd, "docker ps") {
+		return c.psOut, "", c.psCode, c.psErr
+	}
+	return c.mockDNSSSHClient.RunSudoCommand(ctx, cmd)
+}
+
+type customDNSSSHProvider struct {
+	client *customDNSSSHClient
+}
+
+func (p *customDNSSSHProvider) Get(ctx context.Context, server *models.Server) (ssh.SSHClient, error) {
+	return p.client, nil
+}
+
+func TestDNSManager_GetServerStatus_ErrorsAndAbsence(t *testing.T) {
+	ctx := context.Background()
+	server := &models.Server{ID: 1, Host: "1.2.3.4"}
+
+	// 1. Docker daemon failure on docker ps -a -> returns explicit error
+	pErr := &customDNSSSHProvider{client: &customDNSSSHClient{psaCode: 1, psaErr: errors.New("daemon down")}}
+	mErr := NewDNSManager(pErr)
+	if _, err := mErr.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when docker ps -a fails")
+	}
+
+	// 2. Container absent -> container_exists: false, err: nil
+	pAbs := &customDNSSSHProvider{client: &customDNSSSHClient{psaOut: "other-container\n", psaCode: 0}}
+	mAbs := NewDNSManager(pAbs)
+	stAbs, err := mAbs.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error on absent container: %v", err)
+	}
+	if exists, _ := stAbs["container_exists"].(bool); exists {
+		t.Errorf("expected container_exists: false")
+	}
+	if running, _ := stAbs["container_running"].(bool); running {
+		t.Errorf("expected container_running: false")
+	}
+
+	// 3. Container present and running -> container_exists: true, container_running: true
+	pRun := &customDNSSSHProvider{client: &customDNSSSHClient{
+		psaOut: "amnezia-dns\n", psaCode: 0,
+		psOut: "Up 2 hours", psCode: 0,
+	}}
+	mRun := NewDNSManager(pRun)
+	stRun, err := mRun.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error on running container: %v", err)
+	}
+	if exists, _ := stRun["container_exists"].(bool); !exists {
+		t.Errorf("expected container_exists: true")
+	}
+	if running, _ := stRun["container_running"].(bool); !running {
+		t.Errorf("expected container_running: true")
+	}
+
+	// 4. Container present but stopped -> container_exists: true, container_running: false
+	pStop := &customDNSSSHProvider{client: &customDNSSSHClient{
+		psaOut: "amnezia-dns\n", psaCode: 0,
+		psOut: "Exited (0) 10 minutes ago", psCode: 0,
+	}}
+	mStop := NewDNSManager(pStop)
+	stStop, err := mStop.GetServerStatus(ctx, server)
+	if err != nil {
+		t.Fatalf("unexpected error on stopped container: %v", err)
+	}
+	if exists, _ := stStop["container_exists"].(bool); !exists {
+		t.Errorf("expected container_exists: true")
+	}
+	if running, _ := stStop["container_running"].(bool); running {
+		t.Errorf("expected container_running: false")
+	}
+
+	// 5. Container present, but docker ps status check fails -> returns explicit error
+	pRunErr := &customDNSSSHProvider{client: &customDNSSSHClient{
+		psaOut: "amnezia-dns\n", psaCode: 0,
+		psCode: 1, psErr: errors.New("status check error"),
+	}}
+	mRunErr := NewDNSManager(pRunErr)
+	if _, err := mRunErr.GetServerStatus(ctx, server); err == nil {
+		t.Errorf("expected error when docker ps status check fails")
+	}
+}
