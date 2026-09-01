@@ -1,102 +1,106 @@
-{% extends "base.html" %}
+{{ define "title_extra" }} — {{ _ "leaderboard_title" }}{{ end }}
 
-{% block title_extra %} — {{ _('leaderboard_title') }}{% endblock %}
-
-{% block content %}
+{{ define "content" }}
 <section class="leaderboard-section">
-    {# Header row #}
+    <!-- Header row -->
     <div class="flex items-center justify-between"
         style="gap: var(--space-md); flex-wrap: wrap;">
         <h1 class="section-title" style="margin-bottom:0; flex-shrink: 0;">
             <span class="icon">🏆</span>
-            {{ _('leaderboard_title') }}
+            {{ _ "leaderboard_title" }}
         </h1>
 
         <div class="leaderboard-period-toggle">
-            <span style="color: var(--text-muted); font-size: 0.85rem;">{{ _('period_label') }}:</span>
+            <span style="color: var(--text-muted); font-size: 0.85rem;">{{ _ "period_label" }}:</span>
             <button class="btn btn-sm" id="period-all"
-                onclick="switchPeriod('all-time')">{{ _('period_all_time') }}</button>
+                onclick="switchPeriod('all-time')">{{ _ "period_all_time" }}</button>
             <button class="btn btn-sm" id="period-month"
-                onclick="switchPeriod('monthly')">{{ _('period_monthly') }}</button>
+                onclick="switchPeriod('monthly')">{{ _ "period_monthly" }}</button>
             <button class="btn btn-sm" id="period-last"
-                onclick="switchPeriod('last-month')">{{ _('period_last_month') }}</button>
+                onclick="switchPeriod('last-month')">{{ _ "period_last_month" }}</button>
             <span id="monthly-label"
-                style="color: var(--text-muted); font-size: 0.85rem;{% if not monthly_label %} display: none;{% endif %}">{{ monthly_label if monthly_label else '' }}</span>
+                style="color: var(--text-muted); font-size: 0.85rem;{{ if not .monthly_label }} display: none;{{ end }}">{{ if .monthly_label }}{{ .monthly_label }}{{ end }}</span>
         </div>
     </div>
 
-    {# Your rank card — always rendered, JS shows only when user has rank #}
-    <div id="your-rank-card" class="leaderboard-rank-card" style="display: none;">
+    <!-- Your rank card — always rendered, shown when user has rank -->
+    <div id="your-rank-card" class="leaderboard-rank-card" style="display: {{ if .current_user_rank }}flex{{ else }}none{{ end }};">
         <div class="leaderboard-rank-icon">🎯</div>
         <div class="leaderboard-rank-info">
-            <div class="leaderboard-rank-label">{{ _('your_rank') }}</div>
-            <div class="leaderboard-rank-value" id="your-rank-value">{{ '#' ~ current_user_rank if current_user_rank else '#—' }}</div>
+            <div class="leaderboard-rank-label">{{ _ "your_rank" }}</div>
+            <div class="leaderboard-rank-value" id="your-rank-value">{{ if .current_user_rank }}#{{ .current_user_rank }}{{ else }}#—{{ end }}</div>
         </div>
     </div>
 
-    {# Loading spinner #}
+    <!-- Loading spinner -->
     <div id="loading-spinner" style="display: none; text-align: center; padding: var(--space-xl);">
         <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto;"></div>
     </div>
 
-    {# Table #}
+    <!-- Table -->
     <div id="leaderboard-content">
-        {% if entries %}
+        {{ if .entries }}
         <div class="table-container" id="table-container">
             <table class="data-table">
                 <thead>
                     <tr>
                         <th class="rank-cell">#</th>
-                        <th>{{ _('username_label') }}</th>
-                        <th style="text-align: right;">{{ _('download_label') }}</th>
-                        <th style="text-align: right;">{{ _('upload_label') }}</th>
-                        <th style="text-align: right;">{{ _('total_label') }}</th>
+                        <th>{{ _ "username_label" }}</th>
+                        <th style="text-align: right;">{{ _ "download_label" }}</th>
+                        <th style="text-align: right;">{{ _ "upload_label" }}</th>
+                        <th style="text-align: right;">{{ _ "total_label" }}</th>
                     </tr>
                 </thead>
                 <tbody id="leaderboard-tbody">
-                    {% for entry in entries %}
-                    <tr class="{% if entry.username == current_user.username %}current-user{% endif %}">
+                    {{ range $entry := .entries }}
+                    <tr class="{{ if $.current_user }}{{ if eq $entry.Username $.current_user.Username }}current-user{{ end }}{{ end }}">
                         <td class="rank-cell">
-                            {% if entry.rank == 1 %}🥇{% elif entry.rank == 2 %}🥈{% elif entry.rank == 3 %}🥉{% else %}{{ entry.rank }}{% endif %}
+                            {{ if eq $entry.Rank 1 }}🥇{{ else if eq $entry.Rank 2 }}🥈{{ else if eq $entry.Rank 3 }}🥉{{ else }}{{ $entry.Rank }}{{ end }}
                         </td>
                         <td class="username-cell">
-                            {{ entry.username }}
-                            {% if entry.username == current_user.username %}
-                            <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _('you_label') or 'you' }}</span>
-                            {% endif %}
+                            {{ $entry.Username }}
+                            {{ if $.current_user }}
+                            {{ if eq $entry.Username $.current_user.Username }}
+                            <span class="badge badge-primary" style="font-size: 0.7rem;">{{ _ "you_label" }}</span>
+                            {{ end }}
+                            {{ end }}
                         </td>
-                        <td class="traffic-cell">{{ format_bytes(entry.download) }}</td>
-                        <td class="traffic-cell">{{ format_bytes(entry.upload) }}</td>
-                        <td class="traffic-cell">{{ format_bytes(entry.total) }}</td>
+                        <td class="traffic-cell">{{ format_bytes $entry.Download }}</td>
+                        <td class="traffic-cell">{{ format_bytes $entry.Upload }}</td>
+                        <td class="traffic-cell">{{ format_bytes $entry.Total }}</td>
                     </tr>
-                    {% endfor %}
+                    {{ end }}
                 </tbody>
             </table>
         </div>
-        {% else %}
+        {{ else }}
         <div class="empty-state">
             <div class="empty-icon">🏆</div>
-            <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
-            <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+            <div class="empty-title">{{ _ "leaderboard_empty_title" }}</div>
+            <div class="empty-desc">{{ _ "leaderboard_empty_desc" }}</div>
         </div>
-        {% endif %}
+        {{ end }}
     </div>
 
-    {# Dynamic empty state (hidden by default) #}
+    <!-- Dynamic empty state (hidden by default) -->
     <div id="empty-state" class="empty-state" style="display: none;">
         <div class="empty-icon">🏆</div>
-        <div class="empty-title">{{ _('leaderboard_empty_title') }}</div>
-        <div class="empty-desc">{{ _('leaderboard_empty_desc') }}</div>
+        <div class="empty-title">{{ _ "leaderboard_empty_title" }}</div>
+        <div class="empty-desc">{{ _ "leaderboard_empty_desc" }}</div>
     </div>
 </section>
 
 <script>
-let currentPeriod = '{{ period }}';
+let currentPeriod = '{{ .period }}';
 
 function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function updatePeriodButtons() {
@@ -143,8 +147,8 @@ async function switchPeriod(period) {
             if (emptyState) emptyState.style.display = 'none';
 
             let html = '';
-            const currentUsername = '{{ current_user.username | e }}';
-            const youLabel = '{{ _("you_label") or "you" }}';
+            const currentUsername = '{{ if .current_user }}{{ .current_user.Username }}{{ end }}';
+            const youLabel = '{{ _ "you_label" }}';
             for (const entry of data.entries) {
                 const isCurrentUser = entry.username === currentUsername;
                 const medal = entry.rank === 1 ? '🥇' : entry.rank === 2 ? '🥈' : entry.rank === 3 ? '🥉' : entry.rank;
@@ -201,4 +205,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 </script>
-{% endblock %}
+{{ end }}

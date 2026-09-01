@@ -1,13 +1,13 @@
 <!DOCTYPE html>
-<html lang="{{ lang }}" {% if lang=='fa' %}dir="rtl" {% endif %}>
+<html lang="{{ .lang }}" {{ if eq .lang "fa" }}dir="rtl"{{ end }}>
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ site_settings.title or 'Amnezia Panel' }} — {{ _('setup_title') }}</title>
+    <title>{{ if .site_settings.Title }}{{ .site_settings.Title }}{{ else }}Amnezia Panel{{ end }} — {{ _ "setup_title" }}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
-    <meta name="csrf-token" content="{{ csrf_token }}">
+    <meta name="csrf-token" content="{{ .csrf_token }}">
     <script>!function () { var t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t) }()</script>
     <style>
         .login-wrapper {
@@ -93,54 +93,51 @@
 
 <body>
     <button class="theme-toggle" onclick="openModal('langModal')" id="langToggle"
-        style="position:fixed; top:20px; {% if lang == 'fa' %}left:65px;{% else %}right:65px;{% endif %} z-index:10;"
-        title="{{ _('select_lang') }}">
-        {% if lang == 'ru' %}🇷🇺{% elif lang == 'fr' %}🇫🇷{% elif lang == 'zh' %}🇨🇳{% elif lang == 'fa' %}🇮🇷{%
-        else %}🇺🇸{% endif %}
+        style="position:fixed; top:20px; {{ if eq .lang "fa" }}left:65px;{{ else }}right:65px;{{ end }} z-index:10;"
+        title="{{ _ "select_lang" }}">
+        {{ if eq .lang "ru" }}🇷🇺{{ else if eq .lang "fr" }}🇫🇷{{ else if eq .lang "zh" }}🇨🇳{{ else if eq .lang "fa" }}🇮🇷{{ else }}🇺🇸{{ end }}
     </button>
     <button class="theme-toggle" onclick="toggleTheme()" id="themeToggle"
-        style="position:fixed; top:20px; {% if lang == 'fa' %}left:20px;{% else %}right:20px;{% endif %} z-index:10;"
-        title="{{ _('toggle_theme') }}">🌙</button>
+        style="position:fixed; top:20px; {{ if eq .lang "fa" }}left:20px;{{ else }}right:20px;{{ end }} z-index:10;"
+        title="{{ _ "toggle_theme" }}">🌙</button>
 
     <div class="login-wrapper">
         <div class="login-card">
             <div class="login-logo">
-                <div class="logo-icon">{{ site_settings.logo or '🛡' }}</div>
-                <div class="logo-text">{{ site_settings.title or 'Amnezia Panel' }}</div>
-                <div class="logo-subtitle">{{ site_settings.subtitle or 'Web Panel' }}</div>
+                <div class="logo-icon">{{ if .site_settings.Logo }}{{ .site_settings.Logo }}{{ else }}🛡{{ end }}</div>
+                <div class="logo-text">{{ if .site_settings.Title }}{{ .site_settings.Title }}{{ else }}Amnezia Panel{{ end }}</div>
+                <div class="logo-subtitle">{{ if .site_settings.Subtitle }}{{ .site_settings.Subtitle }}{{ else }}Web Panel{{ end }}</div>
             </div>
 
             <div class="card">
-                <h2 style="font-size:1.2rem; font-weight:600; margin-bottom:var(--space-sm); text-align:center;">{{
-                    _('setup_title') }}</h2>
-                <p style="text-align:center; color:var(--text-muted); font-size:0.9rem; margin-bottom:var(--space-md);">{{
-                    _('setup_subtitle') }}</p>
+                <h2 style="font-size:1.2rem; font-weight:600; margin-bottom:var(--space-sm); text-align:center;">{{ _ "setup_title" }}</h2>
+                <p style="text-align:center; color:var(--text-muted); font-size:0.9rem; margin-bottom:var(--space-md);">{{ _ "setup_subtitle" }}</p>
 
                 <div class="login-error" id="setupError"></div>
                 <div class="login-success" id="setupSuccess"></div>
 
                 <form id="setupForm" onsubmit="return doSetup(event)">
                     <div class="form-group">
-                        <label class="form-label">{{ _('setup_username') }}</label>
+                        <label class="form-label">{{ _ "setup_username" }}</label>
                         <input class="form-input" type="text" id="username" placeholder="admin" required autofocus>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">{{ _('setup_password') }}</label>
+                        <label class="form-label">{{ _ "setup_password" }}</label>
                         <input class="form-input" type="password" id="password" placeholder="••••••••" required>
                         <div class="form-hint" style="font-size: 0.8rem; color: var(--text-muted); margin-top: 4px;">
-                            {{ _('password_min_length_hint') }}
+                            {{ _ "password_min_length_hint" }}
                         </div>
                     </div>
 
                     <div class="form-group">
-                        <label class="form-label">{{ _('setup_confirm_password') }}</label>
+                        <label class="form-label">{{ _ "setup_confirm_password" }}</label>
                         <input class="form-input" type="password" id="confirmPassword" placeholder="••••••••" required>
                     </div>
 
                     <button type="submit" class="btn btn-primary" id="setupBtn"
                         style="width:100%; margin-top:var(--space-md);">
-                        <span id="setupBtnText">{{ _('setup_btn') }}</span>
+                        <span id="setupBtnText">{{ _ "setup_btn" }}</span>
                         <div class="spinner hidden" id="setupSpinner"></div>
                     </button>
                 </form>
@@ -152,33 +149,56 @@
     <div class="modal-backdrop" id="langModal">
         <div class="modal" style="max-width: 320px;">
             <div class="modal-header">
-                <h2 class="modal-title">{{ _('select_lang') }}</h2>
+                <h2 class="modal-title">{{ _ "select_lang" }}</h2>
                 <button class="modal-close" onclick="closeModal('langModal')">×</button>
             </div>
             <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
-                {% set langs = [
-                ('en', '🇺🇸', 'lang_en'),
-                ('ru', '🇷🇺', 'lang_ru'),
-                ('fr', '🇫🇷', 'lang_fr'),
-                ('zh', '🇨🇳', 'lang_zh'),
-                ('fa', '🇮🇷', 'lang_fa')
-                ] %}
-                {% for l_code, l_flag, l_key in langs %}
-                <a href="/set_lang/{{ l_code }}" class="btn btn-secondary"
+                <a href="/set_lang/en" class="btn btn-secondary"
                     style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
-                    <span style="font-size: 1.4rem;">{{ l_flag }}</span>
-                    <span style="font-weight: 500;">{{ _(l_key) }}</span>
-                    {% if lang == l_code %}
+                    <span style="font-size: 1.4rem;">🇺🇸</span>
+                    <span style="font-weight: 500;">{{ _ "lang_en" }}</span>
+                    {{ if eq .lang "en" }}
                     <span class="lang-check">✓</span>
-                    {% endif %}
+                    {{ end }}
                 </a>
-                {% endfor %}
+                <a href="/set_lang/ru" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇷🇺</span>
+                    <span style="font-weight: 500;">{{ _ "lang_ru" }}</span>
+                    {{ if eq .lang "ru" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/fr" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇫🇷</span>
+                    <span style="font-weight: 500;">{{ _ "lang_fr" }}</span>
+                    {{ if eq .lang "fr" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/zh" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇨🇳</span>
+                    <span style="font-weight: 500;">{{ _ "lang_zh" }}</span>
+                    {{ if eq .lang "zh" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/fa" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇮🇷</span>
+                    <span style="font-weight: 500;">{{ _ "lang_fa" }}</span>
+                    {{ if eq .lang "fa" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
             </div>
         </div>
     </div>
 
     <script>
-        window.I18N = {{ translations_json | safe }};
+        window.I18N = {{ .translations_json | safe_js }};
         window._ = function (key) { return window.I18N[key] || key; };
 
         /* Theme toggle */

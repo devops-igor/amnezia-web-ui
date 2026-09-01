@@ -61,8 +61,11 @@ func TestShareHandlers(t *testing.T) {
 		req404 := httptest.NewRequest(http.MethodGet, "/share/nonexistent", nil)
 		w404 := httptest.NewRecorder()
 		r.ServeHTTP(w404, req404)
-		if w404.Code != http.StatusOK { // renders template with not_found: true
-			t.Fatalf("expected 200 for not found page, got %d", w404.Code)
+		if w404.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for not found page, got %d", w404.Code)
+		}
+		if !strings.Contains(w404.Body.String(), "404") {
+			t.Fatalf("expected 404 text in body, got %s", w404.Body.String())
 		}
 
 		// Direct call without router

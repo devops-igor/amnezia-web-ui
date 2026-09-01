@@ -1,27 +1,25 @@
-{% extends "base.html" %}
+{{ define "title_extra" }} — {{ _ "users_title" }}{{ end }}
 
-{% block title_extra %} — {{ _('users_title') }}{% endblock %}
-
-{% block content %}
+{{ define "content" }}
 <section>
     <div class="flex items-center justify-between"
         style="margin-bottom: var(--space-lg); gap: var(--space-md); flex-wrap: wrap;">
         <h1 class="section-title" style="margin-bottom:0; flex-shrink: 0;">
             <span class="icon">👥</span>
-            {{ _('users_title') }}
+            {{ _ "users_title" }}
         </h1>
 
         <div style="flex: 1; min-width: 250px; max-width: 500px; position: relative;">
-            <input type="text" class="form-input" id="userSearch" placeholder="{{ _('search_placeholder') }}"
+            <input type="text" class="form-input" id="userSearch" placeholder="{{ _ "search_placeholder" }}"
                 oninput="handleSearch(this.value)" style="padding-left: 40px;">
             <span style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); opacity: 0.5;">🔍</span>
         </div>
 
-        {% if current_user.role == 'admin' %}
+        {{ if has_role .current_user "admin" }}
         <button class="btn btn-primary" onclick="openModal('addUserModal')" style="flex-shrink: 0;">
-            <span>＋</span> {{ _('add_user') }}
+            <span>＋</span> {{ _ "add_user" }}
         </button>
-        {% endif %}
+        {{ end }}
     </div>
 
     <div id="usersContainer" class="hidden">
@@ -32,22 +30,21 @@
 
         <div id="pagination"
             style="display: flex; justify-content: center; align-items: center; gap: var(--space-md); margin-top: var(--space-xl);">
-            <button class="btn btn-secondary btn-sm" id="prevPage" onclick="changePage(-1)">{{ _('prev_page')
-                }}</button>
+            <button class="btn btn-secondary btn-sm" id="prevPage" onclick="changePage(-1)">{{ _ "prev_page" }}</button>
             <span id="pageInfo" style="font-weight: 600; font-size: 0.9rem;"></span>
-            <button class="btn btn-secondary btn-sm" id="nextPage" onclick="changePage(1)">{{ _('next_page') }}</button>
+            <button class="btn btn-secondary btn-sm" id="nextPage" onclick="changePage(1)">{{ _ "next_page" }}</button>
         </div>
     </div>
 
     <div id="usersLoading" style="text-align: center; padding: 4rem;">
         <div class="spinner" style="width: 40px; height: 40px; margin: 0 auto;"></div>
-        <p style="margin-top: 1rem; color: var(--text-muted);">{{ _('loading_users') }}</p>
+        <p style="margin-top: 1rem; color: var(--text-muted);">{{ _ "loading_users" }}</p>
     </div>
 
     <div id="usersEmpty" class="empty-state hidden">
         <div class="empty-icon">👤</div>
-        <div class="empty-title">{{ _('nothing_found') }}</div>
-        <div class="empty-desc">{{ _('search_empty_desc') }}</div>
+        <div class="empty-title">{{ _ "nothing_found" }}</div>
+        <div class="empty-desc">{{ _ "search_empty_desc" }}</div>
     </div>
 </section>
 
@@ -55,112 +52,111 @@
 <div class="modal-backdrop" id="addUserModal">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title">{{ _('add_user') }}</h2>
+            <h2 class="modal-title">{{ _ "add_user" }}</h2>
             <button class="modal-close" onclick="closeModal('addUserModal')">×</button>
         </div>
 
         <form id="addUserForm" onsubmit="return addUser(event)">
             <div class="form-group">
-                <label class="form-label">{{ _('username_label') }}</label>
+                <label class="form-label">{{ _ "username_label" }}</label>
                 <input class="form-input" type="text" id="newUsername" placeholder="username" required>
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('password_label') }}</label>
+                <label class="form-label">{{ _ "password_label" }}</label>
                 <input class="form-input" type="password" id="newPassword" placeholder="••••••••" required>
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('role_label') }}</label>
+                <label class="form-label">{{ _ "role_label" }}</label>
                 <select class="form-select" id="newRole">
-                    <option value="user">{{ _('role_user_desc') }}</option>
-                    <option value="support">{{ _('role_support_desc') }}</option>
-                    <option value="admin">{{ _('role_admin_desc') }}</option>
+                    <option value="user">{{ _ "role_user_desc" }}</option>
+                    <option value="support">{{ _ "role_support_desc" }}</option>
+                    <option value="admin">{{ _ "role_admin_desc" }}</option>
                 </select>
             </div>
 
             <div class="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
                 <div class="form-group">
-                    <label class="form-label">{{ _('tg_id_label') }}</label>
+                    <label class="form-label">{{ _ "tg_id_label" }}</label>
                     <input class="form-input" type="text" id="newTelegramId" placeholder="@username or ID">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('email_label') }}</label>
+                    <label class="form-label">{{ _ "email_label" }}</label>
                     <input class="form-input" type="email" id="newEmail" placeholder="user@example.com">
                 </div>
             </div>
 
             <div class="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
                 <div class="form-group">
-                    <label class="form-label">{{ _('traffic_limit_label') }}</label>
+                    <label class="form-label">{{ _ "traffic_limit_label" }}</label>
                     <input class="form-input" type="number" step="0.01" min="0" id="newTrafficLimit" placeholder="0">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('traffic_reset_strategy_label') }}</label>
+                    <label class="form-label">{{ _ "traffic_reset_strategy_label" }}</label>
                     <select class="form-select" id="newTrafficResetStrategy">
-                        <option value="never">{{ _('traffic_reset_never') }}</option>
-                        <option value="daily">{{ _('traffic_reset_daily') }}</option>
-                        <option value="weekly">{{ _('traffic_reset_weekly') }}</option>
-                        <option value="monthly">{{ _('traffic_reset_monthly') }}</option>
+                        <option value="never">{{ _ "traffic_reset_never" }}</option>
+                        <option value="daily">{{ _ "traffic_reset_daily" }}</option>
+                        <option value="weekly">{{ _ "traffic_reset_weekly" }}</option>
+                        <option value="monthly">{{ _ "traffic_reset_monthly" }}</option>
                     </select>
                 </div>
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('expiration_date_label') }}</label>
+                <label class="form-label">{{ _ "expiration_date_label" }}</label>
                 <input class="form-input" type="datetime-local" id="newExpirationDate">
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('description_label') }}</label>
+                <label class="form-label">{{ _ "description_label" }}</label>
                 <textarea class="form-input" id="newDescription" rows="2"
-                    placeholder="{{ _('description_label') }}"></textarea>
+                    placeholder="{{ _ "description_label" }}"></textarea>
             </div>
 
             <div class="divider"></div>
             <div style="color:var(--text-muted); font-size:0.85rem; margin-bottom:var(--space-md);">
-                {{ _('auto_conn_title') }}
+                {{ _ "auto_conn_title" }}
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('server_label') }}</label>
+                <label class="form-label">{{ _ "server_label" }}</label>
                 <select class="form-select" id="newUserServer">
-                    <option value="">{{ _('no_create_conn') }}</option>
-                    {% for s in servers %}
-                    <option value="{{ loop.index0 }}">{{ s.name }} ({{ s.host }})</option>
-                    {% endfor %}
+                    <option value="">{{ _ "no_create_conn" }}</option>
+                    {{ range $idx, $s := .servers }}
+                    <option value="{{ $idx }}">{{ $s.Name }} ({{ $s.Host }})</option>
+                    {{ end }}
                 </select>
             </div>
 
             <div class="form-group" id="newUserProtoGroup" style="display:none;">
-                <label class="form-label">{{ _('protocol_label') }}</label>
+                <label class="form-label">{{ _ "protocol_label" }}</label>
                 <select class="form-select" id="newUserProtocol">
                     <!-- Dynamic -->
                 </select>
             </div>
 
             <div class="form-group" id="newUserConnNameGroup" style="display:none;">
-                <label class="form-label">{{ _('connection_name') }}</label>
+                <label class="form-label">{{ _ "connection_name" }}</label>
                 <input class="form-input" type="text" id="newUserConnName"
-                    placeholder="{{ _('connection_name_placeholder') }}">
+                    placeholder="{{ _ "connection_name_placeholder" }}">
             </div>
 
             <div class="form-group" id="newUserMimicryGroup" style="display:none;">
-                <label class="form-label">{{ _('awg_mimicry') }}</label>
+                <label class="form-label">{{ _ "awg_mimicry" }}</label>
                 <select class="form-select" id="newUserAwgMimicry">
-                    <option value="auto" selected>{{ _('mimicry_auto') }}</option>
-                    <option value="tls">{{ _('mimicry_tls') }}</option>
-                    <option value="quic">{{ _('mimicry_quic') }}</option>
-                    <option value="dns">{{ _('mimicry_dns') }}</option>
-                    <option value="sip">{{ _('mimicry_sip') }}</option>
+                    <option value="auto" selected>{{ _ "mimicry_auto" }}</option>
+                    <option value="tls">{{ _ "mimicry_tls" }}</option>
+                    <option value="quic">{{ _ "mimicry_quic" }}</option>
+                    <option value="dns">{{ _ "mimicry_dns" }}</option>
+                    <option value="sip">{{ _ "mimicry_sip" }}</option>
                 </select>
             </div>
 
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" onclick="closeModal('addUserModal')">{{ _('cancel')
-                    }}</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModal('addUserModal')">{{ _ "cancel" }}</button>
                 <button type="submit" class="btn btn-primary" id="addUserBtn">
-                    <span id="addUserBtnText">{{ _('create') }}</span>
+                    <span id="addUserBtnText">{{ _ "create" }}</span>
                     <div class="spinner hidden" id="addUserSpinner"></div>
                 </button>
             </div>
@@ -172,55 +168,54 @@
 <div class="modal-backdrop" id="editUserModal">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title">{{ _('edit_user_title').replace('{}', '<span id="editUserTitle"></span>') | safe }}
-            </h2>
+            <h2 class="modal-title">{{ _ "edit_user_title" }} <span id="editUserTitle"></span></h2>
             <button class="modal-close" onclick="closeModal('editUserModal')">&times;</button>
         </div>
         <form id="editUserForm" onsubmit="event.preventDefault(); saveEditUser();">
             <input type="hidden" id="editUserId">
             <div class="form-group">
-                <label class="form-label">{{ _('edit_user_tg') }}</label>
+                <label class="form-label">{{ _ "edit_user_tg" }}</label>
                 <input type="text" class="form-input" id="editUserTG" placeholder="@username or ID">
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('edit_user_email') }}</label>
+                <label class="form-label">{{ _ "edit_user_email" }}</label>
                 <input type="email" class="form-input" id="editUserEmail" placeholder="user@example.com">
             </div>
             <div class="grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
                 <div class="form-group">
-                    <label class="form-label">{{ _('edit_user_limit') }}</label>
+                    <label class="form-label">{{ _ "edit_user_limit" }}</label>
                     <input type="number" step="0.01" min="0" class="form-input" id="editUserLimit" placeholder="0">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('traffic_reset_strategy_label') }}</label>
+                    <label class="form-label">{{ _ "traffic_reset_strategy_label" }}</label>
                     <select class="form-select" id="editUserTrafficResetStrategy">
-                        <option value="never">{{ _('traffic_reset_never') }}</option>
-                        <option value="daily">{{ _('traffic_reset_daily') }}</option>
-                        <option value="weekly">{{ _('traffic_reset_weekly') }}</option>
-                        <option value="monthly">{{ _('traffic_reset_monthly') }}</option>
+                        <option value="never">{{ _ "traffic_reset_never" }}</option>
+                        <option value="daily">{{ _ "traffic_reset_daily" }}</option>
+                        <option value="weekly">{{ _ "traffic_reset_weekly" }}</option>
+                        <option value="monthly">{{ _ "traffic_reset_monthly" }}</option>
                     </select>
                 </div>
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('expiration_date_label') }}</label>
+                <label class="form-label">{{ _ "expiration_date_label" }}</label>
                 <input class="form-input" type="datetime-local" id="editUserExpiration">
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('description_label') }}</label>
+                <label class="form-label">{{ _ "description_label" }}</label>
                 <textarea class="form-input" id="editUserDesc" rows="2"
-                    placeholder="{{ _('description_label') }}"></textarea>
+                    placeholder="{{ _ "description_label" }}"></textarea>
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('new_password_hint') }}</label>
+                <label class="form-label">{{ _ "new_password_hint" }}</label>
                 <input type="password" class="form-input" id="editUserPass" placeholder="••••••••">
             </div>
             <div class="flex justify-end" style="margin-top: var(--space-lg);">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('editUserModal')"
-                    style="margin-right: var(--space-sm);">{{ _('cancel') }}</button>
+                    style="margin-right: var(--space-sm);">{{ _ "cancel" }}</button>
                 <button type="submit" class="btn btn-primary" id="saveEditBtn">
                     <div id="saveEditSpinner" class="spinner hidden"
                         style="width: 14px; height: 14px; border-width: 2px;"></div>
-                    <span id="saveEditBtnText">{{ _('save') }}</span>
+                    <span id="saveEditBtnText">{{ _ "save" }}</span>
                 </button>
             </div>
         </form>
@@ -231,62 +226,62 @@
 <div class="modal-backdrop" id="addUserConnModal">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title" id="addUserConnTitle">{{ _('add_connection') }}</h2>
+            <h2 class="modal-title" id="addUserConnTitle">{{ _ "add_connection" }}</h2>
             <button class="modal-close" onclick="closeModal('addUserConnModal')">×</button>
         </div>
 
         <div class="form-group">
-            <label class="form-label">{{ _('op_type_label') }}</label>
+            <label class="form-label">{{ _ "op_type_label" }}</label>
             <select class="form-select" id="ucMode" onchange="toggleUCMode()">
-                <option value="new">{{ _('create_new_conn') }}</option>
-                <option value="existing">{{ _('link_existing_conn') }}</option>
+                <option value="new">{{ _ "create_new_conn" }}</option>
+                <option value="existing">{{ _ "link_existing_conn" }}</option>
             </select>
         </div>
 
         <div class="form-group" id="ucServerGroup">
-            <label class="form-label">{{ _('server_label') }}</label>
+            <label class="form-label">{{ _ "server_label" }}</label>
             <select class="form-select" id="ucServer">
-                {% for s in servers %}
-                <option value="{{ loop.index0 }}">{{ s.name }} ({{ s.host }})</option>
-                {% endfor %}
+                {{ range $idx, $s := .servers }}
+                <option value="{{ $idx }}">{{ $s.Name }} ({{ $s.Host }})</option>
+                {{ end }}
             </select>
         </div>
 
         <div class="form-group" id="ucProtoGroup">
-            <label class="form-label">{{ _('protocol_label') }}</label>
+            <label class="form-label">{{ _ "protocol_label" }}</label>
             <select class="form-select" id="ucProtocol">
                 <!-- Dynamic -->
             </select>
         </div>
 
         <div class="form-group" id="ucExistingClientGroup" style="display:none;">
-            <label class="form-label">{{ _('select_existing_conn') }}</label>
+            <label class="form-label">{{ _ "select_existing_conn" }}</label>
             <select class="form-select" id="ucExistingClient">
-                <option value="">{{ _('loading') }}</option>
+                <option value="">{{ _ "loading" }}</option>
             </select>
-            <div class="form-hint">{{ _('existing_conn_hint') }}</div>
+            <div class="form-hint">{{ _ "existing_conn_hint" }}</div>
         </div>
 
         <div class="form-group" id="ucNameGroup">
-            <label class="form-label">{{ _('conn_name_panel') }}</label>
-            <input class="form-input" type="text" id="ucName" placeholder="{{ _('connection_name_placeholder') }}">
+            <label class="form-label">{{ _ "conn_name_panel" }}</label>
+            <input class="form-input" type="text" id="ucName" placeholder="{{ _ "connection_name_placeholder" }}">
         </div>
 
         <div class="form-group" id="ucAwgMimicryGroup" style="display:none;">
-            <label class="form-label">{{ _('awg_mimicry') }}</label>
+            <label class="form-label">{{ _ "awg_mimicry" }}</label>
             <select class="form-select" id="ucAwgMimicry">
-                <option value="auto" selected>{{ _('mimicry_auto') }}</option>
-                <option value="tls">{{ _('mimicry_tls') }}</option>
-                <option value="quic">{{ _('mimicry_quic') }}</option>
-                <option value="dns">{{ _('mimicry_dns') }}</option>
-                <option value="sip">{{ _('mimicry_sip') }}</option>
+                <option value="auto" selected>{{ _ "mimicry_auto" }}</option>
+                <option value="tls">{{ _ "mimicry_tls" }}</option>
+                <option value="quic">{{ _ "mimicry_quic" }}</option>
+                <option value="dns">{{ _ "mimicry_dns" }}</option>
+                <option value="sip">{{ _ "mimicry_sip" }}</option>
             </select>
         </div>
 
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeModal('addUserConnModal')">{{ _('cancel') }}</button>
+            <button class="btn btn-secondary" onclick="closeModal('addUserConnModal')">{{ _ "cancel" }}</button>
             <button class="btn btn-primary" onclick="doAddUserConnection()" id="ucAddBtn">
-                <span id="ucAddBtnText">{{ _('add') }}</span>
+                <span id="ucAddBtnText">{{ _ "add" }}</span>
                 <div class="spinner hidden" id="ucAddSpinner"></div>
             </button>
         </div>
@@ -297,7 +292,7 @@
 <div class="modal-backdrop" id="userConnsModal">
     <div class="modal" style="max-width:600px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="userConnsTitle">{{ _('user_conns_title') }}</h2>
+            <h2 class="modal-title" id="userConnsTitle">{{ _ "user_conns_title" }}</h2>
             <button class="modal-close" onclick="closeModal('userConnsModal')">×</button>
         </div>
         <div id="userConnsList" style="max-height:400px; overflow-y:auto;"></div>
@@ -308,31 +303,28 @@
 <div class="modal-backdrop" id="configModal">
     <div class="modal" style="max-width: 600px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="configModalTitle">{{ _('config') }}</h2>
+            <h2 class="modal-title" id="configModalTitle">{{ _ "config" }}</h2>
             <button class="modal-close" onclick="closeModal('configModal')">×</button>
         </div>
         <div class="config-tabs">
-            <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _('config_tab') }}</button>
-            <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _('vpn_key_tab') }}</button>
-            <button class="config-tab" onclick="switchConfigTab('qr')">{{ _('qr_code_tab') }}</button>
+            <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _ "config_tab" }}</button>
+            <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _ "vpn_key_tab" }}</button>
+            <button class="config-tab" onclick="switchConfigTab('qr')">{{ _ "qr_code_tab" }}</button>
         </div>
         <div class="config-panel active" id="panel-conf">
             <div class="config-display">
                 <div class="config-text" id="configText"></div>
                 <div class="config-actions">
-                    <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentConfig)" style="flex:1">{{
-                        _('copy_config') }}</button>
+                    <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentConfig)" style="flex:1">{{ _ "copy_config" }}</button>
                     <button class="btn btn-primary btn-sm"
-                        onclick="downloadFile(currentConfig, currentConfigName+'.conf')" style="flex:1">{{
-                        _('download_conf') }}</button>
+                        onclick="downloadFile(currentConfig, currentConfigName+'.conf')" style="flex:1">{{ _ "download_conf" }}</button>
                 </div>
             </div>
         </div>
         <div class="config-panel" id="panel-vpn">
             <div class="vpn-link-box" id="vpnLinkText"></div>
             <div class="config-actions" style="margin-top:var(--space-sm);">
-                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentVpnLink)" style="flex:1">{{
-                    _('copy_key') }}</button>
+                <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentVpnLink)" style="flex:1">{{ _ "copy_key" }}</button>
             </div>
         </div>
         <div class="config-panel" id="panel-qr">
@@ -342,9 +334,9 @@
         </div>
     </div>
 </div>
-{% endblock %}
+{{ end }}
 
-{% block scripts %}
+{{ define "scripts" }}
 <script>
     let currentUserId = '';
     let currentConfig = '';
@@ -356,7 +348,10 @@
     let searchQuery = '';
     let searchTimeout = null;
 
-    const serversData = {{ servers | tojson }};
+    const serversData = {{ .servers | json }};
+    const currentAdminUsername = '{{ if .current_user }}{{ .current_user.Username }}{{ end }}';
+    const currentIsAdmin = {{ if has_role .current_user "admin" }}true{{ else }}false{{ end }};
+    const currentUserID = '{{ if .current_user }}{{ .current_user.ID }}{{ end }}';
 
     function handleSearch(val) {
         clearTimeout(searchTimeout);
@@ -394,21 +389,21 @@
             grid.innerHTML = data.users.map(u => `
                 <div class="client-item" id="user-${escapeHtml(u.id)}" style="${u.enabled ? '' : 'opacity:0.5;'}">
                     <div class="client-info">
-                        <div class="client-avatar">${escapeHtml(u.username[0] || '')}</div>
+                        <div class="client-avatar">${escapeHtml((u.username && u.username[0]) || 'U')}</div>
                         <div>
                             <div class="client-name">
                                 ${escapeHtml(u.username)}
                                 <span class="badge badge-${u.role === 'admin' ? 'success' : (u.role === 'support' ? 'info' : 'warn')}" 
                                       style="font-size:0.65rem; margin-left: var(--space-xs);">
-                                    ${u.role.toUpperCase()}
+                                    ${(u.role || '').toUpperCase()}
                                 </span>
                                 <span class="badge badge-secondary" style="font-size:0.65rem; opacity: 0.7;">
-                                    ${escapeHtml(u.source)}
+                                    ${escapeHtml(u.source || 'local')}
                                 </span>
                                 ${u.enabled ? '' : `<span class="badge badge-danger" style="font-size:0.65rem;">${_('disabled')}</span>`}
                             </div>
                             <div class="client-meta">
-                                <span style="cursor:pointer; color:var(--primary); text-decoration: underline;" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" onclick="viewUserConnections(this.dataset.uid, this.dataset.uname)">🔗 ${u.connections_count} ${_('connections')}</span>
+                                <span style="cursor:pointer; color:var(--primary); text-decoration: underline;" data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}" onclick="viewUserConnections(this.dataset.uid, this.dataset.uname)">🔗 ${u.connections_count || 0} ${_('connections')}</span>
                                 ${u.created_at ? `<span>📅 ${u.created_at.substring(0, 10)}</span>` : ''}
                                 ${u.telegramId ? `<span>💬 ${escapeHtml(u.telegramId)}</span>` : ''}
                                 ${u.email ? `<span>📧 ${escapeHtml(u.email)}</span>` : ''}
@@ -453,17 +448,17 @@
                         const isExpired = new Date(exp) < new Date();
                         return `<div class="client-meta" style="font-size: 0.7rem; margin-top: 2px;">
                             <span class="badge ${isExpired ? 'badge-danger' : 'badge-info'}" style="font-size: 0.65rem;">
-                                ⌛ ${isExpired ? 'Expired' : 'Expires'}: ${formatDate(exp)}
+                                ⌛ ${isExpired ? 'Expired' : 'Expires'}: ${new Date(exp).toLocaleDateString()}
                             </span>
                         </div>`;
                     }
                     return '';
                 })()}
-                             ${u.traffic_reset_strategy !== 'never' ? `<div class="client-meta" style="font-size: 0.7rem; opacity: 0.6;">🔄 ${_('traffic_reset_strategy_label')}: ${_('traffic_reset_' + u.traffic_reset_strategy)}</div>` : ''}
+                             ${u.traffic_reset_strategy && u.traffic_reset_strategy !== 'never' ? `<div class="client-meta" style="font-size: 0.7rem; opacity: 0.6;">🔄 ${_('traffic_reset_strategy_label')}: ${_('traffic_reset_' + u.traffic_reset_strategy)}</div>` : ''}
                         </div>
                     </div>
                     <div class="client-actions" style="flex-wrap: wrap; justify-content: flex-end; max-width: 140px;">
-                        {% if current_user.role == 'admin' %}
+                        ${currentIsAdmin ? `
                         <button class="btn btn-secondary btn-sm btn-icon" 
                                 data-uid="${escapeHtml(u.id)}" data-uname="${escapeHtml(u.username)}"
                                 onclick="openAddConnectionForUser(this.dataset.uid, this.dataset.uname)" 
@@ -484,15 +479,15 @@
                                 data-enabled="${u.share_enabled ? 'true' : 'false'}"
                                 data-haspassword="${u.has_share_password ? 'true' : 'false'}"
                                 title="${_('share_access')}">📤</button>
-                        ${u.id !== "{{ current_user.id }}" ? `
+                        ${u.id !== currentUserID ? `
                             <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleUser(this.dataset)"
                                      data-id="${escapeHtml(u.id)}" data-enable="${u.enabled ? 'false' : 'true'}"
-                                    title="${u.enabled ? _('stop_btn') : _('start_btn')}">
+                                     title="${u.enabled ? _('stop_btn') : _('start_btn')}">
                                 ${u.enabled ? '🔵' : '⚫'}
                             </button>
                             <button class="btn btn-danger btn-sm btn-icon" onclick="deleteUser(this.dataset.id)" data-id="${escapeHtml(u.id)}" title="${_('delete')}">🗑</button>
                         ` : ''}
-                        {% endif %}
+                        ` : ''}
                     </div>
                 </div>
             `).join('');
@@ -525,11 +520,11 @@
         }
 
         const server = serversData[serverId];
-        const protocols = server.protocols || {};
+        const protocols = (server && server.protocols) ? server.protocols : {};
         let count = 0;
 
         for (const [key, info] of Object.entries(protocols)) {
-            if (info.installed) {
+            if (info && info.installed) {
                 const opt = document.createElement('option');
                 opt.value = key;
                 opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'telemt' ? 'MTProxyL' : (key === 'dns' ? 'AmneziaDNS' : key.toUpperCase()));
@@ -709,7 +704,6 @@
         }
     }
 
-
     async function doAddUserConnection() {
         const btn = document.getElementById('ucAddBtn');
         const text = document.getElementById('ucAddBtnText');
@@ -838,6 +832,7 @@
             container.innerHTML = `<div style="color:var(--text-muted);">${_('qr_error')}</div>`;
         }
     }
+
     async function showUserConnectionConfig(serverId, clientId, protocol, connName) {
         try {
             showToast(_('loading'), 'info');
@@ -865,25 +860,25 @@
 <div class="modal-backdrop" id="shareUserModal">
     <div class="modal" style="max-width: 500px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="shareModalTitle">{{ _('share_access') }}</h2>
+            <h2 class="modal-title" id="shareModalTitle">{{ _ "share_access" }}</h2>
             <button class="modal-close" onclick="closeModal('shareUserModal')">×</button>
         </div>
 
         <div class="form-group">
             <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
-                <input type="checkbox" id="shareEnabled" onchange="updateShareSetup()"> {{ _('enable_public_access') }}
+                <input type="checkbox" id="shareEnabled" onchange="updateShareSetup()"> {{ _ "enable_public_access" }}
             </label>
         </div>
 
         <div id="shareSetupFields" style="display:none;">
             <div class="form-group">
-                <label class="form-label">{{ _('share_password_label') }}</label>
-                <input class="form-input" type="password" id="sharePassword" placeholder="{{ _('new_password_hint') }}">
-                <div class="form-hint">{{ _('share_password_hint') }}</div>
+                <label class="form-label">{{ _ "share_password_label" }}</label>
+                <input class="form-input" type="password" id="sharePassword" placeholder="{{ _ "new_password_hint" }}">
+                <div class="form-hint">{{ _ "share_password_hint" }}</div>
             </div>
 
             <div class="form-group">
-                <label class="form-label">{{ _('public_link_label') }}</label>
+                <label class="form-label">{{ _ "public_link_label" }}</label>
                 <div class="flex gap-sm">
                     <input class="form-input" type="text" id="shareLink" readonly
                         style="background: var(--bg-primary);">
@@ -894,9 +889,9 @@
 
         <div class="divider"></div>
         <div style="display: flex; gap: var(--space-md); justify-content: flex-end;">
-            <button class="btn btn-secondary" onclick="closeModal('shareUserModal')">{{ _('cancel') }}</button>
+            <button class="btn btn-secondary" onclick="closeModal('shareUserModal')">{{ _ "cancel" }}</button>
             <button class="btn btn-primary" onclick="saveShareSetup()" id="saveShareBtn">
-                <span id="saveShareBtnText">{{ _('save') }}</span>
+                <span id="saveShareBtnText">{{ _ "save" }}</span>
                 <div class="spinner hidden" id="saveShareSpinner"></div>
             </button>
         </div>
@@ -907,9 +902,8 @@
     let currentSharedUser = null;
 
     function openEditUser(data) {
-        // data is now a DOMStringMap (from this.dataset) — all values are strings
         document.getElementById('editUserId').value = data.id;
-        document.getElementById('editUserTitle').textContent = data.username;  // textContent is safe
+        document.getElementById('editUserTitle').textContent = data.username;
         document.getElementById('editUserTG').value = data.tg || '';
         document.getElementById('editUserEmail').value = data.email || '';
         document.getElementById('editUserDesc').value = data.desc || '';
@@ -1015,5 +1009,4 @@
         showToast(_('copied'), 'success');
     }
 </script>
-
-{% endblock %}
+{{ end }}

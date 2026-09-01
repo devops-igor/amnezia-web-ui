@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
-	"github.com/go-chi/chi/v5"
 )
 
 // IndexPageHandler renders the primary admin dashboard or redirects normal users.
@@ -23,7 +25,7 @@ func (h *Handlers) IndexPageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// UsersPageHandler renders the user management console.
+// UsersPageHandler renders the multi-user management interface.
 func (h *Handlers) UsersPageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	users, _ := h.db.GetAllUsers(ctx)
@@ -35,9 +37,8 @@ func (h *Handlers) UsersPageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ServerPageHandler renders details and protocol status for a specific server host.
+// ServerPageHandler renders a single server management interface.
 func (h *Handlers) ServerPageHandler(w http.ResponseWriter, r *http.Request) {
-	serverIDStr := chi.URLParam(r, "server_id")
 	serverID, err := parseServerID(r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusFound)
@@ -54,8 +55,8 @@ func (h *Handlers) ServerPageHandler(w http.ResponseWriter, r *http.Request) {
 	users, _ := h.db.GetAllUsers(ctx)
 
 	_ = RenderTemplate(w, r, h.db, "server.html", map[string]any{
-		"server_id": serverIDStr,
 		"server":    server,
+		"server_id": serverID,
 		"users":     users,
 	})
 }
@@ -72,6 +73,15 @@ func (h *Handlers) SettingsPageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// SanitizedServerForUser represents a safe server view for regular panel users.
+type SanitizedServerForUser struct {
+	ID        int64                      `json:"id"`
+	Name      string                     `json:"name"`
+	Protocols map[string]map[string]bool `json:"protocols"`
+	Status    string                     `json:"status,omitempty"`
+	Reachable bool                       `json:"reachable"`
+}
+
 // MyConnectionsPageHandler renders the user client connection dashboard.
 func (h *Handlers) MyConnectionsPageHandler(w http.ResponseWriter, r *http.Request) {
 	sess := h.GetSession(r)
@@ -82,11 +92,54 @@ func (h *Handlers) MyConnectionsPageHandler(w http.ResponseWriter, r *http.Reque
 
 	ctx := r.Context()
 	conns, _ := h.db.GetConnectionsByUserID(ctx, sess.UserID)
-	servers, _ := h.db.GetAllServers(ctx)
+	rawServers, _ := h.db.GetAllServers(ctx)
+
+	sanitizedServers := make([]SanitizedServerForUser, 0, len(rawServers))
+	serversMap := make(map[int64]SanitizedServerForUser)
+	for _, srv := range rawServers {
+		name := srv.Name
+		if strings.TrimSpace(name) == "" {
+			name = fmt.Sprintf("Server #%d", srv.ID)
+		}
+		protoMap := make(map[string]map[string]bool)
+		for proto, pVal := range srv.Protocols {
+			installed := false
+			if m, ok := pVal.(map[string]any); ok {
+				if inst, ok := m["installed"].(bool); ok {
+					installed = inst
+				}
+			} else if b, ok := pVal.(bool); ok {
+				installed = b
+			}
+			protoMap[proto] = map[string]bool{"installed": installed}
+		}
+		status := string(srv.Status)
+		if status == "" {
+			status = "online"
+		}
+		reachable := srv.Status == models.ReachabilityOnline || srv.Status == ""
+		sClean := SanitizedServerForUser{
+			ID:        srv.ID,
+			Name:      name,
+			Protocols: protoMap,
+			Status:    status,
+			Reachable: reachable,
+		}
+		sanitizedServers = append(sanitizedServers, sClean)
+		serversMap[srv.ID] = sClean
+	}
+
+	for i := range conns {
+		if sClean, ok := serversMap[conns[i].ServerID]; ok {
+			conns[i].ServerName = sClean.Name
+		} else if conns[i].ServerID > 0 {
+			conns[i].ServerName = fmt.Sprintf("Server #%d", conns[i].ServerID)
+		}
+	}
 
 	_ = RenderTemplate(w, r, h.db, "my_connections.html", map[string]any{
 		"connections": conns,
-		"servers":     servers,
+		"servers":     sanitizedServers,
 	})
 }
 
@@ -104,10 +157,47 @@ func (h *Handlers) SetupPageHandler(w http.ResponseWriter, r *http.Request) {
 
 // ChangePasswordPageHandler renders the password change interface.
 func (h *Handlers) ChangePasswordPageHandler(w http.ResponseWriter, r *http.Request) {
-	_ = RenderTemplate(w, r, h.db, "change_password.html", nil)
+	forced := r.URL.Query().Get("forced") == "1"
+	_ = RenderTemplate(w, r, h.db, "change_password.html", map[string]any{
+		"forced": forced,
+	})
 }
 
 // LeaderboardPageHandler renders the traffic leaderboard interface.
 func (h *Handlers) LeaderboardPageHandler(w http.ResponseWriter, r *http.Request) {
-	_ = RenderTemplate(w, r, h.db, "leaderboard.html", nil)
+	period := r.URL.Query().Get("period")
+	if period != "monthly" && period != "last-month" {
+		period = "all-time"
+	}
+
+	var monthlyLabel *string
+	now := time.Now()
+	if period == "monthly" {
+		label := now.Format("January 2006")
+		monthlyLabel = &label
+	} else if period == "last-month" {
+		lastMonth := now.AddDate(0, -1, 0)
+		label := lastMonth.Format("January 2006")
+		monthlyLabel = &label
+	}
+
+	ctx := r.Context()
+	entries, _ := h.db.GetLeaderboard(ctx, period)
+
+	sess := h.GetSession(r)
+	var currentUserRank *int
+	for _, e := range entries {
+		if sess != nil && sess.Username == e.Username {
+			rankVal := e.Rank
+			currentUserRank = &rankVal
+			break
+		}
+	}
+
+	_ = RenderTemplate(w, r, h.db, "leaderboard.html", map[string]any{
+		"period":            period,
+		"entries":           entries,
+		"current_user_rank": currentUserRank,
+		"monthly_label":     monthlyLabel,
+	})
 }

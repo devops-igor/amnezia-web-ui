@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="{{ lang }}" {% if lang=='fa' %}dir="rtl" {% endif %}>
+<html lang="{{ .lang }}" {{ if eq .lang "fa" }}dir="rtl"{{ end }}>
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="{{ _('site_description') }}">
-    <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>{{ site_settings.title or 'Amnezia Panel' }} {% block title_extra %}{% endblock %}</title>
+    <meta name="description" content="{{ _ "site_description" }}">
+    <meta name="csrf-token" content="{{ .csrf_token }}">
+    <title>{{ if .site_settings.Title }}{{ .site_settings.Title }}{{ else }}Amnezia Panel{{ end }} {{ block "title_extra" . }}{{ end }}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/css/style.css">
     <script>!function () { var t = localStorage.getItem('theme') || 'dark'; document.documentElement.setAttribute('data-theme', t) }()</script>
     <script src="/static/js/qrcode.min.js"></script>
-    {% block head_extra %}{% endblock %}
+    {{ block "head_extra" . }}{{ end }}
     <style>
         .lang-check {
             color: var(--success);
@@ -34,57 +34,55 @@
     <div class="app-container">
         <header class="app-header">
             <a href="/" class="app-logo" style="text-decoration:none">
-                <div class="logo-icon">{{ site_settings.logo }}</div>
+                <div class="logo-icon">{{ if .site_settings.Logo }}{{ .site_settings.Logo }}{{ else }}🛡{{ end }}</div>
                 <div>
-                    <div class="logo-text">{{ site_settings.title }}</div>
-                    <div class="logo-subtitle">{{ site_settings.subtitle }}</div>
+                    <div class="logo-text">{{ if .site_settings.Title }}{{ .site_settings.Title }}{{ else }}Amnezia Panel{{ end }}</div>
+                    <div class="logo-subtitle">{{ if .site_settings.Subtitle }}{{ .site_settings.Subtitle }}{{ else }}Web Panel{{ end }}</div>
                 </div>
             </a>
 
-            {% if current_user %}
+            {{ if .current_user }}
             <nav class="header-nav">
-                {% if current_user.role in ['admin', 'support'] %}
-                <a href="/" class="nav-link">{{ _('nav_servers') }}</a>
-                <a href="/users" class="nav-link">{{ _('nav_users') }}</a>
-                {% endif %}
-                {% if current_user.role == 'admin' %}
-                <a href="/settings" class="nav-link">{{ _('nav_settings') }}</a>
-                {% endif %}
-                <a href="/my" class="nav-link">{{ _('nav_connections') }}</a>
-                <a href="/leaderboard" class="nav-link">🏆 {{ _('leaderboard_nav') }}</a>
+                {{ if has_role .current_user "admin" "support" }}
+                <a href="/" class="nav-link">{{ _ "nav_servers" }}</a>
+                <a href="/users" class="nav-link">{{ _ "nav_users" }}</a>
+                {{ end }}
+                {{ if has_role .current_user "admin" }}
+                <a href="/settings" class="nav-link">{{ _ "nav_settings" }}</a>
+                {{ end }}
+                <a href="/my" class="nav-link">{{ _ "nav_connections" }}</a>
+                <a href="/leaderboard" class="nav-link">🏆 {{ _ "leaderboard_nav" }}</a>
             </nav>
 
             <div class="nav-user">
-                <button class="theme-toggle" onclick="openModal('langModal')" title="{{ _('select_lang') }}"
+                <button class="theme-toggle" onclick="openModal('langModal')" title="{{ _ "select_lang" }}"
                     style="margin-right: var(--space-sm);">
-                    {% if lang == 'ru' %}🇷🇺{% elif lang == 'fr' %}🇫🇷{% elif lang == 'zh' %}🇨🇳{% elif lang == 'fa'
-                    %}🇮🇷{% else %}🇺🇸{% endif %}
+                    {{ if eq .lang "ru" }}🇷🇺{{ else if eq .lang "fr" }}🇫🇷{{ else if eq .lang "zh" }}🇨🇳{{ else if eq .lang "fa" }}🇮🇷{{ else }}🇺🇸{{ end }}
                 </button>
-                <button class="theme-toggle" onclick="toggleTheme()" title="{{ _('toggle_theme') }}"
+                <button class="theme-toggle" onclick="toggleTheme()" title="{{ _ "toggle_theme" }}"
                     id="themeToggle">🌙</button>
-                <span class="nav-username">{{ current_user.username }}</span>
+                <span class="nav-username">{{ .current_user.Username }}</span>
                 <span
-                    class="badge badge-{{ 'success' if current_user.role == 'admin' else ('info' if current_user.role == 'support' else 'warn') }}"
+                    class="badge badge-{{ if eq .current_user.Role "admin" }}success{{ else if eq .current_user.Role "support" }}info{{ else }}warn{{ end }}"
                     style="font-size:0.65rem;">
-                    {{ current_user.role | upper }}
+                    {{ .current_user.Role | upper }}
                 </span>
-                <a href="/logout" class="btn btn-secondary btn-sm">{{ _('nav_logout') }}</a>
+                <a href="/logout" class="btn btn-secondary btn-sm">{{ _ "nav_logout" }}</a>
             </div>
-            {% else %}
+            {{ else }}
             <div class="nav-user">
-                <button class="theme-toggle" onclick="openModal('langModal')" title="{{ _('select_lang') }}"
+                <button class="theme-toggle" onclick="openModal('langModal')" title="{{ _ "select_lang" }}"
                     style="margin-right: var(--space-sm);">
-                    {% if lang == 'ru' %}🇷🇺{% elif lang == 'fr' %}🇫🇷{% elif lang == 'zh' %}🇨🇳{% elif lang == 'fa'
-                    %}🇮🇷{% else %}🇺🇸{% endif %}
+                    {{ if eq .lang "ru" }}🇷🇺{{ else if eq .lang "fr" }}🇫🇷{{ else if eq .lang "zh" }}🇨🇳{{ else if eq .lang "fa" }}🇮🇷{{ else }}🇺🇸{{ end }}
                 </button>
-                <button class="theme-toggle" onclick="toggleTheme()" title="{{ _('toggle_theme') }}"
+                <button class="theme-toggle" onclick="toggleTheme()" title="{{ _ "toggle_theme" }}"
                     id="themeToggle">🌙</button>
             </div>
-            {% endif %}
+            {{ end }}
         </header>
 
         <main>
-            {% block content %}{% endblock %}
+            {{ block "content" . }}{{ end }}
         </main>
     </div>
 
@@ -92,27 +90,50 @@
     <div class="modal-backdrop" id="langModal">
         <div class="modal" style="max-width: 320px;">
             <div class="modal-header">
-                <h2 class="modal-title">{{ _('select_lang') }}</h2>
+                <h2 class="modal-title">{{ _ "select_lang" }}</h2>
                 <button class="modal-close" onclick="closeModal('langModal')">×</button>
             </div>
             <div style="display: flex; flex-direction: column; gap: var(--space-sm);">
-                {% set langs = [
-                ('en', '🇺🇸', 'lang_en'),
-                ('ru', '🇷🇺', 'lang_ru'),
-                ('fr', '🇫🇷', 'lang_fr'),
-                ('zh', '🇨🇳', 'lang_zh'),
-                ('fa', '🇮🇷', 'lang_fa')
-                ] %}
-                {% for l_code, l_flag, l_key in langs %}
-                <a href="/set_lang/{{ l_code }}" class="btn btn-secondary"
+                <a href="/set_lang/en" class="btn btn-secondary"
                     style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
-                    <span style="font-size: 1.4rem;">{{ l_flag }}</span>
-                    <span style="font-weight: 500;">{{ _(l_key) }}</span>
-                    {% if lang == l_code %}
+                    <span style="font-size: 1.4rem;">🇺🇸</span>
+                    <span style="font-weight: 500;">{{ _ "lang_en" }}</span>
+                    {{ if eq .lang "en" }}
                     <span class="lang-check">✓</span>
-                    {% endif %}
+                    {{ end }}
                 </a>
-                {% endfor %}
+                <a href="/set_lang/ru" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇷🇺</span>
+                    <span style="font-weight: 500;">{{ _ "lang_ru" }}</span>
+                    {{ if eq .lang "ru" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/fr" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇫🇷</span>
+                    <span style="font-weight: 500;">{{ _ "lang_fr" }}</span>
+                    {{ if eq .lang "fr" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/zh" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇨🇳</span>
+                    <span style="font-weight: 500;">{{ _ "lang_zh" }}</span>
+                    {{ if eq .lang "zh" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
+                <a href="/set_lang/fa" class="btn btn-secondary"
+                    style="justify-content: flex-start; gap: var(--space-md); padding: var(--space-md);">
+                    <span style="font-size: 1.4rem;">🇮🇷</span>
+                    <span style="font-weight: 500;">{{ _ "lang_fa" }}</span>
+                    {{ if eq .lang "fa" }}
+                    <span class="lang-check">✓</span>
+                    {{ end }}
+                </a>
             </div>
         </div>
     </div>
@@ -121,9 +142,12 @@
         /* ===== XSS Prevention: Global escape functions ===== */
         function escapeHtml(str) {
             if (str === null || str === undefined) return '';
-            const div = document.createElement('div');
-            div.textContent = String(str);
-            return div.innerHTML;
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         function escapeJs(str) {
@@ -131,7 +155,7 @@
             return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
         }
 
-        window.I18N = {{ translations_json | safe }};
+        window.I18N = {{ .translations_json | safe_js }};
         window._ = function (key) { return window.I18N[key] || key; };
 
         /* ===== CSRF Token for AJAX requests ===== */
@@ -187,11 +211,19 @@
         /* ===== Toast Notifications ===== */
         function showToast(message, type = 'info') {
             const container = document.getElementById('toastContainer');
+            if (!container) return;
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
 
             const icons = { success: '✓', error: '✕', info: 'ℹ' };
-            toast.innerHTML = `<span>${icons[type] || 'ℹ'}</span> <span>${message}</span>`;
+            const iconSpan = document.createElement('span');
+            iconSpan.textContent = icons[type] || 'ℹ';
+            const msgSpan = document.createElement('span');
+            msgSpan.textContent = String(message || '');
+
+            toast.appendChild(iconSpan);
+            toast.appendChild(document.createTextNode(' '));
+            toast.appendChild(msgSpan);
 
             container.appendChild(toast);
             setTimeout(() => {
@@ -367,7 +399,7 @@
         }
     </script>
 
-    {% block scripts %}{% endblock %}
+    {{ block "scripts" . }}{{ end }}
 </body>
 
 </html>

@@ -287,3 +287,13 @@ func GetTranslations() map[string]map[string]string {
 	}
 	return res
 }
+
+// IsValidLanguage checks if the language code is supported.
+func IsValidLanguage(lang string) bool {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "en", "ru", "fr", "zh", "fa":
+		return true
+	default:
+		return false
+	}
+}

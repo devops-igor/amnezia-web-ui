@@ -161,8 +161,8 @@ type Server struct {
 	Host       string             `json:"host" db:"host"`
 	SSHUser    string             `json:"ssh_user" db:"ssh_user"`
 	SSHPort    int                `json:"ssh_port" db:"ssh_port"`
-	SSHPass    string             `json:"ssh_pass,omitempty" db:"ssh_pass"`
-	SSHKey     string             `json:"ssh_key,omitempty" db:"ssh_key"`
+	SSHPass    string             `json:"-" db:"ssh_pass"`
+	SSHKey     string             `json:"-" db:"ssh_key"`
 	Protocols  map[string]any     `json:"protocols" db:"protocols"`
 	CreatedAt  time.Time          `json:"created_at" db:"created_at"`
 	Status     ReachabilityStatus `json:"status,omitempty"`
@@ -176,7 +176,7 @@ type User struct {
 	Email                  *string              `json:"email,omitempty" db:"email"`
 	TelegramID             *string              `json:"telegramId,omitempty" db:"telegramId"`
 	Description            *string              `json:"description,omitempty" db:"description"`
-	PasswordHash           string               `json:"password_hash,omitempty" db:"password_hash"`
+	PasswordHash           string               `json:"-" db:"password_hash"`
 	Role                   UserRole             `json:"role" db:"role"`
 	Enabled                bool                 `json:"enabled" db:"enabled"`
 	TrafficLimit           int64                `json:"traffic_limit" db:"traffic_limit"`
@@ -190,7 +190,7 @@ type User struct {
 	TrafficResetStrategy   TrafficResetStrategy `json:"traffic_reset_strategy" db:"traffic_reset_strategy"`
 	ShareEnabled           bool                 `json:"share_enabled" db:"share_enabled"`
 	ShareToken             *string              `json:"share_token,omitempty" db:"share_token"`
-	SharePasswordHash      *string              `json:"share_password_hash,omitempty" db:"share_password_hash"`
+	SharePasswordHash      *string              `json:"-" db:"share_password_hash"`
 	RemnaWaveUUID          *string              `json:"remnawave_uuid,omitempty" db:"remnawave_uuid"`
 	CreatedAt              time.Time            `json:"created_at" db:"created_at"`
 	LastResetAt            *string              `json:"last_reset_at,omitempty" db:"last_reset_at"`
@@ -206,6 +206,7 @@ type UserConnection struct {
 	ID             string            `json:"id" db:"id"`
 	UserID         string            `json:"user_id" db:"user_id"`
 	ServerID       int64             `json:"server_id" db:"server_id"`
+	ServerName     string            `json:"server_name,omitempty" db:"-"`
 	Protocol       string            `json:"protocol" db:"protocol"`
 	ClientID       string            `json:"client_id" db:"client_id"`
 	Name           string            `json:"name" db:"name"`

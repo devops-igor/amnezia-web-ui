@@ -1,8 +1,6 @@
-{% extends "base.html" %}
+{{ define "title_extra" }} — {{ .server.Name }}{{ end }}
 
-{% block title_extra %} — {{ server.name | e }}{% endblock %}
-
-{% block head_extra %}
+{{ define "head_extra" }}
 <style>
     .client-actions {
         display: flex !important;
@@ -12,10 +10,10 @@
         align-items: center;
     }
 </style>
-{% endblock %}
+{{ end }}
 
-{% block content %}
-<a href="/" class="back-link">{{ _('back_to_servers') }}</a>
+{{ define "content" }}
+<a href="/" class="back-link">{{ _ "back_to_servers" }}</a>
 
 <!-- Server Info Header -->
 <div class="card" style="margin-bottom: var(--space-xl);">
@@ -23,14 +21,14 @@
         <div class="flex items-center gap-md">
             <div class="server-icon" style="width:56px; height:56px; font-size:1.6rem;">🖥</div>
             <div>
-                <h1 style="font-size:1.4rem; font-weight:700;">{{ server.name | e }}</h1>
-                <div class="font-mono text-muted text-sm">{{ server.host | e }}:{{ server.ssh_port }} • {{ server.username | e }}</div>
+                <h1 style="font-size:1.4rem; font-weight:700;">{{ .server.Name }}</h1>
+                <div class="font-mono text-muted text-sm">{{ .server.Host }}:{{ .server.SSHPort }} • {{ .server.SSHUser }}</div>
             </div>
         </div>
         <div class="flex gap-sm items-center">
             <div class="flex gap-sm items-center" id="serverStats" style="display:none;"></div>
             <button class="btn btn-secondary btn-sm" onclick="checkServer()" id="checkBtn">
-                <span id="checkBtnText">{{ _('server_check') }}</span>
+                <span id="checkBtnText">{{ _ "server_check" }}</span>
                 <div class="spinner hidden" id="checkSpinner"></div>
             </button>
         </div>
@@ -44,46 +42,29 @@
         <div class="flex items-center justify-between" style="flex-wrap: wrap; gap: var(--space-sm);">
             <div class="flex items-center gap-sm">
                 <span style="font-size: 1rem;">📡</span>
-                <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted, #94a3b8);">{{ _('server_status') }}:</span>
+                <span style="font-size: 0.8125rem; font-weight: 600; color: var(--text-muted, #94a3b8);">{{ _ "server_status" }}:</span>
                 <span id="reachabilityOverallBadge">
-                    {% if reachability and reachability.reachable %}
+                    {{ if .reachability }}
+                    {{ if .reachability.Reachable }}
                     <span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;">
-                        <span class="badge-dot"></span> {{ reachability.latency_ms }}ms
+                        <span class="badge-dot"></span> {{ .reachability.LatencyMs }}ms
                     </span>
-                    {% elif reachability and not reachability.reachable %}
+                    {{ else }}
                     <span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;">
-                        <span class="badge-dot"></span> {{ _('unreachable') }}
+                        <span class="badge-dot"></span> {{ _ "unreachable" }}
                     </span>
-                    {% else %}
+                    {{ end }}
+                    {{ else }}
                     <span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;">
-                        <span class="badge-dot"></span> {{ _('pending') if _('pending') != 'pending' else 'Pending' }}
+                        <span class="badge-dot"></span> {{ _ "pending" }}
                     </span>
-                    {% endif %}
+                    {{ end }}
                 </span>
                 <span id="reachabilityLastChecked" style="font-size: 0.75rem; color: var(--text-muted, #94a3b8); margin-left: 4px;">
-                    {% if reachability and reachability.last_checked %}⏱ {{ reachability.last_checked[11:19] }}{% endif %}
+                    {{ if .reachability }}{{ if .reachability.LastChecked }}⏱ {{ slice_str .reachability.LastChecked 11 19 }}{{ end }}{{ end }}
                 </span>
             </div>
-            <div class="flex items-center gap-xs" id="mimicryHealthBadges" style="flex-wrap: wrap;" title="AWG Mimicry Profiles">
-                {% if reachability and reachability.auto_trials %}
-                    {% for proto_name in ['tls', 'quic', 'dns', 'sip'] %}
-                        {% set trial = reachability.auto_trials.get(proto_name) %}
-                        {% if trial and trial.reachable %}
-                        <span class="badge badge-success" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ proto_name | upper }}: {{ _('reachable') }}{% if trial.latency_ms %} ({{ trial.latency_ms }}ms){% endif %}">
-                            <span class="badge-dot"></span> {{ proto_name | upper }}
-                        </span>
-                        {% elif trial and not trial.reachable %}
-                        <span class="badge badge-danger" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px;" title="{{ proto_name | upper }}: {{ _('unreachable') }}">
-                            <span class="badge-dot"></span> {{ proto_name | upper }}
-                        </span>
-                        {% else %}
-                        <span class="badge badge-warn" id="mimicry-badge-{{ proto_name }}" style="font-size: 0.7rem; padding: 2px 6px; opacity: 0.7;" title="{{ proto_name | upper }}: {{ _('pending') if _('pending') != 'pending' else 'Pending' }}">
-                            <span class="badge-dot"></span> {{ proto_name | upper }}
-                        </span>
-                        {% endif %}
-                    {% endfor %}
-                {% endif %}
-            </div>
+            <div class="flex items-center gap-xs" id="mimicryHealthBadges" style="flex-wrap: wrap;" title="AWG Mimicry Profiles"></div>
         </div>
     </div>
 </div>
@@ -93,17 +74,17 @@
     style="margin-bottom: var(--space-xl); border-bottom: 1px solid var(--border-color); padding-bottom: 2px;">
     <button class="nav-tab active" id="tab-protocols" onclick="switchCategory('protocols')"
         style="background: none; border: none; padding: 10px 16px; font-size: 1rem; color: var(--text-primary); cursor: pointer; border-bottom: 2px solid var(--accent); font-weight: 600;">
-        <span class="icon">🔐</span> {{ _('protocols') }} <span id="protocols-count"
-            style="font-size: 0.8rem; opacity: 0.6; margin-left: 4px;">0/3</span>
+        <span class="icon">🔐</span> {{ _ "protocols" }} <span id="protocols-count"
+            style="font-size: 0.8rem; opacity: 0.6; margin-left: 4px;">0/2</span>
     </button>
     <button class="nav-tab" id="tab-services" onclick="switchCategory('services')"
         style="background: none; border: none; padding: 10px 16px; font-size: 1rem; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;">
-        <span class="icon">🛠</span> {{ _('services') }} <span id="services-count"
+        <span class="icon">🛠</span> {{ _ "services" }} <span id="services-count"
             style="font-size: 0.8rem; opacity: 0.6; margin-left: 4px;">0/1</span>
     </button>
     <button class="nav-tab" id="tab-management" onclick="switchCategory('management')"
         style="background: none; border: none; padding: 10px 16px; font-size: 1rem; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent;">
-        <span class="icon">⚙️</span> {{ _('management') }}
+        <span class="icon">⚙️</span> {{ _ "management" }}
     </button>
 </div>
 
@@ -116,10 +97,10 @@
         </div>
         <div class="protocol-name">AmneziaWG</div>
         <div class="protocol-desc">
-            {{ _('awg_desc') }}
+            {{ _ "awg_desc" }}
         </div>
         <div class="protocol-status" id="awg-status">
-            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
+            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _ "not_checked" }}</span>
         </div>
         <div id="awg-mimicry-health" class="flex gap-xs" style="margin-top: var(--space-xs); flex-wrap: wrap;"></div>
         <div id="awg-info" class="hidden">
@@ -128,7 +109,7 @@
         <div class="flex gap-sm" id="awg-actions">
             <button class="btn btn-primary btn-sm" onclick="openInstallModal('awg')" id="awg-install-btn"
                 style="flex:1">
-                {{ _('install') }}
+                {{ _ "install" }}
             </button>
         </div>
     </div>
@@ -141,10 +122,10 @@
         </div>
         <div class="protocol-name">MTProxyL (Telegram Proxy)</div>
         <div class="protocol-desc">
-            {{ _('telemt_desc') }}
+            {{ _ "telemt_desc" }}
         </div>
         <div class="protocol-status" id="telemt-status">
-            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
+            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _ "not_checked" }}</span>
         </div>
         <div id="telemt-info" class="hidden">
             <div class="protocol-info" id="telemt-info-grid"></div>
@@ -152,7 +133,7 @@
         <div class="flex gap-sm" id="telemt-actions">
             <button class="btn btn-primary btn-sm" onclick="openInstallModal('telemt')" id="telemt-install-btn"
                 style="flex:1">
-                {{ _('install') }}
+                {{ _ "install" }}
             </button>
         </div>
     </div>
@@ -167,10 +148,10 @@
         </div>
         <div class="protocol-name">AmneziaDNS</div>
         <div class="protocol-desc">
-            {{ _('dns_desc') }}
+            {{ _ "dns_desc" }}
         </div>
         <div class="protocol-status" id="dns-status">
-            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _('not_checked') }}</span>
+            <span class="badge badge-warn"><span class="badge-dot"></span> {{ _ "not_checked" }}</span>
         </div>
         <div id="dns-info" class="hidden">
             <div class="protocol-info" id="dns-info-grid"></div>
@@ -178,7 +159,7 @@
         <div class="flex gap-sm" id="dns-actions">
             <button class="btn btn-primary btn-sm" onclick="openInstallModal('dns')" id="dns-install-btn"
                 style="flex:1">
-                {{ _('install') }}
+                {{ _ "install" }}
             </button>
         </div>
     </div>
@@ -186,62 +167,62 @@
 
 <div class="hidden" id="management-grid" style="margin-bottom: var(--space-xl); display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: var(--space-lg); align-items: start;">
     <div class="card" style="width:100%;">
-        <div class="card-title">{{ _('server_management') }}</div>
+        <div class="card-title">{{ _ "server_management" }}</div>
         <div class="card-subtitle" style="margin-bottom: var(--space-md);">
-            {{ _('server_management_desc') }}
+            {{ _ "server_management_desc" }}
         </div>
         <div class="flex" style="flex-direction: column; gap: var(--space-sm);">
             <button class="btn btn-secondary" onclick="checkServer()" style="justify-content: flex-start; padding: 12px 20px;">
-                <span style="font-size: 1.2rem; margin-right: 8px;">🔄</span> {{ _('check_server_services') }}
+                <span style="font-size: 1.2rem; margin-right: 8px;">🔄</span> {{ _ "check_server_services" }}
             </button>
             <button class="btn btn-secondary" onclick="rebootServer()" style="justify-content: flex-start; padding: 12px 20px;">
-                <span style="font-size: 1.2rem; margin-right: 8px;">♻️</span> {{ _('reboot_server') }}
+                <span style="font-size: 1.2rem; margin-right: 8px;">♻️</span> {{ _ "reboot_server" }}
             </button>
             <button class="btn btn-danger" onclick="clearServer()" style="justify-content: flex-start; padding: 12px 20px; background: rgba(239, 68, 68, 0.05);">
-                <span style="font-size: 1.2rem; margin-right: 8px;">🗑️</span> {{ _('clear_server') }}
+                <span style="font-size: 1.2rem; margin-right: 8px;">🗑️</span> {{ _ "clear_server" }}
             </button>
             <button class="btn btn-danger" onclick="removeServer()" style="justify-content: flex-start; padding: 12px 20px;">
-                <span style="font-size: 1.2rem; margin-right: 8px;">❌</span> {{ _('remove_server') }}
+                <span style="font-size: 1.2rem; margin-right: 8px;">❌</span> {{ _ "remove_server" }}
             </button>
         </div>
     </div>
 
     <!-- AWG Speed Limit Settings -->
     <div class="card" id="awgSpeedLimitSettingsCard" style="width:100%;">
-        <div class="card-title">{{ _('awg_speed_limit_settings') }}</div>
+        <div class="card-title">{{ _ "awg_speed_limit_settings" }}</div>
         <div class="card-subtitle" style="margin-bottom: var(--space-md);">
-            {{ _('global_pool_hint') }}
+            {{ _ "global_pool_hint" }}
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="white-space: nowrap;">{{ _('global_speed_limit_down') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="globalSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label" style="white-space: nowrap;">{{ _ "global_speed_limit_down" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="globalSpeedLimitDown" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="white-space: nowrap;">{{ _('global_speed_limit_up') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="globalSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label" style="white-space: nowrap;">{{ _ "global_speed_limit_up" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="globalSpeedLimitUp" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
         </div>
         <div class="divider" style="margin-bottom: var(--space-md);"></div>
         <div class="card-subtitle" style="margin-bottom: var(--space-md);">
-            {{ _('default_limit_hint') }}
+            {{ _ "default_limit_hint" }}
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); margin-bottom: var(--space-lg);">
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="white-space: nowrap;">{{ _('default_speed_limit_down') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="defaultSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label" style="white-space: nowrap;">{{ _ "default_speed_limit_down" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="defaultSpeedLimitDown" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
             <div class="form-group" style="margin-bottom: 0;">
-                <label class="form-label" style="white-space: nowrap;">{{ _('default_speed_limit_up') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="defaultSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label" style="white-space: nowrap;">{{ _ "default_speed_limit_up" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="defaultSpeedLimitUp" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
         </div>
         <div class="flex gap-sm">
             <button class="btn btn-primary" onclick="saveAwgSpeedLimitConfig()" style="flex:1; min-width:0;" id="saveAwgSpeedLimitBtn">
-                {{ _('save') }}
+                {{ _ "save" }}
             </button>
             <button class="btn btn-secondary" onclick="applyDefaultSpeedLimits()" style="flex:1; min-width:0;" id="applyDefaultSpeedLimitBtn">
-                {{ _('apply_to_all') }}
+                {{ _ "apply_to_all" }}
             </button>
         </div>
         <div id="awgSpeedLimitStatus" style="margin-top: var(--space-sm); text-align: center; font-size: 0.85rem;"></div>
@@ -253,7 +234,7 @@
     <div class="clients-header">
         <h2 class="section-title" style="margin-bottom:0;">
             <span class="icon">🔗</span>
-            {{ _('connections') }}
+            {{ _ "connections" }}
         </h2>
         <div class="flex gap-sm items-center">
             <select class="form-select" id="connProtoSelect" onchange="loadConnections()"
@@ -262,7 +243,7 @@
                 <option value="telemt">MTProxyL</option>
             </select>
             <button class="btn btn-primary btn-sm" onclick="openAddConnectionModal()">
-                <span>＋</span> {{ _('add') }}
+                <span>＋</span> {{ _ "add" }}
             </button>
         </div>
     </div>
@@ -270,12 +251,12 @@
     <div id="connectionsList">
         <div class="loading-overlay" id="connectionsLoading" style="display:none;">
             <div class="loading-spinner"></div>
-            <span>{{ _('loading_connections') }}</span>
+            <span>{{ _ "loading_connections" }}</span>
         </div>
         <div id="connectionsEmpty" class="empty-state hidden" style="padding: var(--space-xl) 0;">
             <div class="empty-icon">🔗</div>
-            <div class="empty-title">{{ _('no_connections') }}</div>
-            <div class="empty-desc">{{ _('no_connections_desc') }}</div>
+            <div class="empty-title">{{ _ "no_connections" }}</div>
+            <div class="empty-desc">{{ _ "no_connections_desc" }}</div>
         </div>
         <div class="clients-list" id="connectionsListInner"></div>
     </div>
@@ -285,21 +266,21 @@
 <div class="modal-backdrop" id="installModal">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title" id="installModalTitle">{{ _('install_protocol') }}</h2>
+            <h2 class="modal-title" id="installModalTitle">{{ _ "install_protocol" }}</h2>
             <button class="modal-close" onclick="closeModal('installModal')">×</button>
         </div>
 
         <div id="installForm">
             <div class="form-group">
-                <label class="form-label" id="installPortLabel">{{ _('port') }}</label>
+                <label class="form-label" id="installPortLabel">{{ _ "port" }}</label>
                 <input class="form-input" type="number" id="installPort" value="55424" min="1" max="65535">
-                <div class="form-hint" id="installPortHint">{{ _('port_default_hint') }}</div>
+                <div class="form-hint" id="installPortHint">{{ _ "port_default_hint" }}</div>
             </div>
 
             <div id="telemtOptions" style="display:none; margin-bottom: var(--space-md);">
                 <div class="form-group">
                     <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                        {{ _('tls_emulation') }}
+                        {{ _ "tls_emulation" }}
                         <label class="switch">
                             <input type="checkbox" id="installTelemtTls" checked
                                 onchange="document.getElementById('telemtDomainGroup').style.display = this.checked ? 'block' : 'none'">
@@ -308,41 +289,41 @@
                     </label>
                 </div>
                 <div class="form-group" id="telemtDomainGroup">
-                    <label class="form-label">{{ _('tls_domain') }}</label>
+                    <label class="form-label">{{ _ "tls_domain" }}</label>
                     <input class="form-input" type="text" id="installTelemtDomain" value="petrovich.ru">
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('max_connections_limit') }}</label>
+                    <label class="form-label">{{ _ "max_connections_limit" }}</label>
                     <input class="form-input" type="number" id="installTelemtMaxConns" value="0" min="0">
-                    <div class="form-hint">{{ _('max_connections_hint') }}</div>
+                    <div class="form-hint">{{ _ "max_connections_hint" }}</div>
                 </div>
             </div>
 
             <div id="awgOptions" style="display:none; margin-bottom: var(--space-md);">
                 <div class="form-group">
-                    <label class="form-label">{{ _('awg_obfuscation_profile') }}</label>
+                    <label class="form-label">{{ _ "awg_obfuscation_profile" }}</label>
                     <select class="form-input" id="installAwgProfile">
-                        <option value="standard" selected>{{ _('awg_profile_standard') }} — {{ _('awg_profile_standard_desc') }}</option>
-                        <option value="lite">{{ _('awg_profile_lite') }} — {{ _('awg_profile_lite_desc') }}</option>
-                        <option value="pro">{{ _('awg_profile_pro') }} — {{ _('awg_profile_pro_desc') }}</option>
+                        <option value="standard" selected>{{ _ "awg_profile_standard" }} — {{ _ "awg_profile_standard_desc" }}</option>
+                        <option value="lite">{{ _ "awg_profile_lite" }} — {{ _ "awg_profile_lite_desc" }}</option>
+                        <option value="pro">{{ _ "awg_profile_pro" }} — {{ _ "awg_profile_pro_desc" }}</option>
                     </select>
-                    <div class="form-hint">{{ _('awg_profile_hint') }}</div>
+                    <div class="form-hint">{{ _ "awg_profile_hint" }}</div>
                 </div>
                 <div class="form-group" id="awgCpsProtocolGroup" style="display:none;">
-                    <label class="form-label">{{ _('awg_cps_protocol') }}</label>
+                    <label class="form-label">{{ _ "awg_cps_protocol" }}</label>
                     <select class="form-input" id="installAwgCpsProtocol">
                         <option value="quic" selected>QUIC</option>
                         <option value="dns">DNS</option>
                         <option value="sip">SIP</option>
                     </select>
-                    <div class="form-hint">{{ _('awg_cps_protocol_hint') }}</div>
+                    <div class="form-hint">{{ _ "awg_cps_protocol_hint" }}</div>
                 </div>
             </div>
 
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('installModal')">{{ _('cancel') }}</button>
+                <button class="btn btn-secondary" onclick="closeModal('installModal')">{{ _ "cancel" }}</button>
                 <button class="btn btn-primary" onclick="installProtocol()" id="installBtn">
-                    <span id="installBtnText">{{ _('install') }}</span>
+                    <span id="installBtnText">{{ _ "install" }}</span>
                     <div class="spinner hidden" id="installSpinner"></div>
                 </button>
             </div>
@@ -356,7 +337,7 @@
             <div class="mt-md" id="installDone" style="display:none;">
                 <button class="btn btn-primary" onclick="closeModal('installModal'); window.location.reload();"
                     style="width:100%">
-                    {{ _('done') }}
+                    {{ _ "done" }}
                 </button>
             </div>
         </div>
@@ -367,23 +348,23 @@
 <div class="modal-backdrop" id="addConnectionModal">
     <div class="modal">
         <div class="modal-header">
-            <h2 class="modal-title" id="addConnectionModalTitle">{{ _('add_connection') }}</h2>
+            <h2 class="modal-title" id="addConnectionModalTitle">{{ _ "add_connection" }}</h2>
             <button class="modal-close" onclick="closeModal('addConnectionModal')">×</button>
         </div>
 
         <div class="form-group" id="connectionNameGroup">
-            <label class="form-label">{{ _('connection_name') }}</label>
+            <label class="form-label">{{ _ "connection_name" }}</label>
             <input class="form-input" type="text" id="connectionName"
-                placeholder="{{ _('connection_name_placeholder') }}">
+                placeholder="{{ _ "connection_name_placeholder" }}">
         </div>
 
         <div class="form-group">
-            <label class="form-label">{{ _('assign_to_user') }}</label>
+            <label class="form-label">{{ _ "assign_to_user" }}</label>
             <select class="form-select" id="connectionUserId">
-                <option value="">{{ _('no_assign') }}</option>
-                {% for u in users %}
-                <option value="{{ u.id }}">{{ u.username }} ({{ u.role }})</option>
-                {% endfor %}
+                <option value="">{{ _ "no_assign" }}</option>
+                {{ range $u := .users }}
+                <option value="{{ $u.ID }}">{{ $u.Username }} ({{ $u.Role }})</option>
+                {{ end }}
             </select>
         </div>
 
@@ -407,13 +388,13 @@
         <div id="awgMimicryOptions"
             style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
             <div class="form-group">
-                <label class="form-label">{{ _('awg_mimicry') }}</label>
+                <label class="form-label">{{ _ "awg_mimicry" }}</label>
                 <select class="form-select" id="awgMimicryProfile">
-                    <option value="auto" selected>{{ _('mimicry_auto') }}</option>
-                    <option value="tls">{{ _('mimicry_tls') }}</option>
-                    <option value="quic">{{ _('mimicry_quic') }}</option>
-                    <option value="dns">{{ _('mimicry_dns') }}</option>
-                    <option value="sip">{{ _('mimicry_sip') }}</option>
+                    <option value="auto" selected>{{ _ "mimicry_auto" }}</option>
+                    <option value="tls">{{ _ "mimicry_tls" }}</option>
+                    <option value="quic">{{ _ "mimicry_quic" }}</option>
+                    <option value="dns">{{ _ "mimicry_dns" }}</option>
+                    <option value="sip">{{ _ "mimicry_sip" }}</option>
                 </select>
                 <div class="form-hint">Auto enables continuous handshake monitoring and intelligent DPI failover.</div>
             </div>
@@ -422,21 +403,21 @@
         <div id="awgSpeedLimitOptions"
             style="display:none; padding: var(--space-md); background: rgba(0,0,0,0.03); border-radius: var(--radius-md); margin-bottom: var(--space-md);">
             <div class="form-group">
-                <label class="form-label">{{ _('speed_limit_down') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="awgSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
-                <div class="form-hint">{{ _('speed_limit_down_hint') }}</div>
+                <label class="form-label">{{ _ "speed_limit_down" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="awgSpeedLimitDown" placeholder="{{ _ "empty_unlimited" }}" min="0">
+                <div class="form-hint">{{ _ "speed_limit_down_hint" }}</div>
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('speed_limit_up') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="awgSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
-                <div class="form-hint">{{ _('speed_limit_up_hint') }}</div>
+                <label class="form-label">{{ _ "speed_limit_up" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="awgSpeedLimitUp" placeholder="{{ _ "empty_unlimited" }}" min="0">
+                <div class="form-hint">{{ _ "speed_limit_up_hint" }}</div>
             </div>
         </div>
 
         <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeModal('addConnectionModal')">{{ _('cancel') }}</button>
+            <button class="btn btn-secondary" onclick="closeModal('addConnectionModal')">{{ _ "cancel" }}</button>
             <button class="btn btn-primary" onclick="addConnection()" id="addConnBtn">
-                <span id="addConnBtnText">{{ _('create') }}</span>
+                <span id="addConnBtnText">{{ _ "create" }}</span>
                 <div class="spinner hidden" id="addConnSpinner"></div>
             </button>
         </div>
@@ -447,25 +428,25 @@
 <div class="modal-backdrop" id="editSpeedLimitModal">
     <div class="modal" style="max-width: 400px;">
         <div class="modal-header">
-            <h2 class="modal-title">{{ _('edit_speed_limit') }}</h2>
+            <h2 class="modal-title">{{ _ "edit_speed_limit" }}</h2>
             <button class="modal-close" onclick="closeModal('editSpeedLimitModal')">×</button>
         </div>
         <div style="padding: var(--space-md) 0;">
             <div class="form-group">
-                <label class="form-label">{{ _('speed_limit_down') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="editSpeedLimitDown" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label">{{ _ "speed_limit_down" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="editSpeedLimitDown" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
             <div class="form-group">
-                <label class="form-label">{{ _('speed_limit_up') }} ({{ _('mbps') }})</label>
-                <input class="form-input" type="number" id="editSpeedLimitUp" placeholder="{{ _('empty_unlimited') }}" min="0">
+                <label class="form-label">{{ _ "speed_limit_up" }} ({{ _ "mbps" }})</label>
+                <input class="form-input" type="number" id="editSpeedLimitUp" placeholder="{{ _ "empty_unlimited" }}" min="0">
             </div>
         </div>
         <div class="flex gap-sm" style="padding-bottom: var(--space-md);">
-            <button class="btn btn-danger" onclick="clearSpeedLimits()" style="flex:1;">{{ _('remove_limits') }}</button>
-            <button class="btn btn-primary" onclick="saveSpeedLimits()" style="flex:1;">{{ _('save') }}</button>
+            <button class="btn btn-danger" onclick="clearSpeedLimits()" style="flex:1;">{{ _ "remove_limits" }}</button>
+            <button class="btn btn-primary" onclick="saveSpeedLimits()" style="flex:1;">{{ _ "save" }}</button>
         </div>
         <div style="padding-bottom: var(--space-sm);">
-            <button class="btn btn-secondary" onclick="closeModal('editSpeedLimitModal')" style="width:100%;">{{ _('cancel') }}</button>
+            <button class="btn btn-secondary" onclick="closeModal('editSpeedLimitModal')" style="width:100%;">{{ _ "cancel" }}</button>
         </div>
     </div>
 </div>
@@ -474,16 +455,16 @@
 <div class="modal-backdrop" id="configModal">
     <div class="modal" style="max-width: 600px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="configModalTitle">{{ _('config') }}</h2>
+            <h2 class="modal-title" id="configModalTitle">{{ _ "config" }}</h2>
             <button class="modal-close" onclick="closeModal('configModal')">×</button>
         </div>
 
         <!-- Tabs -->
         <div class="config-tabs">
-            <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _('config_tab') }}</button>
-            <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _('vpn_key_tab') }}</button>
-            <button class="config-tab" onclick="switchConfigTab('qr')">{{ _('qr_code_tab') }}</button>
-            <button class="config-tab" id="tab-kit-btn" onclick="switchConfigTab('kit')">{{ _('connection_kit') }}</button>
+            <button class="config-tab active" onclick="switchConfigTab('conf')">{{ _ "config_tab" }}</button>
+            <button class="config-tab" onclick="switchConfigTab('vpn')">{{ _ "vpn_key_tab" }}</button>
+            <button class="config-tab" onclick="switchConfigTab('qr')">{{ _ "qr_code_tab" }}</button>
+            <button class="config-tab" id="tab-kit-btn" onclick="switchConfigTab('kit')">{{ _ "connection_kit" }}</button>
         </div>
 
         <!-- Config Panel -->
@@ -492,11 +473,11 @@
                 <div class="config-text" id="configText"></div>
                 <div class="config-actions">
                     <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentConfig)" style="flex:1">
-                        {{ _('copy') }}
+                        {{ _ "copy" }}
                     </button>
                     <button class="btn btn-primary btn-sm"
                         onclick="downloadFile(currentConfig, currentConfigName + '.conf')" style="flex:1">
-                        {{ _('download_conf') }}
+                        {{ _ "download_conf" }}
                     </button>
                 </div>
             </div>
@@ -504,7 +485,7 @@
 
         <!-- Connection Kit Panel -->
         <div class="config-panel" id="panel-kit">
-            <div class="form-hint" style="margin-bottom: var(--space-sm);">{{ _('connection_kit_desc') }}</div>
+            <div class="form-hint" style="margin-bottom: var(--space-sm);">{{ _ "connection_kit_desc" }}</div>
             <div id="connectionKitList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
         </div>
 
@@ -513,11 +494,11 @@
             <div class="vpn-link-box" id="vpnLinkText"></div>
             <div class="config-actions" style="margin-top: var(--space-sm);">
                 <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(currentVpnLink)" style="flex:1">
-                    {{ _('copy_key') }}
+                    {{ _ "copy_key" }}
                 </button>
             </div>
             <div class="form-hint" style="margin-top: var(--space-sm);">
-                {{ _('vpn_link_hint') }}
+                {{ _ "vpn_link_hint" }}
             </div>
         </div>
 
@@ -525,36 +506,36 @@
         <div class="config-panel" id="panel-qr">
             <div class="qr-container">
                 <div id="qrCode"></div>
-                <div class="qr-hint" id="qrHint">{{ _('qr_hint') }}</div>
+                <div class="qr-hint" id="qrHint">{{ _ "qr_hint" }}</div>
             </div>
         </div>
     </div>
 </div>
+
 <!-- ===== Server Config Modal ===== -->
 <div class="modal-backdrop" id="serverConfigModal">
     <div class="modal" style="max-width:680px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="serverConfigModalTitle">{{ _('server_config') }}</h2>
+            <h2 class="modal-title" id="serverConfigModalTitle">{{ _ "server_config" }}</h2>
             <button class="modal-close" onclick="closeModal('serverConfigModal')">×</button>
         </div>
         <div class="config-display" style="margin-top:var(--space-md);">
-            <!-- Hidden input to store current proto -->
             <input type="hidden" id="serverConfigProto" value="" />
             <textarea class="form-input" id="serverConfigText"
                 style="width:100%; height:40vh; resize:vertical; font-family:monospace; white-space:pre; padding:var(--space-sm);"></textarea>
             <div class="config-actions" style="margin-top:var(--space-sm);">
                 <button class="btn btn-secondary btn-sm"
                     onclick="copyToClipboard(document.getElementById('serverConfigText').value)" style="flex:1">
-                    {{ _('copy') }}
+                    {{ _ "copy" }}
                 </button>
                 <button class="btn btn-secondary btn-sm"
                     onclick="downloadFile(document.getElementById('serverConfigText').value, serverConfigFilename)"
                     style="flex:1">
-                    {{ _('download') }}
+                    {{ _ "download" }}
                 </button>
                 <button class="btn btn-primary btn-sm" onclick="saveServerConfig()" style="flex:1"
                     id="saveServerConfigBtn">
-                    {{ _('save') }}
+                    {{ _ "save" }}
                 </button>
             </div>
         </div>
@@ -565,7 +546,7 @@
 <div class="modal-backdrop" id="autoTrialModal">
     <div class="modal" style="max-width: 600px;">
         <div class="modal-header">
-            <h2 class="modal-title" id="autoTrialModalTitle">🎯 {{ _('start_auto_trial') }}</h2>
+            <h2 class="modal-title" id="autoTrialModalTitle">🎯 {{ _ "start_auto_trial" }}</h2>
             <button class="modal-close" onclick="closeModal('autoTrialModal')">×</button>
         </div>
         <div style="margin-bottom: var(--space-md);">
@@ -575,15 +556,15 @@
             <div id="autoTrialList" style="display: flex; flex-direction: column; gap: 0.75rem;"></div>
         </div>
         <div class="modal-footer">
-            <button type="button" class="btn btn-primary" onclick="closeModal('autoTrialModal')">{{ _('done') if _('done') != 'done' else 'Close' }}</button>
+            <button type="button" class="btn btn-primary" onclick="closeModal('autoTrialModal')">{{ _ "done" }}</button>
         </div>
     </div>
 </div>
-{% endblock %}
+{{ end }}
 
-{% block scripts %}
+{{ define "scripts" }}
 <script>
-    const SERVER_ID = {{ server_id }};
+    const SERVER_ID = {{ .server_id }};
     let currentInstallProto = 'awg';
     let currentConfig = '';
     let currentVpnLink = '';
@@ -658,7 +639,7 @@
             if (!overallBadge) return;
 
             if (!reach) {
-                overallBadge.innerHTML = `<span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('pending') || 'Pending'}</span>`;
+                overallBadge.innerHTML = `<span class="badge badge-warn" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('pending')}</span>`;
                 if (mimicryBadges) mimicryBadges.innerHTML = '';
                 if (awgMimicryBadges) awgMimicryBadges.innerHTML = '';
                 if (lastCheckedEl) lastCheckedEl.textContent = '';
@@ -666,10 +647,10 @@
             }
 
             if (reach.reachable) {
-                const latency = (reach.latency_ms !== null && reach.latency_ms !== undefined) ? `${reach.latency_ms}ms` : (_('reachable') || 'Reachable');
+                const latency = (reach.latency_ms !== null && reach.latency_ms !== undefined) ? `${reach.latency_ms}ms` : _('reachable');
                 overallBadge.innerHTML = `<span class="badge badge-success" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${escapeHtml(latency)}</span>`;
             } else {
-                overallBadge.innerHTML = `<span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('unreachable') || 'Unreachable'}</span>`;
+                overallBadge.innerHTML = `<span class="badge badge-danger" style="font-size: 0.7rem; padding: 2px 6px;"><span class="badge-dot"></span> ${_('unreachable')}</span>`;
             }
 
             if (lastCheckedEl && reach.last_checked) {
@@ -686,11 +667,11 @@
                     const label = p.toUpperCase();
                     if (trial && trial.reachable) {
                         const lat = (trial.latency_ms !== null && trial.latency_ms !== undefined) ? ` (${trial.latency_ms}ms)` : '';
-                        badgesHtml += `<span class="badge badge-success" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('reachable') || 'Reachable'}${escapeHtml(lat)}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                        badgesHtml += `<span class="badge badge-success" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('reachable')}${escapeHtml(lat)}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
                     } else if (trial && !trial.reachable) {
-                        badgesHtml += `<span class="badge badge-danger" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('unreachable') || 'Unreachable'}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                        badgesHtml += `<span class="badge badge-danger" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px;" title="${escapeHtml(label)}: ${_('unreachable')}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
                     } else {
-                        badgesHtml += `<span class="badge badge-warn" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px; opacity: 0.7;" title="${escapeHtml(label)}: ${_('pending') || 'Pending'}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
+                        badgesHtml += `<span class="badge badge-warn" id="mimicry-badge-${escapeHtml(p)}" style="font-size: 0.7rem; padding: 2px 6px; opacity: 0.7;" title="${escapeHtml(label)}: ${_('pending')}"><span class="badge-dot"></span> ${escapeHtml(label)}</span>`;
                     }
                 }
                 if (mimicryBadges) mimicryBadges.innerHTML = badgesHtml;
@@ -708,7 +689,7 @@
         const spinner = document.getElementById('checkSpinner');
         btn.disabled = true;
         text.textContent = _('server_checking');
-        spinner.classList.remove('remove');
+        spinner.classList.remove('hidden');
         try {
             const data = await apiCall(`/api/servers/${SERVER_ID}/check`, 'POST');
             const statusDiv = document.getElementById('serverStatus');
@@ -921,7 +902,6 @@
             showToast(`${action} ${name}...`, 'info');
             const res = await apiCall(`/api/servers/${SERVER_ID}/container/toggle`, 'POST', { protocol: proto });
             showToast(`${name} ${res.action === 'stopped' ? _('stopped') : _('started')}`, 'success');
-            // Recheck after a short delay
             setTimeout(() => checkServer(), 1500);
         } catch (err) {
             showToast(_('error') + ': ' + err.message, 'error');
@@ -951,23 +931,22 @@
         const btn = document.getElementById('saveServerConfigBtn');
         const oldText = btn.textContent;
         btn.disabled = true;
-        btn.textContent = _('saving') || 'Saving...';
+        btn.textContent = _('saving');
 
         try {
             await apiCall(`/api/servers/${SERVER_ID}/server_config/save`, 'POST', {
                 protocol: proto,
                 config: newConfig
             });
-            showToast(_('success') || 'Saved successfully', 'success');
+            showToast(_('success'), 'success');
             closeModal('serverConfigModal');
         } catch (err) {
-            showToast((_('error') || 'Error') + ': ' + err.message, 'error');
+            showToast(_('error') + ': ' + err.message, 'error');
         } finally {
             btn.disabled = false;
             btn.textContent = oldText;
         }
     }
-
 
     function showConnectionsSection() {
         const section = document.getElementById('connectionsSection');
@@ -991,7 +970,7 @@
     function openInstallModal(proto) {
         currentInstallProto = proto;
         const name = getProtoTitle(proto);
-            document.getElementById('installModalTitle').textContent = `${_('install')} ${name}`;
+        document.getElementById('installModalTitle').textContent = `${_('install')} ${name}`;
 
         const portInput = document.getElementById('installPort');
         const portLabel = document.getElementById('installPortLabel');
@@ -1010,6 +989,7 @@
         } else if (proto === 'telemt') {
             portLabel.textContent = _('port') + ' (TCP)';
             portInput.value = '443';
+            portInput.disabled = false;
             portHint.textContent = 'Порт для Telegram-прокси (обычно 443)';
             telemtOpts.style.display = 'block';
         } else {
@@ -1156,7 +1136,6 @@
                 const sent = userData.dataSent || '';
                 const initial = name.charAt(0).toUpperCase();
                 const enabled = (client.enabled !== undefined) ? client.enabled : (userData.enabled !== false);
-                const hasPrivKey = !!userData.clientPrivateKey || proto === 'telemt';
                 const assignedUser = client.assigned_user || '';
 
                 let metaHtml = '';
@@ -1177,7 +1156,6 @@
 
                 if (!enabled) metaHtml += `<span class="badge badge-danger" style="font-size:0.65rem">${_('stop')}</span>`;
 
-                // AWG speed limit badges
                 if (proto === 'awg' && (userData.speed_limit_down || userData.speed_limit_up)) {
                     const down = userData.speed_limit_down;
                     const up = userData.speed_limit_up;
@@ -1187,7 +1165,6 @@
                     if (parts.length) metaHtml += `<span class="badge badge-warn" style="font-size:0.65rem;">⚡${parts.join(' ')} Mbps</span>`;
                 }
 
-                // AWG mimicry profile badge
                 if (proto === 'awg') {
                     const mimicry = userData.awg_mimicry || 'auto';
                     if (mimicry === 'auto') {
@@ -1200,14 +1177,10 @@
                 const disabledStyle = enabled ? '' : 'opacity:0.5;';
                 const toggleIcon = enabled ? '🔵' : '⚫';
                 const toggleTitle = enabled ? _('stop') : _('starting');
-                // Show config button for all WireGuard-based clients.
-                // If clientPrivateKey is missing (created via native app), we show a warning instead.
-                const canShowConfig = true; // always show 📄 button
 
-                // AWG edit speed limit, auto trial & rotate buttons
-                const awgSpeedBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="openEditSpeedLimitModal('${escapeJs(client.clientId)}')" title="${_('edit_speed_limit')}">⚡</button>` : '';
-                const awgTrialBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="startAutoTrial('${escapeJs(client.clientId)}', '${escapeJs(name)}')" title="${_('start_auto_trial')}">🎯</button>` : '';
-                const awgRotateBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="rotateClientMimicry('${escapeJs(client.clientId)}')" title="${_('rotate_profile')}">🔄</button>` : '';
+                const awgSpeedBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" onclick="openEditSpeedLimitModal(this.dataset.cid)" title="${_('edit_speed_limit')}">⚡</button>` : '';
+                const awgTrialBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" data-cname="${escapeHtml(name)}" onclick="startAutoTrial(this.dataset.cid, this.dataset.cname)" title="${_('start_auto_trial')}">🎯</button>` : '';
+                const awgRotateBtn = proto === 'awg' ? `<button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" onclick="rotateClientMimicry(this.dataset.cid)" title="${_('rotate_profile')}">🔄</button>` : '';
 
                 listEl.innerHTML += `
                     <div class="client-item" style="${disabledStyle}">
@@ -1219,13 +1192,13 @@
                             </div>
                         </div>
                         <div class="client-actions">
-                            <button class="btn btn-secondary btn-sm btn-icon" onclick="showConnectionConfig('${escapeJs(client.clientId)}', '${escapeJs(name)}', ${!!userData.clientPrivateKey || proto === 'telemt'})" title="${_('config')}">📄</button>
+                            <button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" data-cname="${escapeHtml(name)}" data-haskey="${!!userData.clientPrivateKey || proto === 'telemt'}" onclick="showConnectionConfig(this.dataset.cid, this.dataset.cname, this.dataset.haskey === 'true')" title="${_('config')}">📄</button>
                             ${awgSpeedBtn}
                             ${awgTrialBtn}
                             ${awgRotateBtn}
-                            ${proto === 'telemt' ? `<button class="btn btn-secondary btn-sm btn-icon" onclick="editConnection('${escapeJs(client.clientId)}')" title="${_('edit')}">✏️</button>` : ''}
-                            <button class="btn btn-secondary btn-sm btn-icon" onclick="toggleConnection('${escapeJs(client.clientId)}', ${!enabled})" title="${toggleTitle}">${toggleIcon}</button>
-                            <button class="btn btn-danger btn-sm btn-icon" onclick="removeConnection('${escapeJs(client.clientId)}')" title="${_('delete')}">🗑</button>
+                            ${proto === 'telemt' ? `<button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" onclick="editConnection(this.dataset.cid)" title="${_('edit')}">✏️</button>` : ''}
+                            <button class="btn btn-secondary btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" data-enabled="${!enabled}" onclick="toggleConnection(this.dataset.cid, this.dataset.enabled === 'true')" title="${toggleTitle}">${toggleIcon}</button>
+                            <button class="btn btn-danger btn-sm btn-icon" data-cid="${escapeHtml(client.clientId)}" onclick="removeConnection(this.dataset.cid)" title="${_('delete')}">🗑</button>
                         </div>
                     </div>
                 `;
@@ -1255,12 +1228,14 @@
                             <div class="flex items-center justify-between" style="margin-bottom: 0.5rem;">
                                 <span style="font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">🛡 ${escapeHtml(protoKey)} Profile</span>
                                 <div class="flex gap-sm">
-                                    <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard(\`${escapeJs(confText)}\`)">${_('copy')}</button>
-                                    <button type="button" class="btn btn-primary btn-sm" onclick="downloadFile(\`${escapeJs(confText)}\`, '${escapeJs(connName || 'trial')}_${protoKey}.conf')">${_('download')}</button>
+                                    <button type="button" class="btn btn-secondary btn-sm btn-kit-copy">${_('copy')}</button>
+                                    <button type="button" class="btn btn-primary btn-sm btn-kit-dl">${_('download')}</button>
                                 </div>
                             </div>
                             <pre style="font-size: 0.72rem; max-height: 80px; overflow-y: auto; margin: 0; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 4px;"><code>${escapeHtml(confText)}</code></pre>
                         `;
+                        item.querySelector('.btn-kit-copy').onclick = () => copyToClipboard(confText);
+                        item.querySelector('.btn-kit-dl').onclick = () => downloadFile(confText, `${connName || 'trial'}_${protoKey}.conf`);
                         trialList.appendChild(item);
                     }
                 }
@@ -1305,7 +1280,6 @@
             } else {
                 params.name = connName || 'Connection';
             }
-            // AWG speed limits & mimicry profile
             if (proto === 'awg') {
                 const downVal = document.getElementById('awgSpeedLimitDown').value;
                 const upVal = document.getElementById('awgSpeedLimitUp').value;
@@ -1376,7 +1350,6 @@
         document.getElementById('connectionName').value = (isEdit && clientData && (clientData.name || clientData.clientName)) ? (clientData.name || clientData.clientName) : '';
         document.getElementById('connectionUserId').value = (isEdit && clientData && clientData.assigned_user_id) ? clientData.assigned_user_id : '';
 
-        // AWG speed limit & mimicry options
         if (proto === 'awg') {
             awgSpeedOpts.style.display = 'block';
             if (awgMimicryOpts) awgMimicryOpts.style.display = isEdit ? 'none' : 'block';
@@ -1452,12 +1425,14 @@
                         <div class="flex items-center justify-between" style="margin-bottom: 0.5rem;">
                             <span style="font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">🛡 ${escapeHtml(protoKey)} Profile</span>
                             <div class="flex gap-sm">
-                                <button type="button" class="btn btn-secondary btn-sm" onclick="copyToClipboard(\`${escapeJs(confText)}\`)">${_('copy')}</button>
-                                <button type="button" class="btn btn-primary btn-sm" onclick="downloadFile(\`${escapeJs(confText)}\`, '${escapeJs(connName)}_${protoKey}.conf')">${_('download')}</button>
+                                <button type="button" class="btn btn-secondary btn-sm btn-kit-copy">${_('copy')}</button>
+                                <button type="button" class="btn btn-primary btn-sm btn-kit-dl">${_('download')}</button>
                             </div>
                         </div>
                         <pre style="font-size: 0.72rem; max-height: 80px; overflow-y: auto; margin: 0; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 4px;"><code>${escapeHtml(confText)}</code></pre>
                     `;
+                    item.querySelector('.btn-kit-copy').onclick = () => copyToClipboard(confText);
+                    item.querySelector('.btn-kit-dl').onclick = () => downloadFile(confText, `${connName}_${protoKey}.conf`);
                     kitList.appendChild(item);
                 }
             }
@@ -1469,7 +1444,6 @@
     async function showConnectionConfig(clientId, connName, hasKey) {
         const proto = document.getElementById('connProtoSelect').value;
 
-        // Restore tabs visibility first
         document.getElementById('panel-vpn').style.display = (proto === 'telemt' ? 'none' : '');
         document.getElementById('panel-qr').style.display = '';
         document.querySelectorAll('.config-tab')[1].style.display = (proto === 'telemt' ? 'none' : '');
@@ -1484,7 +1458,6 @@
 
         document.getElementById('qrHint').textContent = (proto === 'telemt') ? _('qr_hint_telemt') : _('qr_hint');
 
-        // Client was created via native Amnezia app — private key is not stored server-side
         if (!hasKey) {
             document.getElementById('configModalTitle').textContent = `${_('config')} — ${connName}`;
             currentConfig = '';
@@ -1537,7 +1510,6 @@
         }
     }
 
-    // ========== Config Tabs ==========
     function switchConfigTab(tab) {
         document.querySelectorAll('.config-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.config-panel').forEach(p => p.classList.remove('active'));
@@ -1563,7 +1535,6 @@
         }
     }
 
-    // ========== Utilities ==========
     function formatDate(dateStr) {
         try {
             const d = new Date(dateStr);
@@ -1572,9 +1543,6 @@
         } catch { return dateStr; }
     }
 
-    // escapeHtml and escapeJs are now defined globally in base.html
-
-    // ========== Management ==========
     async function rebootServer() {
         if (!confirm('Are you sure you want to reboot the server? Disconnections will occur.')) return;
         try {
@@ -1608,8 +1576,6 @@
         }
     }
 
-    // ========== Init ==========
-    // CPS protocol dropdown visibility toggle
     document.getElementById('installAwgProfile').addEventListener('change', function() {
         const cpsGroup = document.getElementById('awgCpsProtocolGroup');
         if (this.value === 'pro') {
@@ -1619,7 +1585,6 @@
         }
     });
 
-    // ========== AWG Speed Limit ==========
     let editingSpeedLimitClientId = null;
 
     function openEditSpeedLimitModal(clientId) {
@@ -1637,7 +1602,7 @@
         const speed_down = (downVal !== '' && downVal !== null) ? parseInt(downVal) : null;
         const speed_up = (upVal !== '' && upVal !== null) ? parseInt(upVal) : null;
         try {
-            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
+            await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
                 client_id: editingSpeedLimitClientId,
                 speed_limit_down: speed_down,
                 speed_limit_up: speed_up,
@@ -1653,7 +1618,7 @@
     async function clearSpeedLimits() {
         if (!editingSpeedLimitClientId) return;
         try {
-            const result = await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
+            await apiCall(`/api/servers/${SERVER_ID}/connections/speed-limit`, 'PATCH', {
                 client_id: editingSpeedLimitClientId,
                 speed_limit_down: null,
                 speed_limit_up: null,
@@ -1739,7 +1704,6 @@
                 statusEl.style.color = 'var(--success)';
             }
             setTimeout(() => { statusEl.textContent = ''; }, 5000);
-            // Reload connections to show updated speed limit badges
             loadConnections();
         } catch (err) {
             statusEl.textContent = _('apply_to_all_error');
@@ -1757,4 +1721,4 @@
     updateReachability();
     setInterval(updateReachability, 30000);
 </script>
-{% endblock %}
+{{ end }}
