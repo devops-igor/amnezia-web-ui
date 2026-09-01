@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
@@ -75,16 +76,21 @@ func TestLeaderboardSnapshotPruning(t *testing.T) {
 	uID, _ := db.CreateUser(ctx, &models.User{Username: "prune_user", Enabled: true, TrafficResetStrategy: models.ResetStrategyMonthly})
 	_ = db.UpdateUserTraffic(ctx, uID, 1000, 2000)
 
-	_, _ = db.SaveLeaderboardSnapshot(ctx, 2026, 8)
-	_, _ = db.SaveLeaderboardSnapshot(ctx, 2026, 7)
+	now := time.Now()
+	currYear, currMonth := now.Year(), int(now.Month())
+	oldDate := now.AddDate(0, -2, 0)
+	oldYear, oldMonth := oldDate.Year(), int(oldDate.Month())
 
-	deletedOld, err := db.DeleteOldSnapshots(ctx, 0)
+	_, _ = db.SaveLeaderboardSnapshot(ctx, currYear, currMonth)
+	_, _ = db.SaveLeaderboardSnapshot(ctx, oldYear, oldMonth)
+
+	deletedOld, err := db.DeleteOldSnapshots(ctx, 1)
 	if err != nil || deletedOld != 1 {
-		t.Errorf("DeleteOldSnapshots(0) = (%d, %v), want (1, nil)", deletedOld, err)
+		t.Errorf("DeleteOldSnapshots(1) = (%d, %v), want (1, nil)", deletedOld, err)
 	}
 
 	historyAfterDelete, _ := db.GetLeaderboardHistory(ctx, 100)
 	if len(historyAfterDelete) != 1 {
-		t.Errorf("expected 1 snapshot remaining after pruning month 7, got %d", len(historyAfterDelete))
+		t.Errorf("expected 1 snapshot remaining after pruning, got %d", len(historyAfterDelete))
 	}
 }

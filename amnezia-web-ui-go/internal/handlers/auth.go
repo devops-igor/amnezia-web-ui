@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/devops-igor/amnezia-web-ui-go/internal/config"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
@@ -47,10 +48,7 @@ func (h *Handlers) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 // SetLangHandler sets preferred UI language cookie and redirects back safely.
 func (h *Handlers) SetLangHandler(w http.ResponseWriter, r *http.Request) {
 	lang := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "lang")))
-	switch lang {
-	case "en", "ru":
-		// valid
-	default:
+	if !config.IsValidLanguage(lang) {
 		lang = "en"
 	}
 	ref := CleanReferer(r.Header.Get("Referer"))

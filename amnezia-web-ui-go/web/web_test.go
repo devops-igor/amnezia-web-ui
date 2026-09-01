@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"io/fs"
 	"testing"
 )
@@ -20,6 +21,14 @@ func TestEmbeddedTranslations(t *testing.T) {
 		if len(data) == 0 {
 			t.Errorf("embedded translation %s is empty", langFile)
 		}
+
+		var parsed map[string]string
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Errorf("embedded translation %s is not valid JSON: %v", langFile, err)
+		}
+		if len(parsed) == 0 {
+			t.Errorf("embedded translation %s parsed to empty map", langFile)
+		}
 	}
 }
 
@@ -29,8 +38,22 @@ func TestEmbeddedStaticAndTemplates(t *testing.T) {
 		t.Fatalf("GetStaticSubFS failed: %v", err)
 	}
 
-	if _, err := fs.Stat(staticFS, "css"); err != nil {
-		t.Errorf("static/css directory not found in embed: %v", err)
+	staticDirs := []string{"css", "js"}
+	for _, dir := range staticDirs {
+		if _, err := fs.Stat(staticFS, dir); err != nil {
+			t.Errorf("static/%s directory not found in embed: %v", dir, err)
+		}
+	}
+
+	staticFiles := []string{
+		"css/style.css",
+		"js/qrcode.min.js",
+		"favicon.svg",
+	}
+	for _, file := range staticFiles {
+		if data, err := fs.ReadFile(staticFS, file); err != nil || len(data) == 0 {
+			t.Errorf("static/%s missing or empty: %v", file, err)
+		}
 	}
 
 	templatesFS, err := GetTemplatesSubFS()
@@ -38,7 +61,27 @@ func TestEmbeddedStaticAndTemplates(t *testing.T) {
 		t.Fatalf("GetTemplatesSubFS failed: %v", err)
 	}
 
-	if _, err := fs.Stat(templatesFS, "base.html"); err != nil {
-		t.Errorf("templates/base.html not found in embed: %v", err)
+	requiredTemplates := []string{
+		"base.html",
+		"index.html",
+		"server.html",
+		"users.html",
+		"my_connections.html",
+		"settings.html",
+		"login.html",
+		"setup.html",
+		"change_password.html",
+		"leaderboard.html",
+		"user_share.html",
+	}
+
+	for _, tmpl := range requiredTemplates {
+		data, err := fs.ReadFile(templatesFS, tmpl)
+		if err != nil {
+			t.Errorf("template %s not found in embed: %v", tmpl, err)
+		}
+		if len(data) == 0 {
+			t.Errorf("template %s is empty", tmpl)
+		}
 	}
 }

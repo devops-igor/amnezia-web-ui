@@ -1,11 +1,9 @@
-{% extends "base.html" %}
+{{ define "title_extra" }} — {{ _ "nav_settings" }}{{ end }}
 
-{% block title_extra %} — {{ _('nav_settings') }}{% endblock %}
-
-{% block content %}
+{{ define "content" }}
 <div class="section-title">
     <span class="icon">⚙️</span>
-    {{ _('settings_title') }}
+    {{ _ "settings_title" }}
 </div>
 
 <div class="grid"
@@ -14,29 +12,29 @@
     <div style="display: flex; flex-direction: column; gap: var(--space-lg);">
         <!-- BLOCK 1: Appearance -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('appearance') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _ "appearance" }}</h3>
             <form id="appearanceForm">
                 <div class="form-group">
-                    <label class="form-label">{{ _('title_label') }}</label>
-                    <input type="text" class="form-input" name="title" value="{{ settings.appearance.title }}" required>
+                    <label class="form-label">{{ _ "title_label" }}</label>
+                    <input type="text" class="form-input" name="title" value="{{ get (get .settings "appearance") "title" "Amnezia" }}" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('logo_label') }}</label>
-                    <input type="text" class="form-input" name="logo" value="{{ settings.appearance.logo }}" required>
+                    <label class="form-label">{{ _ "logo_label" }}</label>
+                    <input type="text" class="form-input" name="logo" value="{{ get (get .settings "appearance") "logo" "🛡" }}" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('subtitle_label') }}</label>
-                    <input type="text" class="form-input" name="subtitle" value="{{ settings.appearance.subtitle }}"
-                        required>
+                    <label class="form-label">{{ _ "subtitle_label" }}</label>
+                    <input type="text" class="form-input" name="subtitle" value="{{ get (get .settings "appearance") "subtitle" "Web Panel" }}" required>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('language_label') }}</label>
+                    <label class="form-label">{{ _ "language_label" }}</label>
                     <select class="form-select" name="language" id="appearance_language">
-                        {% for lang_code in ['en', 'ru', 'fr', 'zh', 'fa'] %}
-                        <option value="{{ lang_code }}" {% if settings.appearance.get('language', 'en') == lang_code %}selected{% endif %}>
-                            {{ _('lang_' + lang_code) }}
-                        </option>
-                        {% endfor %}
+                        {{ $currentAppLang := get (get .settings "appearance") "language" "en" }}
+                        <option value="en" {{ if eq $currentAppLang "en" }}selected{{ end }}>{{ _ "lang_en" }}</option>
+                        <option value="ru" {{ if eq $currentAppLang "ru" }}selected{{ end }}>{{ _ "lang_ru" }}</option>
+                        <option value="fr" {{ if eq $currentAppLang "fr" }}selected{{ end }}>{{ _ "lang_fr" }}</option>
+                        <option value="zh" {{ if eq $currentAppLang "zh" }}selected{{ end }}>{{ _ "lang_zh" }}</option>
+                        <option value="fa" {{ if eq $currentAppLang "fa" }}selected{{ end }}>{{ _ "lang_fa" }}</option>
                     </select>
                 </div>
             </form>
@@ -44,12 +42,12 @@
 
         <!-- BLOCK Captcha -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('captcha_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _ "captcha_title" }}</h3>
             <form id="captchaForm">
                 <div class="form-group">
                     <label class="form-label">
-                        <input type="checkbox" id="captcha_enabled" {% if captcha_settings.enabled %}checked{% endif %}>
-                        {{ _('enable_captcha') }}
+                        <input type="checkbox" id="captcha_enabled" {{ if .captcha_settings.Enabled }}checked{{ end }}>
+                        {{ _ "enable_captcha" }}
                     </label>
                 </div>
             </form>
@@ -57,14 +55,14 @@
 
         <!-- BLOCK 4: API Docs -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('api_docs_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _ "api_docs_title" }}</h3>
             <div style="display: flex; flex-direction: column; gap: var(--space-md);">
                 <a href="/docs" target="_blank" class="btn btn-secondary"
                     style="justify-content: flex-start; text-decoration: none;">
                     <span style="font-size: 1.2rem; margin-right: 10px;">📖</span>
                     <div style="text-align: left;">
                         <div style="font-weight: 600;">Swagger UI</div>
-                        <div style="font-size: 0.75rem; opacity: 0.7;">{{ _('api_docs_hint') }}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.7;">{{ _ "api_docs_hint" }}</div>
                     </div>
                 </a>
                 <a href="/redoc" target="_blank" class="btn btn-secondary"
@@ -72,56 +70,57 @@
                     <span style="font-size: 1.2rem; margin-right: 10px;">📑</span>
                     <div style="text-align: left;">
                         <div style="font-weight: 600;">ReDoc</div>
-                        <div style="font-size: 0.75rem; opacity: 0.7;">{{ _('api_docs_hint') }}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.7;">{{ _ "api_docs_hint" }}</div>
                     </div>
                 </a>
             </div>
-            <p class="form-hint" style="margin-top: var(--space-md);">{{ _('api_docs_hint') }}</p>
+            <p class="form-hint" style="margin-top: var(--space-md);">{{ _ "api_docs_hint" }}</p>
         </div>
 
         <!-- BLOCK SSL/HTTPS -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">🔒 {{ _('ssl_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">🔒 {{ _ "ssl_title" }}</h3>
             <form id="sslForm">
+                {{ $sslSettings := get .settings "ssl" }}
                 <div class="form-group">
                     <label class="form-label">
-                        <input type="checkbox" id="ssl_enabled" {% if settings.get('ssl', {}).get('enabled') %}checked{% endif %}>
-                        {{ _('enable_https') }}
+                        <input type="checkbox" id="ssl_enabled" {{ if get $sslSettings "enabled" }}checked{{ end }}>
+                        {{ _ "enable_https" }}
                     </label>
                 </div>
                 <div class="form-group" style="margin-top: var(--space-md);">
-                    <label class="form-label">{{ _('panel_port_label') }}</label>
-                    <input type="number" class="form-input" id="panel_port" value="{{ settings.get('ssl', {}).get('panel_port', 5000) }}" placeholder="5000">
+                    <label class="form-label">{{ _ "panel_port_label" }}</label>
+                    <input type="number" class="form-input" id="panel_port" value="{{ get $sslSettings "panel_port" 5000 }}" placeholder="5000">
                 </div>
-                <div id="sslFields" style="{% if not settings.get('ssl', {}).get('enabled') %}display:none;{% endif %} margin-top: var(--space-md);">
+                <div id="sslFields" style="{{ if not (get $sslSettings "enabled") }}display:none;{{ end }} margin-top: var(--space-md);">
                     <div class="form-group">
-                        <label class="form-label">{{ _('domain_label') }}</label>
-                        <input type="text" class="form-input" id="ssl_domain" value="{{ settings.get('ssl', {}).get('domain', '') }}" placeholder="vpn.example.com">
+                        <label class="form-label">{{ _ "domain_label" }}</label>
+                        <input type="text" class="form-input" id="ssl_domain" value="{{ get $sslSettings "domain" "" }}" placeholder="vpn.example.com">
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md);">
                         <div class="form-group">
-                            <label class="form-label">{{ _('cert_path_label') }}</label>
-                            <input type="text" class="form-input" id="ssl_cert_path" value="{{ settings.get('ssl', {}).get('cert_path', '') }}" placeholder="/etc/amnezia/cert.pem">
+                            <label class="form-label">{{ _ "cert_path_label" }}</label>
+                            <input type="text" class="form-input" id="ssl_cert_path" value="{{ get $sslSettings "cert_path" "" }}" placeholder="/etc/amnezia/cert.pem">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">{{ _('key_path_label') }}</label>
-                            <input type="text" class="form-input" id="ssl_key_path" value="{{ settings.get('ssl', {}).get('key_path', '') }}" placeholder="/etc/amnezia/key.pem">
+                            <label class="form-label">{{ _ "key_path_label" }}</label>
+                            <input type="text" class="form-input" id="ssl_key_path" value="{{ get $sslSettings "key_path" "" }}" placeholder="/etc/amnezia/key.pem">
                         </div>
                     </div>
 
-                    <div class="divider" style="margin: var(--space-md) 0;">{{ _('or_paste_text') }}</div>
+                    <div class="divider" style="margin: var(--space-md) 0;">{{ _ "or_paste_text" }}</div>
 
                     <div class="form-group">
-                        <label class="form-label">{{ _('cert_text_label') }}</label>
-                        <textarea class="form-input" id="ssl_cert_text" rows="4" placeholder="-----BEGIN CERTIFICATE----- ...">{{ settings.get('ssl', {}).get('cert_text', '') }}</textarea>
+                        <label class="form-label">{{ _ "cert_text_label" }}</label>
+                        <textarea class="form-input" id="ssl_cert_text" rows="4" placeholder="-----BEGIN CERTIFICATE----- ...">{{ get $sslSettings "cert_text" "" }}</textarea>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">{{ _('key_text_label') }}</label>
-                        <textarea class="form-input" id="ssl_key_text" rows="4" placeholder="-----BEGIN PRIVATE KEY----- ...">{{ settings.get('ssl', {}).get('key_text', '') }}</textarea>
+                        <label class="form-label">{{ _ "key_text_label" }}</label>
+                        <textarea class="form-input" id="ssl_key_text" rows="4" placeholder="-----BEGIN PRIVATE KEY----- ...">{{ get $sslSettings "key_text" "" }}</textarea>
                     </div>
 
-                    <p class="form-hint">{{ _('ssl_hint') }}</p>
+                    <p class="form-hint">{{ _ "ssl_hint" }}</p>
                 </div>
             </form>
         </div>
@@ -131,14 +130,14 @@
     <div style="display: flex; flex-direction: column; gap: var(--space-lg);">
         <!-- BLOCK 3: Import Users -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _('import_users_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">{{ _ "import_users_title" }}</h3>
             <form id="syncForm">
+                {{ $syncSettings := get .settings "sync" }}
                 <div class="form-group" style="margin-bottom: var(--space-lg);">
-                    <label class="form-label">{{ _('import_source_label') }}</label>
+                    <label class="form-label">{{ _ "import_source_label" }}</label>
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-sm);">
                         <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
-                            <input type="checkbox" name="remnawave_sync" {% if settings.sync.remnawave_sync %}checked{%
-                                endif %}> Remnawave
+                            <input type="checkbox" name="remnawave_sync" {{ if get $syncSettings "remnawave_sync" }}checked{{ end }}> Remnawave
                         </label>
                         <label
                             style="display: flex; align-items: center; gap: var(--space-sm); cursor: not-allowed; color: var(--text-muted);">
@@ -160,38 +159,37 @@
                 </div>
 
                 <div id="remnawaveFields"
-                    style="{% if not settings.sync.remnawave_sync %}display:none;{% endif %} border-top: 1px solid var(--border-color); padding-top: var(--space-md);">
+                    style="{{ if not (get $syncSettings "remnawave_sync") }}display:none;{{ end }} border-top: 1px solid var(--border-color); padding-top: var(--space-md);">
                     <div class="form-group">
-                        <label class="form-label">{{ _('remnawave_url_label') }}</label>
+                        <label class="form-label">{{ _ "remnawave_url_label" }}</label>
                         <input type="url" class="form-input" name="remnawave_url"
-                            value="{{ settings.sync.remnawave_url }}" placeholder="https://vpn.example.com">
+                            value="{{ get $syncSettings "remnawave_url" "" }}" placeholder="https://vpn.example.com">
                     </div>
                     <div class="form-group">
-                        <label class="form-label">{{ _('api_key_label') }}</label>
+                        <label class="form-label">{{ _ "api_key_label" }}</label>
                         <input type="password" class="form-input" name="remnawave_api_key"
-                            value="{{ settings.sync.remnawave_api_key }}" placeholder="Your secret key">
+                            value="{{ get $syncSettings "remnawave_api_key" "" }}" placeholder="Your secret key">
                     </div>
 
                     <div class="form-group">
                         <label
                             style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer; margin-bottom: var(--space-xs);">
-                            <input type="checkbox" name="remnawave_sync_users" {% if settings.sync.remnawave_sync_users
-                                %}checked{% endif %}>
-                            {{ _('enable_sync') }}
+                            <input type="checkbox" name="remnawave_sync_users" {{ if get $syncSettings "remnawave_sync_users" }}checked{{ end }}>
+                            {{ _ "enable_sync" }}
                         </label>
                         <div class="form-hint"
                             style="margin-left: var(--space-lg); line-height: 1.4; margin-bottom: var(--space-sm);">
-                            {{ _('sync_hint') }}
+                            {{ _ "sync_hint" }}
                         </div>
                         <div style="display: flex; gap: var(--space-sm); margin-left: var(--space-lg);">
                             <button type="button" class="btn btn-secondary btn-sm" onclick="syncRemnawaveNow()"
                                 id="syncNowBtn">
-                                <span id="syncNowBtnText">🔄 {{ _('sync_now_btn') }}</span>
+                                <span id="syncNowBtnText">🔄 {{ _ "sync_now_btn" }}</span>
                                 <div class="spinner hidden" id="syncNowSpinner" style="width:14px; height:14px;"></div>
                             </button>
                             <button type="button" class="btn btn-danger btn-sm" onclick="deleteSyncRemnawave()"
                                 id="syncDelBtn">
-                                <span id="syncDelBtnText">🗑 {{ _('delete_sync_btn') }}</span>
+                                <span id="syncDelBtnText">🗑 {{ _ "delete_sync_btn" }}</span>
                                 <div class="spinner hidden" id="syncDelSpinner" style="width:14px; height:14px;"></div>
                             </button>
                         </div>
@@ -199,30 +197,28 @@
 
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: var(--space-sm); cursor: pointer;">
-                            <input type="checkbox" name="remnawave_create_conns" id="syncCreateConns" {% if
-                                settings.sync.remnawave_create_conns %}checked{% endif %}>
-                            {{ _('auto_create_conns') }}
+                            <input type="checkbox" name="remnawave_create_conns" id="syncCreateConns" {{ if get $syncSettings "remnawave_create_conns" }}checked{{ end }}>
+                            {{ _ "auto_create_conns" }}
                         </label>
                     </div>
 
                     <div id="autoConnFields"
-                        style="{% if not settings.sync.remnawave_create_conns %}display:none;{% endif %} background: var(--bg-primary); padding: var(--space-md); border-radius: var(--radius-md); margin-top: var(--space-sm);">
+                        style="{{ if not (get $syncSettings "remnawave_create_conns") }}display:none;{{ end }} background: var(--bg-primary); padding: var(--space-md); border-radius: var(--radius-md); margin-top: var(--space-sm);">
                         <div class="form-group">
-                            <label class="form-label">{{ _('sync_server_label') }}</label>
+                            <label class="form-label">{{ _ "sync_server_label" }}</label>
                             <select class="form-select" name="remnawave_server_id" onchange="updateProtocolsForSync()">
-                                {% for s in servers %}
-                                <option value="{{ loop.index0 }}" {% if settings.sync.remnawave_server_id==loop.index0
-                                    %}selected{% endif %}>{{ s.name or s.host }}</option>
-                                {% endfor %}
+                                {{ $currentSyncServerID := get $syncSettings "remnawave_server_id" 0 }}
+                                {{ range $s := .servers }}
+                                <option value="{{ $s.ID }}" {{ if int_eq $currentSyncServerID $s.ID }}selected{{ end }}>{{ if $s.Name }}{{ $s.Name }}{{ else }}{{ $s.Host }}{{ end }}</option>
+                                {{ end }}
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">{{ _('protocol_label') }}</label>
+                            <label class="form-label">{{ _ "protocol_label" }}</label>
                             <select class="form-select" name="remnawave_protocol" id="syncProtocolSelect">
-                                <option value="awg" {% if settings.sync.remnawave_protocol=='awg' %}selected{% endif %}>
-                                    AmneziaWG</option>
-                                <option value="telemt" {% if settings.sync.remnawave_protocol=='telemt' %}selected{% endif %}>
-                                    MTProxyL</option>
+                                {{ $currentSyncProto := get $syncSettings "remnawave_protocol" "awg" }}
+                                <option value="awg" {{ if eq $currentSyncProto "awg" }}selected{{ end }}>AmneziaWG</option>
+                                <option value="telemt" {{ if eq $currentSyncProto "telemt" }}selected{{ end }}>MTProxyL</option>
                             </select>
                         </div>
                     </div>
@@ -232,40 +228,41 @@
 
         <!-- BLOCK: Connection Limits -->
         <div class="card">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">🔗 {{ _('connection_limits_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">🔗 {{ _ "connection_limits_title" }}</h3>
             <form id="limitsForm">
+                {{ $limitsSettings := get .settings "limits" }}
                 <div class="form-group">
-                    <label class="form-label">{{ _('max_connections_per_user_label') }}</label>
+                    <label class="form-label">{{ _ "max_connections_per_user_label" }}</label>
                     <input type="number" class="form-input" name="max_connections_per_user" 
-                        value="{{ settings.get('limits', {}).get('max_connections_per_user', 10) }}" 
+                        value="{{ get $limitsSettings "max_connections_per_user" 10 }}" 
                         min="1" max="1000" required>
-                    <p class="form-hint">{{ _('max_connections_per_user_hint') }}</p>
+                    <p class="form-hint">{{ _ "max_connections_per_user_hint" }}</p>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('rate_limit_count_label') }}</label>
+                    <label class="form-label">{{ _ "rate_limit_count_label" }}</label>
                     <input type="number" class="form-input" name="connection_rate_limit_count" 
-                        value="{{ settings.get('limits', {}).get('connection_rate_limit_count', 5) }}" 
+                        value="{{ get $limitsSettings "connection_rate_limit_count" 5 }}" 
                         min="1" max="100" required>
-                    <p class="form-hint">{{ _('rate_limit_count_hint') }}</p>
+                    <p class="form-hint">{{ _ "rate_limit_count_hint" }}</p>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">{{ _('rate_limit_window_label') }}</label>
+                    <label class="form-label">{{ _ "rate_limit_window_label" }}</label>
                     <input type="number" class="form-input" name="connection_rate_limit_window" 
-                        value="{{ settings.get('limits', {}).get('connection_rate_limit_window', 60) }}" 
+                        value="{{ get $limitsSettings "connection_rate_limit_window" 60 }}" 
                         min="10" max="3600" required>
-                    <p class="form-hint">{{ _('rate_limit_window_hint') }}</p>
+                    <p class="form-hint">{{ _ "rate_limit_window_hint" }}</p>
                 </div>
             </form>
         </div>
 
         <!-- BLOCK: Simple Backup -->
         <div class="card" style="margin-top: var(--space-lg);">
-            <h3 class="card-title" style="margin-bottom: var(--space-lg);">📤 {{ _('backup_title') }}</h3>
+            <h3 class="card-title" style="margin-bottom: var(--space-lg);">📤 {{ _ "backup_title" }}</h3>
             <div style="display: flex; flex-direction: column; gap: var(--space-md);">
                 <div style="display: flex; gap: var(--space-sm);">
                     <a href="/api/settings/backup/download" class="btn btn-secondary"
                         style="flex:1; text-decoration:none; display:flex; align-items:center; justify-content:center; gap:var(--space-sm);">
-                        <span>⬇️</span> {{ _('download_backup') }}
+                        <span>⬇️</span> {{ _ "download_backup" }}
                     </a>
                 </div>
                 <div style="border-top: 1px solid var(--border-color); padding-top: var(--space-md);">
@@ -275,13 +272,13 @@
                         <button type="button" class="btn btn-secondary"
                             onclick="document.getElementById('backupFile').click()" id="restoreBtn"
                             style="gap:var(--space-sm);">
-                            <span>⬆️</span> {{ _('restore_backup') }}
+                            <span>⬆️</span> {{ _ "restore_backup" }}
                         </button>
                     </div>
                 </div>
             </div>
             <p class="form-hint" style="margin-top: var(--space-sm);">
-                {{ _('restore_confirm') }}
+                {{ _ "restore_confirm" }}
             </p>
         </div>
     </div>
@@ -289,13 +286,13 @@
 
 <div style="margin-top: var(--space-xl); text-align: right;">
     <button class="btn btn-primary btn-lg" onclick="saveSettings()" id="saveBtn">
-        <span>{{ _('save_changes') }}</span>
+        <span>{{ _ "save_changes" }}</span>
         <div class="spinner hidden" id="saveSpinner"></div>
     </button>
 </div>
 
 <script>
-    const serversData = {{ servers | tojson }};
+    const serversData = {{ .servers | json }};
 
     function updateProtocolsForSync() {
         const serverIdx = document.querySelector('[name="remnawave_server_id"]').value;
@@ -308,11 +305,10 @@
         let count = 0;
 
         for (const [key, info] of Object.entries(protocols)) {
-            if (info.installed) {
+            if (info && info.installed) {
                 const opt = document.createElement('option');
                 opt.value = key;
                 opt.textContent = key === 'awg' ? 'AmneziaWG' : (key === 'telemt' ? 'MTProxyL' : (key === 'dns' ? 'AmneziaDNS' : key.toUpperCase()));
-                if (key === "{{ settings.sync.remnawave_protocol }}") opt.selected = true;
                 protoSelect.appendChild(opt);
                 count++;
             }
@@ -422,9 +418,8 @@
             remnawave_sync_users: syncForm.remnawave_sync_users.checked,
             remnawave_create_conns: syncForm.remnawave_create_conns.checked,
             remnawave_server_id: parseInt(syncForm.remnawave_server_id.value) || 0,
-            remnawave_protocol: syncForm.remnawave_protocol.value || "awg" || "awg"
+            remnawave_protocol: syncForm.remnawave_protocol.value || "awg"
         };
-
 
         const captcha = {
             enabled: document.getElementById('captcha_enabled').checked
@@ -511,4 +506,4 @@
         updateProtocolsForSync();
     }
 </script>
-{% endblock %}
+{{ end }}

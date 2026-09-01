@@ -21,6 +21,7 @@ func (h *Handlers) SharePageHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	user, err := h.db.GetUserByShareToken(ctx, token)
 	if err != nil || user == nil || !user.ShareEnabled {
+		w.WriteHeader(http.StatusNotFound)
 		_ = RenderTemplate(w, r, h.db, "user_share.html", map[string]any{
 			"not_found": true,
 			"token":     token,
