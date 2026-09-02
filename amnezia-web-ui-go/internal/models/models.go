@@ -905,13 +905,18 @@ type SaveSettingsRequest struct {
 
 // ServerItemResponse represents server data in responses.
 type ServerItemResponse struct {
-	ID         int64          `json:"id"`
-	Name       string         `json:"name"`
-	Host       string         `json:"host"`
-	SSHPort    int            `json:"ssh_port"`
-	Username   string         `json:"username"`
-	ServerInfo map[string]any `json:"server_info,omitempty"`
-	Protocols  map[string]any `json:"protocols"`
+	ID          int64          `json:"id"`
+	Name        string         `json:"name"`
+	Host        string         `json:"host"`
+	SSHPort     int            `json:"ssh_port"`
+	Username    string         `json:"username"`
+	ServerInfo  string         `json:"server_info,omitempty"`
+	Protocols   map[string]any `json:"protocols"`
+	CreatedAt   *time.Time     `json:"created_at,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	LatencyMS   *int           `json:"latency_ms,omitempty"`
+	LastChecked *string        `json:"last_checked,omitempty"`
+	Reachable   *bool          `json:"reachable,omitempty"`
 }
 
 // ServerStatsResponse represents server resource telemetry.

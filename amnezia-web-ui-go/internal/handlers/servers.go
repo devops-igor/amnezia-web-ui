@@ -1001,3 +1001,80 @@ func parseCombinedStats(raw string) models.ServerStatsResponse {
 
 	return resp
 }
+
+// ListServersHandler returns all configured servers (with sensitive credentials stripped).
+func (h *Handlers) ListServersHandler(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	servers, err := h.db.GetAllServers(ctx)
+	if err != nil {
+		h.JSONError(w, http.StatusInternalServerError, "internal_error", "Failed to retrieve servers")
+		return
+	}
+
+	sess := h.GetSession(r)
+	isAdminOrSupport := sess != nil && (sess.Role == models.RoleAdmin || sess.Role == models.RoleSupport)
+
+	result := make([]models.ServerItemResponse, 0, len(servers))
+	for _, s := range servers {
+		if !isAdminOrSupport {
+			name := s.Name
+			if strings.TrimSpace(name) == "" {
+				name = fmt.Sprintf("Server #%d", s.ID)
+			}
+			sanitizedProtocols := make(map[string]any)
+			for proto, pVal := range s.Protocols {
+				installed := false
+				if m, ok := pVal.(map[string]any); ok {
+					if inst, ok := m["installed"].(bool); ok {
+						installed = inst
+					}
+				} else if b, ok := pVal.(bool); ok {
+					installed = b
+				}
+				sanitizedProtocols[proto] = map[string]bool{"installed": installed}
+			}
+
+			status := string(s.Status)
+			if status == "" {
+				status = "online"
+			}
+			reachable := s.Status == models.ReachabilityOnline || s.Status == ""
+
+			result = append(result, models.ServerItemResponse{
+				ID:        s.ID,
+				Name:      name,
+				Host:      "",
+				SSHPort:   0,
+				Username:  "",
+				Protocols: sanitizedProtocols,
+				Status:    status,
+				Reachable: &reachable,
+			})
+		} else {
+			protoMap := s.Protocols
+			if protoMap == nil {
+				protoMap = make(map[string]any)
+			}
+			status := string(s.Status)
+			if status == "" {
+				status = "unknown"
+			}
+			var createdAt *time.Time
+			if !s.CreatedAt.IsZero() {
+				createdAt = &s.CreatedAt
+			}
+			result = append(result, models.ServerItemResponse{
+				ID:        s.ID,
+				Name:      s.Name,
+				Host:      s.Host,
+				SSHPort:   s.SSHPort,
+				Username:  s.SSHUser,
+				Protocols: protoMap,
+				CreatedAt: createdAt,
+				Status:    status,
+			})
+		}
+	}
+
+	h.JSON(w, http.StatusOK, result)
+}

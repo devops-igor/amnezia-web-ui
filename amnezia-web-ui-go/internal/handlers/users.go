@@ -655,7 +655,7 @@ func (h *Handlers) SetupUserShareHandler(w http.ResponseWriter, r *http.Request)
 
 	h.audit(r, "user.share_setup", map[string]any{"user_id": userID, "username": user.Username, "enabled": updates["share_enabled"]})
 	h.JSON(w, http.StatusOK, map[string]any{
-		"status":      "ok",
+		"status":      "success",
 		"share_token": token,
 	})
 }

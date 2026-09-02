@@ -2,7 +2,10 @@ package router
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -105,13 +108,25 @@ func NewRouterWithOptions(opts Options) *chi.Mux {
 	r.Use(middleware.CSRF(false))
 
 	// Limiters
+	isE2E := strings.EqualFold(os.Getenv("E2E_TESTING"), "true") || os.Getenv("E2E_TESTING") == "1"
+	if isE2E {
+		slog.Warn("E2E_TESTING is enabled: rate limiting is disabled — DO NOT USE IN PRODUCTION")
+	}
 	loginLimiter := opts.LoginLimiter
 	if loginLimiter == nil {
-		loginLimiter = middleware.NewRateLimiterPerMinute(5, 5)
+		if isE2E {
+			loginLimiter = middleware.NewRateLimiterPerMinute(100000, 100000)
+		} else {
+			loginLimiter = middleware.NewRateLimiterPerMinute(5, 5)
+		}
 	}
 	apiLimiter := opts.APILimiter
 	if apiLimiter == nil {
-		apiLimiter = middleware.NewRateLimiterPerMinute(60, 60)
+		if isE2E {
+			apiLimiter = middleware.NewRateLimiterPerMinute(100000, 100000)
+		} else {
+			apiLimiter = middleware.NewRateLimiterPerMinute(60, 60)
+		}
 	}
 
 	// 2. Static Assets Serving
@@ -158,6 +173,43 @@ func NewRouterWithOptions(opts Options) *chi.Mux {
 
 		r.Get("/api/vpn/my-connection", h.VPNMyConnectionHandler)
 		r.Get("/api/vpn/my-config", h.VPNMyConfigHandler)
+
+		// Server management API: GET is accessible to any authenticated user (with role-based sanitization),
+		// while administrative mutating endpoints require RequireAdminOrSupport.
+		r.Route("/api/servers", func(r chi.Router) {
+			r.Get("/", h.ListServersHandler)
+
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireAdminOrSupport)
+				r.Post("/add", h.AddServerHandler)
+				r.Post("/confirm-fingerprint", h.ConfirmFingerprintHandler)
+				r.Post("/{server_id}/delete", h.DeleteServerHandler)
+				r.Post("/{server_id}/reboot", h.RebootServerHandler)
+				r.Post("/{server_id}/clear", h.ClearServerHandler)
+				r.Post("/{server_id}/stats", h.ServerStatsHandler)
+				r.Post("/{server_id}/check", h.ServerCheckHandler)
+				r.Post("/{server_id}/install", h.InstallProtocolHandler)
+				r.Post("/{server_id}/uninstall", h.UninstallProtocolHandler)
+				r.Post("/{server_id}/container/toggle", h.ToggleContainerHandler)
+				r.Post("/{server_id}/server_config", h.GetServerConfigHandler)
+				r.Post("/{server_id}/server_config/save", h.SaveServerConfigHandler)
+				r.Get("/{server_id}/connections", h.GetServerConnectionsHandler)
+				r.Post("/{server_id}/connections/add", h.AddServerConnectionHandler)
+				r.Post("/{server_id}/connections/{client_id}/rotate-mimicry", h.RotateMimicryHandler)
+				r.Get("/{server_id}/reachability", h.GetServerReachabilityHandler)
+				r.Post("/{server_id}/connections/auto-trial", h.AutoTrialHandler)
+				r.Post("/{server_id}/connections/kit", h.GetServerConnectionKitHandler)
+				r.Post("/{server_id}/connections/remove", h.RemoveServerConnectionHandler)
+				r.Post("/{server_id}/connections/edit", h.EditServerConnectionHandler)
+				r.Post("/{server_id}/connections/config", h.GetServerConnectionConfigHandler)
+				r.Post("/{server_id}/connections/toggle", h.ToggleServerConnectionHandler)
+				r.Get("/{server_id}/{protocol}/clients", h.GetProtocolClientsHandler)
+				r.Patch("/{server_id}/connections/speed-limit", h.SetClientSpeedLimitHandler)
+				r.Get("/{server_id}/awg/speed-limit-config", h.GetAWGSpeedLimitConfigHandler)
+				r.Patch("/{server_id}/awg/speed-limit-config", h.SetAWGSpeedLimitConfigHandler)
+				r.Post("/{server_id}/awg/apply-default-speed-limits", h.ApplyDefaultSpeedLimitsHandler)
+			})
+		})
 	})
 
 	// 7. Admin Protected Pages & APIs
@@ -168,37 +220,6 @@ func NewRouterWithOptions(opts Options) *chi.Mux {
 		r.Get("/server/{server_id}", h.ServerPageHandler)
 		r.Get("/users", h.UsersPageHandler)
 		r.Get("/settings", h.SettingsPageHandler)
-
-		// Server management API
-		r.Route("/api/servers", func(r chi.Router) {
-			r.Post("/add", h.AddServerHandler)
-			r.Post("/confirm-fingerprint", h.ConfirmFingerprintHandler)
-			r.Post("/{server_id}/delete", h.DeleteServerHandler)
-			r.Post("/{server_id}/reboot", h.RebootServerHandler)
-			r.Post("/{server_id}/clear", h.ClearServerHandler)
-			r.Post("/{server_id}/stats", h.ServerStatsHandler)
-			r.Post("/{server_id}/check", h.ServerCheckHandler)
-			r.Post("/{server_id}/install", h.InstallProtocolHandler)
-			r.Post("/{server_id}/uninstall", h.UninstallProtocolHandler)
-			r.Post("/{server_id}/container/toggle", h.ToggleContainerHandler)
-			r.Post("/{server_id}/server_config", h.GetServerConfigHandler)
-			r.Post("/{server_id}/server_config/save", h.SaveServerConfigHandler)
-			r.Get("/{server_id}/connections", h.GetServerConnectionsHandler)
-			r.Post("/{server_id}/connections/add", h.AddServerConnectionHandler)
-			r.Post("/{server_id}/connections/{client_id}/rotate-mimicry", h.RotateMimicryHandler)
-			r.Get("/{server_id}/reachability", h.GetServerReachabilityHandler)
-			r.Post("/{server_id}/connections/auto-trial", h.AutoTrialHandler)
-			r.Post("/{server_id}/connections/kit", h.GetServerConnectionKitHandler)
-			r.Post("/{server_id}/connections/remove", h.RemoveServerConnectionHandler)
-			r.Post("/{server_id}/connections/edit", h.EditServerConnectionHandler)
-			r.Post("/{server_id}/connections/config", h.GetServerConnectionConfigHandler)
-			r.Post("/{server_id}/connections/toggle", h.ToggleServerConnectionHandler)
-			r.Get("/{server_id}/{protocol}/clients", h.GetProtocolClientsHandler)
-			r.Patch("/{server_id}/connections/speed-limit", h.SetClientSpeedLimitHandler)
-			r.Get("/{server_id}/awg/speed-limit-config", h.GetAWGSpeedLimitConfigHandler)
-			r.Patch("/{server_id}/awg/speed-limit-config", h.SetAWGSpeedLimitConfigHandler)
-			r.Post("/{server_id}/awg/apply-default-speed-limits", h.ApplyDefaultSpeedLimitsHandler)
-		})
 
 		// Root server management aliases matching legacy routes
 		r.Post("/add", h.AddServerHandler)

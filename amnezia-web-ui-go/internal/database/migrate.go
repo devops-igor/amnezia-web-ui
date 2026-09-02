@@ -627,10 +627,14 @@ func MigrateFromDataJSON(dataFilePath, dbPath, secretKey string) error {
 	cleanDataFile := filepath.Clean(dataFilePath)
 	cleanDBPath := filepath.Clean(dbPath)
 
-	// Case 1: panel.db already exists
-	if _, err := os.Stat(cleanDBPath); err == nil {
-		slog.Info("panel.db already exists, skipping data.json migration")
-		return nil
+	// Case 1: panel.db already exists with non-zero size
+	if fi, err := os.Stat(cleanDBPath); err == nil {
+		if fi.Size() > 0 {
+			slog.Info("panel.db already exists with non-zero size, skipping data.json migration")
+			return nil
+		}
+		slog.Warn("panel.db exists but is 0 bytes; removing empty file before migration", "file", cleanDBPath)
+		_ = os.Remove(cleanDBPath)
 	}
 
 	// Case 2: data.json does not exist

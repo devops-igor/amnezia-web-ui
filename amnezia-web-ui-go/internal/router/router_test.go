@@ -14,6 +14,7 @@ import (
 	"github.com/devops-igor/amnezia-web-ui-go/internal/database"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
+	"strings"
 )
 
 const testSecretKey = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -359,4 +360,194 @@ func TestAuthSetupEndpointWithZeroUsers(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 for /api/auth/setup with 0 users, got %d (body: %s)", w.Code, w.Body.String())
 	}
+}
+
+func TestRouterServersRoleBasedAccess(t *testing.T) {
+	db, cfg := setupTestRouterDB(t)
+	ctx := context.Background()
+
+	// Seed regular user
+	_, err := db.CreateUser(ctx, &models.User{
+		ID:        "reg-user-1",
+		Username:  "regularuser",
+		Role:      models.RoleUser,
+		Enabled:   true,
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("failed to seed regular user: %v", err)
+	}
+
+	// Seed managed server with protocols
+	sID, err := db.CreateServer(ctx, &models.Server{
+		Name:      "Production Host 1",
+		Host:      "192.168.1.50",
+		SSHUser:   "root",
+		SSHPort:   2222,
+		SSHPass:   "SuperSecretPass!",
+		SSHKey:    "PrivateKeyData",
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("failed to seed test server: %v", err)
+	}
+	_ = db.UpdateServerProtocols(ctx, sID, map[string]any{
+		"awg": map[string]any{
+			"installed":  true,
+			"port":       51820,
+			"awg_params": map[string]any{"Jc": 3, "S1": 15},
+		},
+		"dns": map[string]any{
+			"installed": true,
+		},
+	})
+	_ = db.UpdateServerReachability(ctx, sID, models.ReachabilityOnline)
+
+	r := NewRouter(cfg, db)
+
+	// 1. Regular user calling GET /api/servers -> 200 OK + sanitized
+	for _, path := range []string{"/api/servers", "/api/servers/"} {
+		t.Run("Regular User "+path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			userCtx := middleware.WithSession(req.Context(), &models.SessionData{
+				UserID:   "reg-user-1",
+				Username: "regularuser",
+				Role:     models.RoleUser,
+			})
+			req = req.WithContext(userCtx)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK for regular user on %s, got %d (body: %s)", path, w.Code, w.Body.String())
+			}
+
+			var servers []models.ServerItemResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &servers); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if len(servers) != 1 {
+				t.Fatalf("expected 1 server, got %d", len(servers))
+			}
+			s := servers[0]
+			if s.Host != "" || s.SSHPort != 0 || s.Username != "" {
+				t.Errorf("expected sensitive host/port/username stripped for regular user, got %+v", s)
+			}
+			if s.CreatedAt != nil {
+				t.Errorf("expected created_at omitted for regular user, got %+v", s.CreatedAt)
+			}
+			if s.Status != "online" {
+				t.Errorf("expected status 'online', got %q", s.Status)
+			}
+			if s.Reachable == nil || !*s.Reachable {
+				t.Errorf("expected reachable true, got %v", s.Reachable)
+			}
+			awgProto, ok := s.Protocols["awg"].(map[string]any)
+			if !ok || awgProto["installed"] != true {
+				t.Fatalf("expected awg to have installed: true, got %+v", s.Protocols["awg"])
+			}
+			if _, hasPort := awgProto["port"]; hasPort {
+				t.Errorf("leaked internal port to regular user: %+v", awgProto)
+			}
+			if _, hasParams := awgProto["awg_params"]; hasParams {
+				t.Errorf("leaked awg_params to regular user: %+v", awgProto)
+			}
+		})
+	}
+
+	// 2. Admin user calling GET /api/servers -> 200 OK + full details
+	for _, path := range []string{"/api/servers", "/api/servers/"} {
+		t.Run("Admin User "+path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			adminCtx := middleware.WithSession(req.Context(), &models.SessionData{
+				UserID:   "admin-id",
+				Username: "admin",
+				Role:     models.RoleAdmin,
+			})
+			req = req.WithContext(adminCtx)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200 OK for admin on %s, got %d (body: %s)", path, w.Code, w.Body.String())
+			}
+
+			var servers []models.ServerItemResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &servers); err != nil {
+				t.Fatalf("failed to decode admin response: %v", err)
+			}
+			if len(servers) != 1 {
+				t.Fatalf("expected 1 server, got %d", len(servers))
+			}
+			s := servers[0]
+			if s.Host != "192.168.1.50" || s.SSHPort != 2222 || s.Username != "root" {
+				t.Errorf("expected full host/port/username for admin, got %+v", s)
+			}
+			if s.CreatedAt == nil {
+				t.Errorf("expected created_at present for admin, got nil")
+			}
+			if s.Status == "" {
+				t.Errorf("expected status present for admin, got empty")
+			}
+			bodyStr := w.Body.String()
+			if strings.Contains(bodyStr, "SuperSecretPass") || strings.Contains(bodyStr, "PrivateKeyData") {
+				t.Errorf("expected no decrypted credentials in admin response: %s", bodyStr)
+			}
+		})
+	}
+
+	// 3. Unauthenticated client calling GET /api/servers -> 401 Unauthorized
+	for _, path := range []string{"/api/servers", "/api/servers/"} {
+		t.Run("Unauthenticated "+path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			if w.Code != http.StatusUnauthorized {
+				t.Errorf("expected 401 Unauthorized for unauth on %s, got %d", path, w.Code)
+			}
+		})
+	}
+
+	// 4. Regular user calling mutating endpoint POST /api/servers/add -> 403 Forbidden
+	t.Run("Regular User POST /api/servers/add", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]any{
+			"host":     "10.0.0.1",
+			"ssh_user": "root",
+			"ssh_port": 22,
+			"ssh_pass": "pass",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/add", bytes.NewReader(body))
+		userCtx := middleware.WithSession(req.Context(), &models.SessionData{
+			UserID:   "reg-user-1",
+			Username: "regularuser",
+			Role:     models.RoleUser,
+		})
+		userCtx = middleware.WithCSRFToken(userCtx, "csrf123")
+		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf123"})
+		req.Header.Set(middleware.CSRFHeaderName, "csrf123")
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(userCtx)
+
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Errorf("expected 403 Forbidden for regular user on /api/servers/add, got %d (body: %s)", w.Code, w.Body.String())
+		}
+	})
+
+	// 5. Unauthenticated client calling POST /api/servers/add -> 401 Unauthorized
+	t.Run("Unauthenticated POST /api/servers/add", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/api/servers/add", nil)
+		ctx := middleware.WithCSRFToken(req.Context(), "csrf123")
+		req.AddCookie(&http.Cookie{Name: middleware.CSRFCookieName, Value: "csrf123"})
+		req.Header.Set(middleware.CSRFHeaderName, "csrf123")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req.WithContext(ctx))
+
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("expected 401 Unauthorized for unauthenticated on /api/servers/add, got %d", w.Code)
+		}
+	})
 }
