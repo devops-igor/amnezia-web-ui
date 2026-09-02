@@ -117,6 +117,13 @@ func TestShareHandlers(t *testing.T) {
 		if wOK.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", wOK.Code)
 		}
+		var respOK map[string]any
+		if err := json.Unmarshal(wOK.Body.Bytes(), &respOK); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if respOK["status"] != "success" {
+			t.Errorf("expected status success, got %v", respOK["status"])
+		}
 
 		// Invalid Body
 		reqBad := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/share/%s/auth", token), bytes.NewReader([]byte("bad-json")))

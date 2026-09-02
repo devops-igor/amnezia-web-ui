@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -57,6 +58,10 @@ func run(ctx context.Context) error {
 
 	// 3. Initialize SQLite database & translations
 	_ = config.LoadTranslations()
+
+	if err := database.MigrateFromDataJSON(filepath.Join(cfg.DataDir, "data.json"), cfg.DBPath, cfg.SecretKey); err != nil {
+		return fmt.Errorf("legacy data.json migration failed (data left untouched at %s): %w", filepath.Join(cfg.DataDir, "data.json"), err)
+	}
 
 	db, err := database.New(cfg.DBPath, cfg.SecretKey)
 	if err != nil {

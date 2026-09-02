@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/devops-igor/amnezia-web-ui-go/internal/manager"
+	"github.com/devops-igor/amnezia-web-ui-go/internal/middleware"
 	"github.com/devops-igor/amnezia-web-ui-go/internal/models"
 )
 
@@ -853,6 +855,152 @@ func TestServerHandlers(t *testing.T) {
 		r.ServeHTTP(wZeroWorking, reqZeroWorking)
 		if wZeroWorking.Code != http.StatusOK {
 			t.Errorf("expected 200 for speed limit removal on working SSH, got %d", wZeroWorking.Code)
+		}
+	})
+
+	t.Run("ListServersHandler", func(t *testing.T) {
+		sList := &models.Server{
+			Name:    "List-Server-1",
+			Host:    "192.168.1.200",
+			SSHPort: 22,
+			SSHUser: "root",
+			Protocols: map[string]any{
+				"awg": map[string]any{
+					"installed":  true,
+					"port":       51820,
+					"awg_params": map[string]any{"Jc": 3, "S1": 15},
+				},
+				"dns": map[string]any{
+					"installed": true,
+				},
+			},
+			CreatedAt: time.Now(),
+		}
+		sListID, err := db.CreateServer(context.Background(), sList)
+		if err != nil {
+			t.Fatalf("failed to create server for list test: %v", err)
+		}
+		_ = db.UpdateServerReachability(context.Background(), sListID, models.ReachabilityOnline)
+
+		// 1. Regular user / unauthenticated: host, port, username stripped; protocols sanitized to installed-only; reachability populated
+		req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
+		w := httptest.NewRecorder()
+		h.ListServersHandler(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200 from ListServersHandler, got %d", w.Code)
+		}
+
+		var servers []models.ServerItemResponse
+		if err := json.Unmarshal(w.Body.Bytes(), &servers); err != nil {
+			t.Fatalf("failed to decode servers: %v", err)
+		}
+		if len(servers) == 0 {
+			t.Errorf("expected at least 1 server, got 0")
+		}
+		var targetServer *models.ServerItemResponse
+		for i := range servers {
+			if servers[i].ID == sListID {
+				targetServer = &servers[i]
+				break
+			}
+		}
+		if targetServer == nil {
+			t.Fatalf("expected server with ID %d not found in response", sListID)
+			return
+		}
+
+		if targetServer.Host != "" || targetServer.SSHPort != 0 || targetServer.Username != "" {
+			t.Errorf("expected sensitive host/port/username stripped for regular user, got %+v", targetServer)
+		}
+		if targetServer.CreatedAt != nil {
+			t.Errorf("expected created_at omitted for regular user, got %+v", targetServer.CreatedAt)
+		}
+		if targetServer.Status != "online" {
+			t.Errorf("expected status 'online' for regular user, got %q", targetServer.Status)
+		}
+		if targetServer.Reachable == nil || !*targetServer.Reachable {
+			t.Errorf("expected reachable true for regular user, got %v", targetServer.Reachable)
+		}
+		// Verify protocols sanitization
+		awgProto, ok := targetServer.Protocols["awg"].(map[string]any)
+		if !ok || awgProto["installed"] != true {
+			t.Errorf("expected awg protocol to have installed: true, got %+v", targetServer.Protocols["awg"])
+		}
+		if _, hasPort := awgProto["port"]; hasPort {
+			t.Errorf("expected port to be stripped for regular user, got %+v", awgProto)
+		}
+		if _, hasParams := awgProto["awg_params"]; hasParams {
+			t.Errorf("expected awg_params to be stripped for regular user, got %+v", awgProto)
+		}
+
+		bodyStr := w.Body.String()
+		if strings.Contains(bodyStr, "ssh_pass") || strings.Contains(bodyStr, "ssh_key") || strings.Contains(bodyStr, "password") {
+			t.Errorf("expected no ssh credentials in response body, got: %s", bodyStr)
+		}
+		if strings.Contains(bodyStr, "awg_params") || strings.Contains(bodyStr, "51820") {
+			t.Errorf("expected no awg_params or internal ports in regular user response body, got: %s", bodyStr)
+		}
+
+		// 2. Admin user: host, port, username, raw protocols retained, created_at and status populated, no credentials
+		adminCtx := middleware.WithSession(req.Context(), &models.SessionData{
+			UserID:   "admin-1",
+			Username: "admin",
+			Role:     models.RoleAdmin,
+		})
+		reqAdmin := req.WithContext(adminCtx)
+		wAdmin := httptest.NewRecorder()
+		h.ListServersHandler(wAdmin, reqAdmin)
+		if wAdmin.Code != http.StatusOK {
+			t.Errorf("expected 200 from ListServersHandler for admin, got %d", wAdmin.Code)
+		}
+
+		var adminServers []models.ServerItemResponse
+		if err := json.Unmarshal(wAdmin.Body.Bytes(), &adminServers); err != nil {
+			t.Fatalf("failed to decode admin servers: %v", err)
+		}
+		var targetAdminServer *models.ServerItemResponse
+		for i := range adminServers {
+			if adminServers[i].ID == sListID {
+				targetAdminServer = &adminServers[i]
+				break
+			}
+		}
+		if targetAdminServer == nil {
+			t.Fatalf("expected admin server with ID %d not found in response", sListID)
+			return
+		}
+		if targetAdminServer.Host == "" || targetAdminServer.SSHPort == 0 || targetAdminServer.Username == "" {
+			t.Errorf("expected host/port/username present for admin, got %+v", targetAdminServer)
+		}
+		if targetAdminServer.CreatedAt == nil {
+			t.Errorf("expected created_at present for admin, got nil")
+		}
+		if targetAdminServer.Status == "" {
+			t.Errorf("expected status present for admin, got empty")
+		}
+		adminBody := wAdmin.Body.String()
+		if strings.Contains(adminBody, "ssh_pass") || strings.Contains(adminBody, "ssh_key") {
+			t.Errorf("expected no ssh credentials in admin response body, got: %s", adminBody)
+		}
+
+		// 3. Support user: host, port, username retained
+		supportCtx := middleware.WithSession(req.Context(), &models.SessionData{
+			UserID:   "support-1",
+			Username: "support",
+			Role:     models.RoleSupport,
+		})
+		reqSupport := req.WithContext(supportCtx)
+		wSupport := httptest.NewRecorder()
+		h.ListServersHandler(wSupport, reqSupport)
+		if wSupport.Code != http.StatusOK {
+			t.Errorf("expected 200 from ListServersHandler for support, got %d", wSupport.Code)
+		}
+		var supportServers []models.ServerItemResponse
+		if err := json.Unmarshal(wSupport.Body.Bytes(), &supportServers); err != nil {
+			t.Fatalf("failed to decode support servers: %v", err)
+		}
+		if supportServers[0].Host == "" {
+			t.Errorf("expected host present for support, got %+v", supportServers[0])
 		}
 	})
 }

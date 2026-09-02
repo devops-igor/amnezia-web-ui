@@ -85,7 +85,7 @@ func (h *Handlers) ShareAuthHandler(w http.ResponseWriter, r *http.Request) {
 		_ = middleware.SetSessionCookie(w, sess, h.cfg.SecretKey, false, 86400)
 	}
 
-	h.JSONOK(w)
+	h.JSON(w, http.StatusOK, map[string]any{"status": "success"})
 }
 
 // GetShareConnectionsHandler returns connection list accessible through the share token.

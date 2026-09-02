@@ -142,11 +142,11 @@
 |--------|------|------|------|-----------------|----------------|---------------|
 | `GET` | `/settings` | Admin | No | None | 200 | HTML (`settings.html`) |
 | `GET` | `/api/settings` | Admin | No | None | 200 | `models.SaveSettingsRequest` (secrets stripped) |
-| `POST` | `/api/settings/save` | Admin | Required | `models.SaveSettingsRequest` | 200 | `{"status": "ok"}` |
-| `POST` | `/api/settings/sync_now` | Admin | Required | None | 200 | `{"status": "ok", "synced_users": 12}` |
-| `POST` | `/api/settings/sync_delete` | Admin | Required | None | 200 | `{"status": "ok", "deleted": 3}` |
+| `POST` | `/api/settings/save` | Admin | Required | `models.SaveSettingsRequest` | 200 | `{"status": "success"}` |
+| `POST` | `/api/settings/sync_now` | Admin | Required | None | 200 | `{"status": "success", "count": 0, "synced_users": 0}` |
+| `POST` | `/api/settings/sync_delete` | Admin | Required | None | 200 | `{"status": "success", "count": 3, "deleted": 3}` |
 | `GET` | `/api/settings/backup/download` | Admin | No | None | 200 | JSON file download (`amnezia_backup.json`) |
-| `POST` | `/api/settings/backup/restore` | Admin | Required | Multipart file upload | 200 | `{"status": "ok", "message": "Restored"}` |
+| `POST` | `/api/settings/backup/restore` | Admin | Required | Multipart file upload | 200 | `{"status": "success", "restored": {...}}` |
 
 ---
 
@@ -154,9 +154,9 @@
 
 | Method | Path | Auth | CSRF | Request Payload | Success Status | Response Body |
 |--------|------|------|------|-----------------|----------------|---------------|
-| `POST` | `/api/users/{user_id}/share/setup` | Admin | Required | `models.ShareSetupRequest` | 200 | `{"status": "ok", "share_token": "..."}` |
+| `POST` | `/api/users/{user_id}/share/setup` | Admin | Required | `models.ShareSetupRequest` | 200 | `{"status": "success", "share_token": "..."}` |
 | `GET` | `/share/{token}` | Public | No | Path: `token` | 200 | HTML (`user_share.html`) |
-| `POST` | `/api/share/{token}/auth` | Public | Exempt | `models.ShareAuthRequest` | 200 | `{"status": "ok"}` + Sets share session cookie |
+| `POST` | `/api/share/{token}/auth` | Public | Exempt | `models.ShareAuthRequest` | 200 | `{"status": "success"}` + Sets share session cookie |
 | `GET` | `/api/share/{token}/connections` | Share Token | No | Path: `token` | 200 | `{"status": "ok", "connections": [...]}` |
 | `POST` | `/api/share/{token}/config/{connection_id}` | Share Token | Required | None | 200 | `{"status": "ok", "config": "...", "filename": "..."}` |
 

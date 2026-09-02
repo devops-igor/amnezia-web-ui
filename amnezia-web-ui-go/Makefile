@@ -1,4 +1,4 @@
-.PHONY: all build test test-race lint gosec govulncheck security clean fmt vet check docker-build
+.PHONY: all build test test-race test-e2e lint gosec govulncheck security clean fmt vet check docker-build
 
 APP_NAME := panel
 BIN_DIR := bin
@@ -15,6 +15,9 @@ test:
 
 test-race:
 	go test -race -v ./...
+
+test-e2e:
+	./scripts/run_e2e.sh
 
 lint:
 	PATH=$$PATH:$$HOME/go/bin:/usr/local/go/bin golangci-lint run ./...

@@ -130,7 +130,7 @@ func (h *Handlers) SaveSettingsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.audit(r, "settings.save", nil)
-	h.JSONOK(w)
+	h.JSON(w, http.StatusOK, map[string]any{"status": "success"})
 }
 
 // SyncNowHandler triggers immediate synchronization with external RemnaWave instance.
@@ -151,7 +151,8 @@ func (h *Handlers) SyncNowHandler(w http.ResponseWriter, r *http.Request) {
 
 	h.audit(r, "settings.sync_now", map[string]any{"pending_users": pending})
 	h.JSON(w, http.StatusOK, map[string]any{
-		"status":       "ok",
+		"status":       "success",
+		"count":        0,
 		"synced_users": 0,
 		"message":      "RemnaWave sync is scheduled for Phase 6 integration; no users synced yet",
 	})
@@ -183,7 +184,8 @@ func (h *Handlers) SyncDeleteHandler(w http.ResponseWriter, r *http.Request) {
 
 	h.audit(r, "settings.sync_delete", map[string]any{"deleted_users": deletedCount})
 	h.JSON(w, http.StatusOK, map[string]any{
-		"status":  "ok",
+		"status":  "success",
+		"count":   deletedCount,
 		"deleted": deletedCount,
 	})
 }
@@ -354,7 +356,7 @@ func (h *Handlers) RestoreBackupHandler(w http.ResponseWriter, r *http.Request) 
 	})
 
 	h.JSON(w, http.StatusOK, map[string]any{
-		"status":   "ok",
+		"status":   "success",
 		"restored": restored,
 	})
 }

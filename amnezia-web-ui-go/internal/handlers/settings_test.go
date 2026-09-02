@@ -68,6 +68,17 @@ func TestSettingsHandlers(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", w.Code)
 		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp["status"] != "success" {
+			t.Errorf("expected status success, got %v", resp["status"])
+		}
+		if resp["count"] != float64(0) {
+			t.Errorf("expected count 0, got %v", resp["count"])
+		}
 	})
 
 	t.Run("SaveSettingsHandler With Telegram", func(t *testing.T) {
@@ -114,6 +125,14 @@ func TestSettingsHandlers(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", w.Code)
 		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp["status"] != "success" {
+			t.Errorf("expected status success, got %v", resp["status"])
+		}
 	})
 
 	t.Run("SyncDeleteHandler", func(t *testing.T) {
@@ -133,6 +152,17 @@ func TestSettingsHandlers(t *testing.T) {
 
 		if w.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		var resp map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to decode response: %v", err)
+		}
+		if resp["status"] != "success" {
+			t.Errorf("expected status success, got %v", resp["status"])
+		}
+		if resp["count"] != float64(2) {
+			t.Errorf("expected count 2, got %v", resp["count"])
 		}
 	})
 
@@ -229,8 +259,8 @@ func TestSettingsHandlers(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("failed to decode restore response: %v (body: %s)", err, w.Body.String())
 		}
-		if resp.Status != "ok" {
-			t.Errorf("expected status ok, got %q", resp.Status)
+		if resp.Status != "success" {
+			t.Errorf("expected status success, got %q", resp.Status)
 		}
 		want := map[string]int{"servers": 1, "users": 1, "conns": 1, "settings": 1}
 		for k, v := range want {

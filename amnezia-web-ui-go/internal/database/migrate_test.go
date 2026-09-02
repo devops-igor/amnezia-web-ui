@@ -68,9 +68,9 @@ func TestMigrateFromDataJSONEdgeCases(t *testing.T) {
 	tmpDir := t.TempDir()
 	secretKey := "migration-edge-secret-key-12345678"
 
-	// Case 1: panel.db already exists
+	// Case 1: panel.db already exists with non-zero size
 	existingDBPath := filepath.Join(tmpDir, "existing_panel.db")
-	_ = os.WriteFile(existingDBPath, []byte("fake sqlite"), 0600)
+	_ = os.WriteFile(existingDBPath, []byte("fake sqlite database content"), 0600)
 	if err := MigrateFromDataJSON(filepath.Join(tmpDir, "non_existent_data.json"), existingDBPath, secretKey); err != nil {
 		t.Errorf("expected nil when db exists, got: %v", err)
 	}
@@ -81,15 +81,18 @@ func TestMigrateFromDataJSONEdgeCases(t *testing.T) {
 		t.Errorf("expected nil when data.json is missing, got: %v", err)
 	}
 
-	// Case 3: data.json is invalid JSON
+	// Case 3: data.json is invalid JSON -> fails fast and corrupt DB is not left behind
 	corruptDataPath := filepath.Join(tmpDir, "corrupt_data.json")
 	_ = os.WriteFile(corruptDataPath, []byte("{invalid-json"), 0600)
 	corruptDBPath := filepath.Join(tmpDir, "corrupt_panel.db")
 	if err := MigrateFromDataJSON(corruptDataPath, corruptDBPath, secretKey); err == nil {
 		t.Errorf("expected error when data.json has invalid JSON")
 	}
+	if _, err := os.Stat(corruptDBPath); !os.IsNotExist(err) {
+		t.Errorf("expected corrupt DB file to not exist after parse failure, got err = %v", err)
+	}
 
-	// Case 4: data.json has invalid structure
+	// Case 4: data.json has invalid structure -> fails fast and DB not left behind
 	invalidStructDataPath := filepath.Join(tmpDir, "invalid_struct.json")
 	invalidStructData := map[string]any{
 		"servers": []any{map[string]any{"bad_key": 1}},
@@ -99,6 +102,43 @@ func TestMigrateFromDataJSONEdgeCases(t *testing.T) {
 	invalidStructDBPath := filepath.Join(tmpDir, "invalid_struct_panel.db")
 	if err := MigrateFromDataJSON(invalidStructDataPath, invalidStructDBPath, secretKey); err == nil {
 		t.Errorf("expected error when data.json has invalid structure")
+	}
+	if _, err := os.Stat(invalidStructDBPath); !os.IsNotExist(err) {
+		t.Errorf("expected invalid struct DB file to not exist after validation failure, got err = %v", err)
+	}
+
+	// Case 5: 0-byte panel.db exists -> cleaned up and migration succeeds
+	zeroByteDBPath := filepath.Join(tmpDir, "zero_byte_panel.db")
+	_ = os.WriteFile(zeroByteDBPath, []byte{}, 0600)
+	validDataPath := filepath.Join(tmpDir, "valid_data.json")
+	validData := map[string]any{
+		"servers": []any{map[string]any{
+			"id":        float64(1),
+			"name":      "Zero Byte Migration Server",
+			"host":      "10.10.10.10",
+			"ssh_user":  "root",
+			"ssh_port":  float64(22),
+			"protocols": map[string]any{"awg": map[string]any{"installed": true}},
+		}},
+		"users": []any{map[string]any{
+			"id":            "u-zero-1",
+			"username":      "zerouser",
+			"password_hash": "$2b$12$hash",
+			"role":          "admin",
+			"enabled":       true,
+		}},
+	}
+	bValid, _ := json.Marshal(validData)
+	_ = os.WriteFile(validDataPath, bValid, 0600)
+
+	if err := MigrateFromDataJSON(validDataPath, zeroByteDBPath, secretKey); err != nil {
+		t.Fatalf("expected successful migration over 0-byte db, got: %v", err)
+	}
+	if fi, err := os.Stat(zeroByteDBPath); err != nil || fi.Size() == 0 {
+		t.Errorf("expected non-empty panel.db after 0-byte migration, got fi=%v, err=%v", fi, err)
+	}
+	if _, err := os.Stat(validDataPath + ".bak"); err != nil {
+		t.Errorf("expected data.json.bak to exist after migration, got err=%v", err)
 	}
 }
 
