@@ -617,8 +617,8 @@ graph TD
 **Lead:** `dev_bot` | **Auditor:** `qa_bot`  
 **Primary Specifications:** [`docs/specs/02-configuration.md`](../specs/02-configuration.md), [`docs/specs/04-external-services.md`](../specs/04-external-services.md)
 - 9.1 Multi-stage `Dockerfile`:
-  - Build stage: `golang:1.22-alpine` with `CGO_ENABLED=0`.
-  - Final stage: `alpine` (not distroless — needs TUN device access and `amneziawg-go` runtime dependencies). Image size target < 30MB (slightly larger than original 25MB estimate due to TUN/networking requirements).
+  - Build stage: `golang:1.26-alpine` with `CGO_ENABLED=0`.
+  - Final stage: `alpine:3.22` (package closure ~15.5MB + base ~7.5MB + stripped Go binary ~15.7MB = ~38.6MB total production image footprint).
 - 9.2 Container security model (updated for VPN endpoint):
   - Capabilities: `CAP_NET_ADMIN` (interface creation, routing, iptables). No `CAP_SYS_ADMIN`, no privileged mode.
   - Devices: `/dev/net/tun` mounted read-write.

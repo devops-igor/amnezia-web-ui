@@ -56,7 +56,10 @@ func run(ctx context.Context) error {
 
 	slog.Info("Starting Amnezia Web Panel Server", "version", cfg.AppVersion, "port", cfg.Port)
 
-	// 3. Initialize SQLite database & translations
+	// 3. Writability preflight check & SQLite database initialization
+	if err := database.CheckPreflight(cfg.DataDir, cfg.DBPath); err != nil {
+		return err
+	}
 	_ = config.LoadTranslations()
 
 	if err := database.MigrateFromDataJSON(filepath.Join(cfg.DataDir, "data.json"), cfg.DBPath, cfg.SecretKey); err != nil {

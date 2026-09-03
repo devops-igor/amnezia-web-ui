@@ -34,6 +34,18 @@ Profiles control which services start:
 | `docker compose up -d` | panel only |
 | `docker compose --profile bunkerweb up -d` | panel + bunkerweb + docker-proxy |
 
+### Image Size & Resource Footprint
+
+The Go rewrite container (`ghcr.io/devops-igor/amnezia-web-ui`) achieves an ultra-lean production footprint on Alpine 3.22:
+
+| Component | Size Breakdown | Notes |
+|-----------|----------------|-------|
+| Base Alpine 3.22 | ~7.5 MB | Minimal root filesystem |
+| Runtime Package Closure | ~15.5 MB | `ca-certificates`, `libcrypto3`, `tzdata` (0.42 MB), `iproute2`, `iptables`, `curl` |
+| Compiled Go Binary | ~15.7 MB | 16,523,529 bytes (`-trimpath -ldflags="-s -w"`) |
+| **Total Image Footprint** | **~38.6 MB** | Down from ~280 MB in legacy Python/Flask |
+
+
 ---
 
 ## Prerequisites
@@ -59,7 +71,7 @@ cd amnezia-web-ui
 # 2. Create environment and data directories
 cp .env.example .env
 mkdir -p data
-chown 100:101 data
+sudo chown -R 1000:1000 data
 
 # 3. Generate a secret key
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
@@ -105,11 +117,11 @@ Wait for DNS propagation (TTL depends on your registrar; typically 5–30 minute
 ### Step 2 — Prepare Config Directory
 
 Create a data directory for panel persistence and set ownership so the
-container (which runs as `appuser` UID 100, GID 101) can write to it:
+container (which runs as `appuser` UID 1000, GID 1000) can write to it:
 
 ```bash
 mkdir -p data
-chown 100:101 data
+sudo chown -R 1000:1000 data
 ```
 
 ### Step 3 — Edit `.env`

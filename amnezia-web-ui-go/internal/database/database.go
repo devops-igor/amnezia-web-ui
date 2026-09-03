@@ -8,8 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,10 +120,12 @@ type DB struct {
 
 // Open opens a connection to the SQLite database with WAL mode, busy timeout, and foreign keys enabled.
 func Open(dbPath, secretKey string) (*DB, error) {
-	dir := filepath.Dir(dbPath)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0750); err != nil {
-			return nil, fmt.Errorf("failed to create database directory %s: %w", dir, err)
+	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") && !strings.Contains(dbPath, "mode=memory") {
+		dir := filepath.Dir(dbPath)
+		if dir != "" && dir != "." {
+			if err := CheckDirWritable(dir); err != nil {
+				return nil, err
+			}
 		}
 	}
 

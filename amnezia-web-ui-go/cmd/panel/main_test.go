@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -162,5 +164,43 @@ func TestRunLogLevels(t *testing.T) {
 				t.Fatalf("timed out for log level %s", lvl)
 			}
 		})
+	}
+}
+
+func TestRunUnwritableDataDirPreflight(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping directory permission test when executing as root (UID 0)")
+	}
+
+	tempDir := t.TempDir()
+	roDir := filepath.Join(tempDir, "ro_data")
+	if err := os.MkdirAll(roDir, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+	if err := os.Chmod(roDir, 0555); err != nil {
+		t.Fatalf("failed to chmod directory: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(roDir, 0755)
+	})
+
+	t.Setenv("DATA_DIR", roDir)
+	t.Setenv("DB_PATH", filepath.Join(roDir, "panel_ro.db"))
+	t.Setenv("PORT", "59124")
+	t.Setenv("SECRET_KEY", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := run(ctx)
+	if err == nil {
+		t.Fatalf("expected run() to fail immediately on unwritable DATA_DIR, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "is not writable by current user") {
+		t.Errorf("expected error to contain preflight failure message, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "sudo chown -R 1000:1000") {
+		t.Errorf("expected error to contain remediation instruction, got: %v", err)
 	}
 }

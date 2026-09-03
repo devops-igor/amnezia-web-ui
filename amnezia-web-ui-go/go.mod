@@ -1,12 +1,14 @@
 module github.com/devops-igor/amnezia-web-ui-go
 
-go 1.25.0
+go 1.26.0
+
+toolchain go1.26.6
 
 require (
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
 	github.com/pkg/sftp v1.13.7
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/sync v0.8.0
 	modernc.org/sqlite v1.34.5
 )
