@@ -23,7 +23,7 @@ lint:
 	PATH=$$PATH:$$HOME/go/bin:/usr/local/go/bin golangci-lint run ./...
 
 gosec:
-	PATH=$$PATH:$$HOME/go/bin:/usr/local/go/bin gosec ./...
+	PATH=$$PATH:$$HOME/go/bin:/usr/local/go/bin gosec -quiet ./...
 
 govulncheck:
 	-PATH=$$PATH:$$HOME/go/bin:/usr/local/go/bin govulncheck ./...
@@ -42,4 +42,7 @@ clean:
 check: fmt vet lint security test-race
 
 docker-build:
-	docker build -t amnezia-web-panel:latest .
+	docker build -t amnezia-web-panel:latest -f ../Dockerfile ..
+
+docker-run:
+	docker run --rm -p 5000:5000 --cap-add=NET_ADMIN --device=/dev/net/tun amnezia-web-panel:latest

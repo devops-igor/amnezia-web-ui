@@ -12,31 +12,49 @@
 services:
 
   # ---------------------------------------------------------------------------
-  # Amnezia Web Panel
+  # Amnezia Web Panel (Go rewrite with optional in-process VPN endpoint)
   # ---------------------------------------------------------------------------
   amnezia-panel:
     image: ${AMNEZIA_IMAGE:-ghcr.io/devops-igor/amnezia-web-ui:latest}
     container_name: amnezia-panel
-    # Expose panel port directly. Set APP_PORT= (empty) in .env when using
+    user: "1000:1000"
+    # Expose panel HTTP port directly. Set APP_PORT= (empty) in .env when using
     # BunkerWeb to skip direct port exposure — BunkerWeb routes traffic instead.
     # NOTE: Docker treats APP_PORT= as a random ephemeral host port (:5000),
     # not "no port". To fully block direct access, use firewall rules or rely
     # on BunkerWeb as the sole entry point.
     ports:
       - "${APP_PORT:-5000}:5000"
+      - "${VPN_LISTEN_PORT:-51820}:${VPN_LISTEN_PORT:-51820}/udp"
     restart: unless-stopped
-    user: "100:101"
+    # Host network requirements for AmneziaWG VPN subsystem:
+    # /dev/net/tun device mapping and NET_ADMIN capability are required for the
+    # in-process AmneziaWG VPN subsystem (when VPN_ENABLED=true).
+    # On TUN-less hosts (e.g. unprivileged containers or VPS without TUN/TAP support),
+    # operators running in management-only mode (VPN_ENABLED=false) can comment out
+    # both the 'devices' section and 'cap_add: [NET_ADMIN]'.
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp
+      - /var/run/amneziawg
     volumes:
       - ${DATA_DIR:-./data}:/app/data
     environment:
       - SECRET_KEY=${SECRET_KEY:?SECRET_KEY must be set in .env}
       - TRUSTED_PROXIES=${TRUSTED_PROXIES:-172.18.0.0/24}
       - DATA_DIR=/app/data
+      - VPN_ENABLED=${VPN_ENABLED:-false}
+      - VPN_LISTEN_PORT=${VPN_LISTEN_PORT:-51820}
+      - VPN_SUBNET=${VPN_SUBNET:-10.100.0.0/16}
+      - PORT=5000
     networks:
       - bw-net
     # NOTE: No depends_on for bunkerweb here. When running with --profile bunkerweb,
@@ -49,13 +67,11 @@ services:
         max-file: "3"
         max-size: 100m
     healthcheck:
-      # python socket.connect('localhost') fails inside read_only containers.
-      # Use pidof instead — lightweight and works in minimal Alpine images.
-      test: ["CMD-SHELL", "pidof python > /dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:5000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 20s
     labels:
       - bunkerweb.SERVER_NAME=${PANEL_DOMAIN:-localhost}
       - bunkerweb.USE_REVERSE_PROXY=yes
