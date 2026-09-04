@@ -158,8 +158,20 @@ func NewRouterWithOptions(opts Options) *chi.Mux {
 
 		r.Get("/change-password", h.ChangePasswordPageHandler)
 		r.Get("/my", h.MyConnectionsPageHandler)
-		r.Get("/api/my/connections", h.UserGetMyConnectionsHandler)
 
+		// Legacy route group: /api/my/connections/*
+		r.Route("/api/my/connections", func(r chi.Router) {
+			r.Use(middleware.RateLimit(apiLimiter))
+
+			r.Get("/", h.UserGetMyConnectionsHandler)
+			r.Post("/add", h.UserAddConnectionHandler)
+			r.Post("/{connection_id}/config", h.UserGetConnectionConfigHandler)
+			r.Post("/{connection_id}/kit", h.UserGetConnectionKitHandler)
+			r.Post("/{connection_id}/rename", h.UserRenameConnectionHandler)
+			r.Post("/{connection_id}/delete", h.UserDeleteConnectionHandler)
+		})
+
+		// Standard route group: /api/connections/*
 		r.Route("/api/connections", func(r chi.Router) {
 			r.Use(middleware.RateLimit(apiLimiter))
 

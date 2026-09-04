@@ -241,6 +241,13 @@ func (h *Handlers) UserAddConnectionHandler(w http.ResponseWriter, r *http.Reque
 	})
 }
 
+func getConnectionID(r *http.Request) string {
+	if id := chi.URLParam(r, "connection_id"); id != "" {
+		return id
+	}
+	return chi.URLParam(r, "id")
+}
+
 // UserGetConnectionConfigHandler returns configuration text for an owned connection.
 func (h *Handlers) UserGetConnectionConfigHandler(w http.ResponseWriter, r *http.Request) {
 	sess := h.GetSession(r)
@@ -249,7 +256,7 @@ func (h *Handlers) UserGetConnectionConfigHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	connectionID := chi.URLParam(r, "connection_id")
+	connectionID := getConnectionID(r)
 	if connectionID == "" {
 		h.JSONError(w, http.StatusBadRequest, "invalid_parameter", "connection_id is required")
 		return
@@ -300,7 +307,7 @@ func (h *Handlers) UserGetConnectionKitHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	connectionID := chi.URLParam(r, "connection_id")
+	connectionID := getConnectionID(r)
 	if connectionID == "" {
 		h.JSONError(w, http.StatusBadRequest, "invalid_parameter", "connection_id is required")
 		return
@@ -352,7 +359,7 @@ func (h *Handlers) UserRenameConnectionHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	connectionID := chi.URLParam(r, "connection_id")
+	connectionID := getConnectionID(r)
 	if connectionID == "" {
 		h.JSONError(w, http.StatusBadRequest, "invalid_parameter", "connection_id is required")
 		return
@@ -413,7 +420,7 @@ func (h *Handlers) UserDeleteConnectionHandler(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	connectionID := chi.URLParam(r, "connection_id")
+	connectionID := getConnectionID(r)
 	if connectionID == "" {
 		h.JSONError(w, http.StatusBadRequest, "invalid_parameter", "connection_id is required")
 		return

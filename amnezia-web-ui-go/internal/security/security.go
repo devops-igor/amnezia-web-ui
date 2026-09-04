@@ -24,6 +24,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/crypto/hkdf"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -217,19 +218,37 @@ func HashPassword(password string) (string, error) {
 	return string(hashed), nil
 }
 
-// CheckPasswordHash compares a plaintext password against a bcrypt hash.
+// CheckPasswordHash compares a plaintext password against a password hash (bcrypt or legacy PBKDF2).
 func CheckPasswordHash(password, hash string) bool {
-	bytes := []byte(password)
-	if err := bcrypt.CompareHashAndPassword([]byte(hash), bytes); err == nil {
+	if hash == "" {
+		return false
+	}
+
+	// Legacy PBKDF2 hashes: "salt$hex" (contains '$' and does not start with "$2")
+	// 100,000 iterations of PBKDF2-HMAC-SHA256 matching Python app/utils/helpers.py
+	if strings.Contains(hash, "$") && !strings.HasPrefix(hash, "$2") {
+		parts := strings.SplitN(hash, "$", 2)
+		if len(parts) == 2 {
+			salt := parts[0]
+			expectedHex := strings.ToLower(strings.TrimSpace(parts[1]))
+			derived := pbkdf2.Key([]byte(password), []byte(salt), 100000, 32, sha256.New)
+			derivedHex := hex.EncodeToString(derived)
+			if len(derivedHex) == len(expectedHex) && subtle.ConstantTimeCompare([]byte(derivedHex), []byte(expectedHex)) == 1 {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Bcrypt hashes:
+	// 1. Direct compare first (supports <=72 byte passwords and legacy >72 byte passwords truncated at 72 bytes)
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err == nil {
 		return true
 	}
 
-	if len(bytes) > 72 {
-		h := sha256.Sum256(bytes)
-		return bcrypt.CompareHashAndPassword([]byte(hash), h[:]) == nil
-	}
-
-	return false
+	// 2. SHA-256 pre-hashed compare (supports Go-hashed >72 byte passwords)
+	preHash := sha256.Sum256([]byte(password))
+	return bcrypt.CompareHashAndPassword([]byte(hash), preHash[:]) == nil
 }
 
 // StripSensitiveProtocolFields cleans sensitive credentials from protocol definitions.
