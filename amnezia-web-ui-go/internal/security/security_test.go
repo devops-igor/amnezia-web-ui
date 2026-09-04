@@ -158,19 +158,81 @@ func TestBcryptPasswordHashing(t *testing.T) {
 }
 
 func TestBcryptPythonCrossVerification(t *testing.T) {
-	// Python-generated hashes
+	// 1. Python-generated standard hash
 	pyHash := "$2b$12$u1MSQrJFIcgW/9euUst0POT./x1w8hmB.dX6t.ZP9ct/XvoTSPu6O"
 	pyPassword := "AdminPassword123!"
-
 	if !CheckPasswordHash(pyPassword, pyHash) {
 		t.Errorf("failed to verify Python bcrypt hash")
 	}
 
-	pyLongHash := "$2b$12$ylY2whlbnH4s6rxD.gFlm./j3NgIzqJdBxwvo7Y40Fg.eK9KWVIYu"
-	pyLongPassword := strings.Repeat("VeryLongPasswordExceeding72Bytes_", 4)
+	// 2. Python-generated long bcrypt hash with legacy truncation (pw[:72])
+	pyLegacyLongPassword := "VeryLongLegacyPasswordExceeding72BytesThreshold1234567890!ExtraCharactersHereToMakeItOver100BytesLong"
+	pyLegacyLongHash := "$2b$12$U.onRlfkHT42DKn.ijdQeu8lsjczfColDUJsEZGGlNN7v2ehDA8K."
+	if !CheckPasswordHash(pyLegacyLongPassword, pyLegacyLongHash) {
+		t.Errorf("failed to verify legacy Python >72-byte bcrypt hash")
+	}
+	if CheckPasswordHash("WrongPrefix_"+pyLegacyLongPassword, pyLegacyLongHash) {
+		t.Errorf("falsely verified wrong password against legacy Python >72-byte hash")
+	}
 
-	if !CheckPasswordHash(pyLongPassword, pyLongHash) {
-		t.Errorf("failed to verify Python long bcrypt hash with SHA-256 safeguard")
+	// 3. Python-generated SHA-256 pre-hashed vector (Go scheme)
+	pyPrehashedLongHash := "$2b$12$ylY2whlbnH4s6rxD.gFlm./j3NgIzqJdBxwvo7Y40Fg.eK9KWVIYu"
+	pyPrehashedLongPassword := strings.Repeat("VeryLongPasswordExceeding72Bytes_", 4)
+	if !CheckPasswordHash(pyPrehashedLongPassword, pyPrehashedLongHash) {
+		t.Errorf("failed to verify long bcrypt hash with SHA-256 pre-hash safeguard")
+	}
+	if CheckPasswordHash(pyPrehashedLongPassword+"wrong", pyPrehashedLongHash) {
+		t.Errorf("falsely verified modified long password with SHA-256 pre-hash safeguard")
+	}
+
+	// 4. Boundary cases: 72 bytes and 73 bytes
+	pw72 := "Exact72ByteStringForTestingBoundaryConditionInsideBcryptAuthentication12"
+	hash72 := "$2b$12$UtGhzn6.nPqkVoejIoN6me9sQx23Cualua3O0yOarRkGfmwj8jIra"
+	if !CheckPasswordHash(pw72, hash72) {
+		t.Errorf("failed to verify 72-byte boundary password")
+	}
+
+	pw73 := "Exact73ByteStringForTestingBoundaryConditionInsideBcryptAuthentication123"
+	hash73 := "$2b$12$243hlPtno60d7hsJ6GvJa.CE/eihko8jJ5EQRXajCORDM.SHo.sr6"
+	if !CheckPasswordHash(pw73, hash73) {
+		t.Errorf("failed to verify 73-byte boundary password")
+	}
+
+	// 5. Unicode
+	pwUni := "Пароль🛡️ОченьСекретный2026!"
+	hashUni := "$2b$12$lhVWw5qamo/UiIj3CLsDZujR0/dcVcZNr4kIaAS2/D8hMuO1xiqWO"
+	if !CheckPasswordHash(pwUni, hashUni) {
+		t.Errorf("failed to verify unicode password")
+	}
+}
+
+func TestPBKDF2LegacyPasswordVerification(t *testing.T) {
+	pw := "LegacyPBKDF2SecretPass2026!"
+	validHash := "legacy_salt_hex_12345$c1ed089f33c25696d2b3f46d0c7ff8deb82b8337bc6940da334c0c253a3777d9"
+
+	if !CheckPasswordHash(pw, validHash) {
+		t.Errorf("failed to verify valid PBKDF2 legacy hash")
+	}
+
+	if CheckPasswordHash("WrongPassword!", validHash) {
+		t.Errorf("falsely verified wrong password for PBKDF2 hash")
+	}
+
+	// Malformed hashes
+	if CheckPasswordHash(pw, "no_dollar_sign") {
+		t.Errorf("expected false for hash without dollar sign")
+	}
+
+	if CheckPasswordHash(pw, "salt$") {
+		t.Errorf("expected false for hash with empty hex digest")
+	}
+
+	if CheckPasswordHash(pw, "salt$not_a_valid_length_hex") {
+		t.Errorf("expected false for invalid digest length")
+	}
+
+	if CheckPasswordHash(pw, "") {
+		t.Errorf("expected false for empty hash")
 	}
 }
 

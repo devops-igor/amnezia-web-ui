@@ -11,6 +11,9 @@ test:
 test-race:
 	$(MAKE) -C amnezia-web-ui-go test-race
 
+test-e2e:
+	$(MAKE) -C amnezia-web-ui-go test-e2e
+
 lint:
 	$(MAKE) -C amnezia-web-ui-go lint
 
